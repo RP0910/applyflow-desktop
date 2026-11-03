@@ -111,7 +111,7 @@ export function ResumeTab({ wf, lib, settings }: { wf: Workflow; lib: LibraryCon
     return (
       <div className="stack">
         <ResumeStart lib={lib} compact onOpenForm={() => openWorkspace('library')} />
-        <p className="small muted">Manage employer names and dates in Profile & answers.</p>
+        <p className="small muted">Manage employer names and dates in Profile settings.</p>
       </div>
     );
   }

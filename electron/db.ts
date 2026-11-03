@@ -8,9 +8,10 @@
  * sorting, filtering and search.
  */
 import { DatabaseSync, type SQLInputValue } from 'node:sqlite';
-import type { ApplicationRecord, CareerProfile, JobSession, MasterResume } from '../src/types';
+import type { ApplicationRecord, CareerProfile, JobSession, MasterResume, SiteCredential } from '../src/types';
 import type { Contact, SearchHit, StoredDocument, StoredDocumentInput, UsageInput, UsageSummary } from '../src/platform/bridge';
 import { extractContacts, formatPhone, phoneDigits } from '../src/utils/contacts';
+import { withSyncedLocation } from '../src/utils/address';
 
 const SCHEMA_VERSION = 1;
 
@@ -65,6 +66,12 @@ export class Store {
       CREATE TABLE IF NOT EXISTS usage (
         id INTEGER PRIMARY KEY AUTOINCREMENT, job_key TEXT, application_id TEXT, task TEXT, model TEXT,
         input_tokens INTEGER, cache_read INTEGER, cache_write INTEGER, output_tokens INTEGER, at TEXT);
+      CREATE TABLE IF NOT EXISTS site_credentials (
+        host TEXT PRIMARY KEY,
+        url TEXT NOT NULL,
+        email TEXT NOT NULL,
+        password TEXT NOT NULL,
+        updated_at TEXT NOT NULL);
       CREATE VIRTUAL TABLE IF NOT EXISTS search USING fts5(
         application_id UNINDEXED, company, title, people, body,
         tokenize = 'unicode61 remove_diacritics 2');
@@ -161,9 +168,38 @@ export class Store {
     return r ? parse<CareerProfile>(r.data) : null;
   }
   saveProfile(p: CareerProfile): CareerProfile {
-    const next = { ...p, updatedAt: now() };
+    const next = { ...withSyncedLocation(p), updatedAt: now() };
     this.run("INSERT INTO profile(id, data) VALUES ('default', ?) ON CONFLICT(id) DO UPDATE SET data = excluded.data", JSON.stringify(next));
     return next;
+  }
+
+  // ---------------- site credentials (job-site logins) ----------------
+  listSiteCredentials(): SiteCredential[] {
+    return this.all('SELECT host, url, email, password, updated_at FROM site_credentials ORDER BY host').map((r) => ({
+      host: String(r.host),
+      url: String(r.url),
+      email: String(r.email),
+      password: String(r.password),
+      updatedAt: String(r.updated_at),
+    }));
+  }
+  getSiteCredential(host: string): SiteCredential | null {
+    const r = this.one('SELECT host, url, email, password, updated_at FROM site_credentials WHERE host = ?', host.toLowerCase());
+    return r
+      ? { host: String(r.host), url: String(r.url), email: String(r.email), password: String(r.password), updatedAt: String(r.updated_at) }
+      : null;
+  }
+  saveSiteCredential(c: SiteCredential): SiteCredential {
+    const next: SiteCredential = { ...c, host: c.host.toLowerCase(), updatedAt: now() };
+    this.run(
+      `INSERT INTO site_credentials(host, url, email, password, updated_at) VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(host) DO UPDATE SET url = excluded.url, email = excluded.email, password = excluded.password, updated_at = excluded.updated_at`,
+      next.host, next.url, next.email, next.password, next.updatedAt,
+    );
+    return next;
+  }
+  deleteSiteCredential(host: string): void {
+    this.run('DELETE FROM site_credentials WHERE host = ?', host.toLowerCase());
   }
 
   // ---------------- sessions ----------------

@@ -6,7 +6,7 @@
  * UI opened in a plain browser for design work) every caller falls back to in-memory or
  * IndexedDB behaviour, so the same React code runs everywhere.
  */
-import type { ApplicationRecord, CareerProfile, JobSession, MasterResume } from '@/types';
+import type { ApplicationRecord, CareerProfile, JobSession, MasterResume, SiteCredential } from '@/types';
 import type { ContentEvent, ContentResponseMap, PanelToContent } from '@/types/messages';
 
 /** Every IPC method the main process answers. Arguments and results are structured-clone safe. */
@@ -28,6 +28,11 @@ export interface BridgeMethods {
   // profile
   'profile.get': () => CareerProfile | null;
   'profile.save': (p: CareerProfile) => CareerProfile;
+  // job-site logins (email + password per employer host)
+  'siteCredentials.list': () => SiteCredential[];
+  'siteCredentials.get': (host: string) => SiteCredential | null;
+  'siteCredentials.save': (c: SiteCredential) => SiteCredential;
+  'siteCredentials.delete': (host: string) => void;
   // job sessions
   'sessions.get': (jobKey: string) => JobSession | null;
   'sessions.save': (s: JobSession) => JobSession;
@@ -92,7 +97,7 @@ export interface BridgeEvents {
   'app:navigate': { view: DesktopView; focus?: string | null; search?: boolean };
 }
 
-export type DesktopView = 'apply' | 'applications' | 'library' | 'profile' | 'studio' | 'settings' | 'privacy';
+export type DesktopView = 'apply' | 'applications' | 'analytics' | 'library' | 'profile' | 'answers' | 'studio' | 'settings' | 'privacy';
 
 export interface BrowserState {
   url: string;

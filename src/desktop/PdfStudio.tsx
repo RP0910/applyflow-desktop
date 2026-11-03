@@ -82,7 +82,7 @@ export function PdfStudio({ initial }: { initial: { json: string; title: string 
       const parsed = JSON.parse(json);
       if (parsed && typeof parsed === 'object' && 'skill_groups' in parsed && 'subtitle' in parsed) {
         const master = lib.resumes.find(r => r.isDefault) ?? lib.resumes[0];
-        if (!master) return {doc:null,errors:['Save candidate details in Profile & answers before opening Claude JSON.'],warnings:[]};
+        if (!master) return {doc:null,errors:['Save candidate details in Profile settings before opening Claude JSON.'],warnings:[]};
         const t = assembleCv(parsed as CvReply, master, lib.profile, {resume:null}, 'imported-claude-json');
         return readResumeDocument(toResumeDocument(t, {text:parsed.cover_letter}));
       }

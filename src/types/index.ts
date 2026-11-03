@@ -8,3 +8,4 @@ export * from './settings';
 export * from './session';
 export * from './messages';
 export * from './ats';
+export * from './credentials';

@@ -28,7 +28,7 @@ export function applyCompanyResearch(master: MasterResume, research: CompanyRese
   const experience = master.parsed.experience.map((e, i) => {
     const hit = byPeriod.get(i);
     const to = hit?.name.trim();
-    if (!to) return e;
+    if (!hit || !to) return e;
     const from = e.company.trim() || '(blank)';
     const hq = (hit.hq ?? '').trim();
     let next = e;

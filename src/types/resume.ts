@@ -157,7 +157,21 @@ export interface CareerProfile {
   fullName: string;
   email: string;
   phone: string;
+  /**
+   * Short location line for resumes (e.g. "Saint Petersburg, FL").
+   * Kept in sync from the structured address fields when those are set.
+   */
   location: string;
+  /** Street / Address Line 1 — filled into employer application forms. */
+  streetAddress: string;
+  /** Apartment, suite, unit (Address Line 2). */
+  addressLine2: string;
+  city: string;
+  /** State / province / region. */
+  state: string;
+  /** ZIP or postal code. */
+  postalCode: string;
+  country: string;
   headline: string;
   professionalSummary: string;
   verifiedSkills: string[];

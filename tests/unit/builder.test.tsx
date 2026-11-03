@@ -8,11 +8,12 @@ import { parseResumeText } from '@/services/resume/parser';
 import { yearsOfExperience } from '@/services/matching/experience';
 import { useLibrary } from '@/hooks/useLibrary';
 import { ResumeBuilder } from '@/components/ResumeBuilder';
+import { EMPTY_PROFILE } from '@/storage/repositories';
 
 const profile = {
-  fullName: 'Riley Chen', email: 'riley@example.com', phone: '(555) 010-2000', location: 'Denver, CO', headline: '', professionalSummary: '', verifiedSkills: [],
-  workAuthorizationNote: '', preferredTitles: [], preferredLocations: [], remotePreference: 'any' as const, salaryPreference: '', availability: '', portfolioLinks: [],
-  linkedinUrl: '', githubUrl: '', approvedAnswers: [], updatedAt: '',
+  ...EMPTY_PROFILE,
+  fullName: 'Riley Chen', email: 'riley@example.com', phone: '(555) 010-2000', location: 'Denver, CO',
+  city: 'Denver', state: 'CO', country: 'United States',
 };
 
 function form(): BuilderForm {

@@ -9,7 +9,8 @@ Everything is in **one SQLite database** in ApplyFlow's data folder — on Windo
 | Data | Table | Notes |
 |---|---|---|
 | Work history (form entries or imported resumes), verified facts | `resumes` | The original imported file (PDF/DOCX) is kept with it, so a better reader can re-read it later. Never uploaded anywhere. |
-| Career profile, saved answers | `profile` | |
+| Profile (contact, address, saved screening answers) | `profile` | |
+| Job-site logins | `site_credentials` | Passwords encrypted with OS protection |
 | In-progress work per job (extracted job, analysis, tailored documents, field proposals) | `sessions` | Lets a multi-step Dice application resume where it left off. |
 | Applications | `applications` | Stage, dates, notes, follow-ups, saved files. |
 | Every tailored resume and cover letter version, as JSON | `documents` | With the file path once saved, the model that wrote it and when it was sent. |
@@ -58,7 +59,7 @@ Use a key with a spend limit and delete it when you don't need it.
 - Invent employers, titles, dates, degrees, certifications, metrics or skills.
 - Guess answers to sponsorship, work authorization, clearance, criminal history, disability, veteran, demographic, salary, relocation, date-of-birth, legal-attestation, experience or unrecognized questions. It fills one of these only with an answer **you** gave — tapped in the panel, or saved earlier with "Remember answers" — and lists every such answer in the review before you submit. Legal attestations are never remembered.
 - Submit without your explicit confirmation (the **Submit application** button after the review), or click any control when the page doesn't match what it expects. Pressing Dice's **Next** between steps is automatic (you can turn that off); Dice's **Submit** never is.
-- Interact with CAPTCHAs, bot protection, sign-in, passwords or MFA.
+- Interact with CAPTCHAs, bot protection or MFA. Job-site email/password sign-in uses only credentials stored in Profile settings.
 
 ## The page helper in the built-in browser
 

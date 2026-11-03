@@ -3,6 +3,7 @@
  * Every proposal carries its source and a confidence so the user can see why.
  */
 import type { CareerProfile, CoverLetter, FieldProposal, FieldSemantic, FormFieldDescriptor, TailoredResume, ApprovedAnswer } from '@/types';
+import { formatLocationLine } from '@/utils/address';
 import { SENSITIVE_LABELS } from './sensitive';
 import { similarity, truncate } from '@/utils/text';
 
@@ -19,7 +20,12 @@ const SEMANTIC_RULES: { semantic: FieldSemantic; re: RegExp; controls?: FormFiel
   { semantic: 'github', re: /github/i, controls: ['text', 'email', 'tel', 'url', 'other'] },
   { semantic: 'portfolio', re: /portfolio|personal (?:site|website)/i, controls: ['text', 'email', 'tel', 'url', 'other'] },
   { semantic: 'website', re: /website|\burl\b|homepage/i, controls: ['text', 'email', 'tel', 'url', 'other'] },
-  { semantic: 'city', re: /^city\b/i },
+  // Line 2 before line 1 so "Address Line 2" is not classified as street.
+  { semantic: 'address_line2', re: /address\s*(line)?\s*2\b|apt\.?\s*#?|apartment|suite|unit\b|#\s*\w/i, controls: ['text', 'textarea', 'other'] },
+  { semantic: 'street', re: /address\s*(line)?\s*1\b|^street\b|street address|mailing address|home address|^address$/i, controls: ['text', 'textarea', 'other'] },
+  { semantic: 'city', re: /^city\b|town\/?city|municipality/i },
+  { semantic: 'state', re: /^(state|province|region)\b|state\/province|state or province/i, controls: ['select', 'combobox', 'text', 'other'] },
+  { semantic: 'postal_code', re: /postal|zip\s*code|zip\/postal|post\s*code|\bzip\b/i, controls: ['text', 'number', 'other'] },
   { semantic: 'country', re: /^country( of residence)?$|^country\b(?!.*(code|citizenship|born))/i, controls: ['select', 'combobox', 'text'] },
   { semantic: 'location', re: /current location|^location\b|city,? (?:and )?state|where are you (?:located|based)/i },
   { semantic: 'headline', re: /headline|current (?:job )?title|professional title/i },
@@ -29,7 +35,7 @@ const SEMANTIC_RULES: { semantic: FieldSemantic; re: RegExp; controls?: FormFiel
 
 /** Questions about someone else (a referrer, a manager, an emergency contact): never your own details. */
 const SOMEONE_ELSE = /\b(refer(?:r(?:al|er|ed)|ence)s?|referred by|emergency|manager|supervisor|recruiter|hiring|contact person|parent|guardian|spouse|partner|friend|employee who|who referred)\b/i;
-const CONTACT_SEMANTICS = new Set<FieldSemantic>(['first_name', 'last_name', 'full_name', 'email', 'phone', 'linkedin', 'github', 'portfolio', 'website', 'location', 'city', 'country']);
+const CONTACT_SEMANTICS = new Set<FieldSemantic>(['first_name', 'last_name', 'full_name', 'email', 'phone', 'linkedin', 'github', 'portfolio', 'website', 'location', 'street', 'address_line2', 'city', 'state', 'postal_code', 'country']);
 
 export function semanticOf(f: Pick<FormFieldDescriptor, 'label' | 'name' | 'control'>): FieldSemantic {
   const s = semanticOfRaw(f);
@@ -73,6 +79,33 @@ export function countryOf(location: string): string {
   if (/(,|\s)(us|usa|u\.s\.a?\.?|united states( of america)?)\s*$/i.test(l) || /,\s*[A-Z]{2}(\s+\d{5}(-\d{4})?)?\s*$/.test(l)) return 'United States';
   const last = l.split(',').pop()!.trim();
   return /^[A-Za-z][A-Za-z .'-]{2,}$/.test(last) && !/\d/.test(last) && last.length > 3 ? last : '';
+}
+
+function profileCountry(p: CareerProfile): string {
+  const c = p.country.trim();
+  if (c) {
+    if (/^(us|usa|u\.s\.a?\.?)$/i.test(c)) return 'United States';
+    return c;
+  }
+  return countryOf(formatLocationLine(p) || p.location);
+}
+
+function profileCity(p: CareerProfile, resumeLocation: string): string {
+  if (p.city.trim()) return p.city.trim();
+  return (p.location || resumeLocation || '').split(',')[0]?.trim() ?? '';
+}
+
+function profileState(p: CareerProfile): string {
+  if (p.state.trim()) return p.state.trim();
+  const loc = p.location.trim();
+  const m = loc.match(/,\s*([A-Z]{2})\b/) || loc.match(/,\s*([A-Za-z][A-Za-z .'-]+?)(?:\s+\d{5}|,|$)/);
+  return m?.[1]?.trim() ?? '';
+}
+
+function profilePostal(p: CareerProfile): string {
+  if (p.postalCode.trim()) return p.postalCode.trim();
+  const m = (p.location || '').match(/\b(\d{5}(?:-\d{4})?)\b/);
+  return m?.[1] ?? '';
 }
 
 const same = (a: string, b: string) => {
@@ -249,9 +282,17 @@ export function proposeFieldValues(fields: FormFieldDescriptor[], ctx: MapperCon
       case 'full_name': return set(fullName, 'Profile → Name');
       case 'email': return set(p.email || r?.contact.email || '', 'Profile → Email');
       case 'phone': return set(p.phone || r?.contact.phone || '', 'Profile → Phone');
-      case 'city': return set((p.location || r?.contact.location || '').split(',')[0]?.trim() ?? '', 'Profile → Location', 'medium');
-      case 'location': return set(p.location || r?.contact.location || '', 'Profile → Location');
-      case 'country': return set(countryOf(p.location || r?.contact.location || ''), 'Profile → Location (country)', 'medium');
+      case 'street': return set(p.streetAddress || '', 'Profile → Street address');
+      case 'address_line2': return set(p.addressLine2 || '', 'Profile → Address line 2', p.addressLine2 ? 'high' : 'medium');
+      case 'city': return set(profileCity(p, r?.contact.location || ''), 'Profile → City');
+      case 'state': return set(profileState(p), 'Profile → State', 'medium');
+      case 'postal_code': return set(profilePostal(p), 'Profile → Postal code');
+      case 'location': {
+        // City/region for “Current location” pickers — never the street (that’s Address Line 1).
+        const line = p.location.trim() || formatLocationLine(p) || r?.contact.location || '';
+        return set(line, 'Profile → Location');
+      }
+      case 'country': return set(profileCountry(p), 'Profile → Country', 'medium');
       case 'linkedin': return set(linkedin, 'Profile → LinkedIn');
       case 'github': return set(github, 'Profile → GitHub');
       case 'portfolio': return set(portfolio, 'Profile → Portfolio');

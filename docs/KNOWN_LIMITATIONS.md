@@ -77,7 +77,7 @@
 - Jobright's page data is read when it belongs to the job on screen. Jobright's live pages don't include the employer's address, so ApplyFlow reaches the employer through Jobright's own Apply button (2.2.1).
 - Jobright's "Customize Your Resume" offer is always answered with "Apply Without Customizing": ApplyFlow writes the tailored resume itself. Other Jobright dialogs ApplyFlow doesn't recognise stop the run after two tries, with instructions.
 - The 2.2.1 Jobright fixes were made from the live public pages and your screenshots. A signed-in run on jobright.ai itself has not been done by ApplyFlow's developers: no account was used.
-- Workday, iCIMS, Taleo and other account-based portals: best effort only. You sign in or create the account; ApplyFlow fills what it can recognise on each step and never presses Submit there.
+- Workday, iCIMS, Taleo and other account-based portals: best effort. ApplyFlow prefers “Autofill with Resume”, signs in with stored job-site credentials (Profile settings), fills recognised fields including address, and never presses Submit there. MFA and CAPTCHAs still need you.
 - LinkedIn, Indeed, Glassdoor and ZipRecruiter applications are never filled.
 - Education fields on employer forms (school / degree pickers) are left for you: they are optional on most forms and use search lists that differ per employer.
 - One job at a time. There is no queue of applications.

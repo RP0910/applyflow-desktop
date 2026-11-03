@@ -9,7 +9,8 @@ import { installFileChooserInterceptor } from '@/content/fileChooserInterceptor'
 import { ensureApplicationOpen, INITIAL_RUN, runSteps, type ApplyRunState, type RunnerIO } from '@/services/workflow/applyRunner';
 import { DEFAULT_SETTINGS, type CareerProfile, type JobPosting, type JobSession } from '@/types';
 import type { PanelToContent } from '@/types/messages';
-import { EMPTY_PROFILE } from '@/storage/repositories';
+import { EMPTY_PROFILE, ensureSiteCredential } from '@/storage/repositories';
+import { DEFAULT_SITE_PASSWORD } from '@/types';
 import { analyzeJobLocally } from '@/services/analysis/localAnalyzer';
 import { classifySkills } from '@/services/matching/evidence';
 import { tailorLocally } from '@/services/tailoring/localTailor';
@@ -26,6 +27,13 @@ const PROFILE: CareerProfile = {
   email: 'grant.howard@example.com',
   phone: '(727) 555-0148',
   location: 'St. Petersburg, FL 33702, US',
+  // Structured address used for Workday-style street/city/state/ZIP fields; location line stays
+  // the short city/region form expected by Lever/Greenhouse/Ashby location pickers.
+  streetAddress: '7109 MEADOWLAWN DR N',
+  city: 'St. Petersburg',
+  state: 'FL',
+  postalCode: '33702',
+  country: 'United States',
   linkedinUrl: 'https://www.linkedin.com/in/granthoward',
 };
 const RESUME = 'Grant-Howard-Resume-v1.pdf';
@@ -55,6 +63,7 @@ async function start(url: string, opts: { cover?: boolean } = {}) {
     },
     settings: { ...DEFAULT_SETTINGS },
     profile: PROFILE,
+    ensureSiteCredential: (url, email) => ensureSiteCredential(url, email),
     payload: async (kind) => ({ name: kind === 'resume' ? RESUME : LETTER, mime: 'application/pdf', base64: btoa('%PDF-1.7') }),
     fileName: (kind) => (kind === 'resume' ? RESUME : LETTER),
     sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
@@ -273,11 +282,14 @@ describe('stops that need you', () => {
     expect((document.querySelector('[name=firstName]') as HTMLInputElement).value).toBe('');
   });
 
-  it('Workday: presses Apply → Apply Manually, then stops at the sign-in page', async () => {
+  it('Workday: presses Apply → Autofill with Resume, then signs in with stored credentials', async () => {
     const h = await start('https://jobright.ai/jobs/info/workday-1');
+    // Mock stays on the sign-in page after submit — runner stops after filling credentials once.
     expect(await ensureApplicationOpen(h.io)).toBe('stopped');
-    expect(h.state()).toMatchObject({ status: 'attention', label: 'Sign in to Workday' });
     expect(document.querySelector('[data-automation-id="signInContent"]')).not.toBeNull();
+    expect((document.getElementById('em') as HTMLInputElement).value).toBe(PROFILE.email);
+    expect((document.getElementById('pw') as HTMLInputElement).value).toBe(DEFAULT_SITE_PASSWORD);
+    expect(h.state().label).toMatch(/Sign in to Workday/);
   });
 
   it('employer sites: Greenhouse, Lever, Ashby get full support; others best effort and never Submit', () => {

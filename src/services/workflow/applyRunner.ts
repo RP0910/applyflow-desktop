@@ -9,10 +9,12 @@
  * "Submit application" button, after the review summary), with a one-time token.
  * Independent of React and chrome.* so it can be tested against the content controller.
  */
-import type { CareerProfile, FieldProposal, FieldSemantic, FillInstruction, JobSession, PageBlocker, PageState, Settings } from '@/types';
+import type { CareerProfile, FieldProposal, FieldSemantic, FillInstruction, JobSession, PageBlocker, PageState, Settings, SiteCredential } from '@/types';
 import type { ContentResponseMap, FilePayload, PanelToContent, ScanResponse } from '@/types/messages';
-import { proposeFieldValues } from '@/services/forms/mapper';
+import { markAnswerUsed, proposeFieldValues, rememberAnswer } from '@/services/forms/mapper';
 import { formKeyFor } from '@/services/platforms/registry';
+import { nowIso } from '@/utils/dates';
+import { newId } from '@/utils/id';
 
 export type StageKey = 'documents' | 'open' | 'attach' | 'questions' | 'review';
 export type StageState = 'todo' | 'active' | 'done' | 'skipped' | 'error';
@@ -82,6 +84,10 @@ export interface RunnerIO {
   saveSession: (s: JobSession) => Promise<void>;
   settings: Settings;
   profile: CareerProfile;
+  /** Persist profile updates (screening answers reused across applications). */
+  saveProfile?: (p: CareerProfile) => Promise<CareerProfile>;
+  /** Load or create stored login for the current employer host. */
+  ensureSiteCredential?: (url: string, email: string) => Promise<SiteCredential | null>;
   payload: (kind: 'resume' | 'cover_letter') => Promise<FilePayload | null>;
   fileName: (kind: 'resume' | 'cover_letter') => string | null;
   sleep: (ms: number) => Promise<void>;
@@ -153,6 +159,8 @@ export async function ensureApplicationOpen(io: RunnerIO): Promise<'open' | 'ext
   const settleMs = Math.min(2500, poll * 6);
   let direct = false;
   let lastPressed = '';
+  /** URL where ApplyFlow already submitted stored credentials — don't loop forever on a failed login. */
+  let signedInAt = '';
   /** Presses on Jobright that led nowhere, by label: the same one twice means ApplyFlow is going in circles. */
   const idle = new Map<string, number>();
   for (let hop = 0; hop < (multiHop ? 6 : 1); hop++) {
@@ -186,7 +194,20 @@ export async function ensureApplicationOpen(io: RunnerIO): Promise<'open' | 'ext
       const s = await safe(io.send({ type: 'AF_GET_PAGE_STATE' }));
       if (!s) continue; // the page is loading
       st = s;
-      if (s.loginRequired) return attention(io, `${siteOf(s)} wants you to sign in. Sign in on the page, then press Continue.`, `Sign in to ${siteOf(s)}`);
+      if (s.loginRequired) {
+        if (signedInAt === s.url) {
+          return attention(io, `${siteOf(s)} still wants you to sign in. Check the password under Profile settings → Job site logins, then press Continue.`, `Sign in to ${siteOf(s)}`);
+        }
+        const signed = await trySignIn(io, s);
+        if (signed === 'signed') {
+          signedInAt = s.url;
+          movedAt = Date.now();
+          lastUrl = s.url;
+          continue;
+        }
+        if (signed === 'stopped') return 'stopped';
+        return attention(io, `${siteOf(s)} wants you to sign in. Sign in on the page, then press Continue.`, `Sign in to ${siteOf(s)}`);
+      }
       if (s.captchaDetected) return attention(io, `${siteOf(s)} is showing a CAPTCHA. Complete it on the page, then press Continue.`, 'Complete the CAPTCHA');
       if (s.blocker) return stopFor(io, s.blocker);
       if (s.hasApplicationForm) return formOpened(io, s);
@@ -218,7 +239,7 @@ export async function ensureApplicationOpen(io: RunnerIO): Promise<'open' | 'ext
         );
       }
     }
-    // Same address: go on only if the page offered a new step (e.g. Workday's "Apply" → "Apply Manually").
+    // Same address: go on only if the page offered a new step (e.g. Workday's "Apply" → "Autofill with Resume").
     if (!movedAt && !direct && st?.site !== 'jobright') {
       if (open.message === lastPressed) break;
       lastPressed = open.message;
@@ -226,6 +247,23 @@ export async function ensureApplicationOpen(io: RunnerIO): Promise<'open' | 'ext
   }
   stage(io, 'open', 'error');
   return attention(io, st?.site === 'dice' || !multiHop ? 'Dice didn’t open its application form. Click Dice’s Apply button, then press Continue.' : `ApplyFlow couldn’t reach the application form on ${siteOf(st)}. Open it on the page (its Apply button), then press Continue.`);
+}
+
+/** Sign in with stored job-site credentials (profile email + saved/default password). */
+async function trySignIn(io: RunnerIO, s: PageState): Promise<'signed' | 'stopped' | 'manual'> {
+  const email = io.profile.email.trim();
+  if (!email || !io.ensureSiteCredential) return 'manual';
+  patch(io, { label: `Signing in to ${siteOf(s)}…` });
+  const cred = await io.ensureSiteCredential(s.url, email);
+  if (!cred?.password) {
+    return attention(io, `Add a password for ${siteOf(s)} under Profile → Job site logins, then press Continue.`, `Sign in to ${siteOf(s)}`) as 'stopped';
+  }
+  const res = await safe(io.send({ type: 'AF_SIGN_IN', email: cred.email || email, password: cred.password }));
+  if (!res?.ok || !res.submitted) {
+    return attention(io, res?.message ?? `${siteOf(s)} wants you to sign in. Sign in on the page, then press Continue.`, `Sign in to ${siteOf(s)}`) as 'stopped';
+  }
+  await io.sleep(Math.min(2000, (io.pollMs ?? 400) * 5));
+  return 'signed';
 }
 
 /** Newer scans win, except that a field ApplyFlow or the user answered stays recorded as answered (a rescan sees it as "already filled"). */
@@ -251,7 +289,19 @@ export async function processStep(io: RunnerIO): Promise<'ready' | 'next' | 'mov
     return 'stopped';
   }
   if (scan.captchaDetected) return attention(io, `${site} is showing a CAPTCHA. Complete it on the page, then press Continue.`, 'Complete the CAPTCHA');
-  if (scan.loginRequired) return attention(io, `${site} wants you to sign in. Sign in on the page, then press Continue.`, `Sign in to ${site}`);
+  if (scan.loginRequired) {
+    const page = await safe(io.send({ type: 'AF_GET_PAGE_STATE' }));
+    if (page) {
+      const signed = await trySignIn(io, page);
+      if (signed === 'signed') {
+        scan = (await safe(io.send({ type: 'AF_SCAN_FIELDS' }))) ?? scan;
+        if (scan.loginRequired) return attention(io, `${site} still wants you to sign in. Check the password under Profile → Job site logins, then press Continue.`, `Sign in to ${site}`);
+      } else if (signed === 'stopped') return 'stopped';
+      else return attention(io, `${site} wants you to sign in. Sign in on the page, then press Continue.`, `Sign in to ${site}`);
+    } else {
+      return attention(io, `${site} wants you to sign in. Sign in on the page, then press Continue.`, `Sign in to ${site}`);
+    }
+  }
   if (!scan.formFound) return attention(io, scan.error ?? 'No application form is visible.');
   if (!scan.ok) return attention(io, scan.error ?? 'Dice changed this page layout, so I could not safely identify the application fields.');
   const here = stepKey(scan.pageUrl, scan.step);
@@ -350,7 +400,12 @@ export async function processStep(io: RunnerIO): Promise<'ready' | 'next' | 'mov
     const f = scan.fields.find((x) => x.fieldId === p.fieldId);
     const correcting = Boolean(f?.currentValue && ctx.overwrite?.includes(p.semantic));
     if (p.action === 'fill' && p.proposedValue && (!f?.currentValue || correcting)) {
-      fills.push({ fieldId: p.fieldId, kind: 'value', value: p.proposedValue, suggest: p.semantic === 'location' || p.semantic === 'city' ? true : undefined });
+      fills.push({
+        fieldId: p.fieldId,
+        kind: 'value',
+        value: p.proposedValue,
+        suggest: p.semantic === 'location' || p.semantic === 'city' || p.semantic === 'state' || p.semantic === 'country' ? true : undefined,
+      });
     }
   }
   if (fills.length) {
@@ -363,6 +418,23 @@ export async function processStep(io: RunnerIO): Promise<'ready' | 'next' | 'mov
   for (const p of proposals.filter((x) => x.action === 'answer')) {
     const r = await safe(io.send({ type: 'AF_ANSWER_FIELD', fieldId: p.fieldId, value: p.proposedValue }));
     proposals = proposals.map((x) => (x.fieldId === p.fieldId ? { ...x, status: r?.ok ? 'filled' : 'failed', error: r?.ok ? undefined : r?.error } : x));
+  }
+  // Persist reused screening answers (usage stats) so similar questions rank better next time.
+  if (io.saveProfile) {
+    const answered = proposals.filter((p) => p.action === 'answer' && p.status === 'filled' && p.proposedValue.trim() && p.sensitive !== 'legal_consent');
+    if (answered.length) {
+      const now = nowIso();
+      let answers = io.profile.approvedAnswers;
+      for (const p of answered) {
+        const category = p.sensitive ?? 'general';
+        answers = markAnswerUsed(answers, p.proposedValue, category, now);
+        // Also upsert by question label so rephrased matches stay linked to this answer.
+        if (p.label.trim()) {
+          answers = rememberAnswer(answers, { category, questionPattern: p.label.trim().slice(0, 160), answer: p.proposedValue.trim(), lastUsedAt: now, useCount: 1 }, () => newId('ans'), now);
+        }
+      }
+      await io.saveProfile({ ...io.profile, approvedAnswers: answers });
+    }
   }
   if (fills.length || proposals.some((p) => p.action === 'answer')) scan = (await safe(io.send({ type: 'AF_SCAN_FIELDS' }))) ?? scan;
 

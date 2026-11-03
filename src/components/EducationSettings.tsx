@@ -5,7 +5,7 @@ import type { BuilderEducation } from '@/types';
 import { Icon } from './Icon';
 
 /**
- * Profile & answers → Education. Edits the university / school entries of the candidate setup (the default
+ * Profile settings → Education. Edits the university / school entries of the candidate setup (the default
  * master resume). Education is never written by Claude: these entries are placed on every tailored
  * resume exactly as typed.
  */
@@ -47,7 +47,7 @@ export function EducationSettings({ lib }: { lib: LibraryController }) {
         const n = saved.parsed.education.length;
         setStatus({ tone: 'ok', text: n ? `Education saved (${n} ${n === 1 ? 'entry' : 'entries'}). It appears on every resume generated from now on.` : 'Education removed from your resume.' });
       } else {
-        setStatus({ tone: 'warn', text: 'Could not save your education. Check Profile & answers → Resume generation setup.' });
+        setStatus({ tone: 'warn', text: 'Could not save your education. Check Profile settings → Resume generation setup.' });
       }
     } catch (e) {
       setStatus({ tone: 'warn', text: e instanceof Error ? e.message : 'Could not save.' });

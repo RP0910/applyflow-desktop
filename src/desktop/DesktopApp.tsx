@@ -11,6 +11,7 @@ import { useSettings } from '@/hooks/useSettings';
 import { useLibrary } from '@/hooks/useLibrary';
 import { CandidateSetup } from '@/components/CandidateSetup';
 import { ProfileForm } from '@/components/ProfileForm';
+import { ScreeningAnswersForm } from '@/components/ScreeningAnswersForm';
 import { SettingsForm } from '@/components/SettingsForm';
 import { EducationSettings } from '@/components/EducationSettings';
 import { WarningBanner } from '@/components/WarningBanner';
@@ -18,28 +19,32 @@ import { BrandLogo, Icon, type IconName } from '@/components/Icon';
 import { APP_VERSION } from '@/version';
 import { BrowserPane } from './BrowserPane';
 import { ApplicationsView } from './ApplicationsView';
+import { AnalyticsView } from './AnalyticsView';
 import { PdfStudio } from './PdfStudio';
 
 const NAV: { id: DesktopView; label: string; icon: IconName; hint?: string }[] = [
   { id: 'apply', label: 'Apply', icon: 'target', hint: 'Ctrl+1' },
   { id: 'applications', label: 'Applications', icon: 'briefcase', hint: 'Ctrl+2' },
+  { id: 'analytics', label: 'Analytics', icon: 'history', hint: 'Ctrl+3' },
   { id: 'studio', label: 'PDF Studio', icon: 'palette', hint: 'Ctrl+4' },
-  { id: 'profile', label: 'Profile & answers', icon: 'user' },
+  { id: 'profile', label: 'Profile settings', icon: 'user' },
+  { id: 'answers', label: 'Screening Q&A', icon: 'note' },
   { id: 'settings', label: 'Settings', icon: 'gear' },
   { id: 'privacy', label: 'Privacy & data', icon: 'shield' },
 ];
 
 const LEDES: Partial<Record<DesktopView, string>> = {
   applications: 'Search by company, recruiter, phone number, email, job title or skill — see exactly which resume you sent.',
-  library: 'Employer details are managed in Profile & answers.',
+  analytics: 'Your local activity dashboard — applications, pipeline, weekly volume, companies and Claude usage. Nothing is sent anywhere.',
+  library: 'Employer details are managed in Profile settings.',
   studio: 'Turn resume JSON into a PDF or Word file with ApplyFlow’s own renderer. Edit any saved resume and re-render it — no AI, no tokens.',
-  profile: 'Contact details and preferences used to fill forms, answers you’ve approved for reuse, your employers and your education.',
+  profile: 'Contact details, full address and job-site logins used to fill applications. Employers and education are below.',
+  answers: 'View and edit every screening question and answer saved in your local database. Similar questions are filled automatically on later applications.',
   settings: 'Claude connection, documents, privacy and where files are saved.',
   privacy: 'Exactly what ApplyFlow stores, what it sends, and what it refuses to do.',
 };
 
-const SECTION_TO_VIEW: Record<string, DesktopView> = { library: 'profile', profile: 'profile', history: 'applications', settings: 'settings', privacy: 'privacy' };
-
+const SECTION_TO_VIEW: Record<string, DesktopView> = { library: 'profile', profile: 'profile', answers: 'answers', history: 'applications', analytics: 'analytics', settings: 'settings', privacy: 'privacy' };
 export function DesktopApp() {
   const [view, setView] = useState<DesktopView>('apply');
   const [focus, setFocus] = useState<string | null>(null);
@@ -103,11 +108,11 @@ export function DesktopApp() {
       </div>
 
       {view !== 'apply' ? (
-        <main className={`ws-main desktop-main${view === 'applications' || view === 'studio' ? ' desktop-main-wide' : ''}`}>
+        <main className={`ws-main desktop-main${view === 'applications' || view === 'studio' || view === 'analytics' ? ' desktop-main-wide' : ''}`}>
           <h1>{current.label}</h1>
           {LEDES[view] ? <p className="lede">{LEDES[view]}</p> : null}
           {view === 'applications' ? <ApplicationsView focus={focus} searchSignal={searchSignal} onOpenStudio={openStudio} /> : null}
-          
+          {view === 'analytics' ? <AnalyticsView onOpenApplications={() => setView('applications')} /> : null}
           {view === 'studio' ? <PdfStudio initial={studioDoc} /> : null}
           {view === 'profile' ? (
             <>
@@ -115,6 +120,12 @@ export function DesktopApp() {
               <ProfileForm profile={lib.profile} onSave={(p) => void lib.updateProfile(p)} />
               <CandidateSetup lib={lib} />
               <EducationSettings lib={lib} />
+            </>
+          ) : null}
+          {view === 'answers' ? (
+            <>
+              {lib.message ? <div style={{ marginBottom: 12 }}><WarningBanner tone={lib.message.tone} live>{lib.message.text}</WarningBanner></div> : null}
+              <ScreeningAnswersForm profile={lib.profile} onSave={(p) => void lib.updateProfile(p)} />
             </>
           ) : null}
           {view === 'settings' ? (
@@ -172,10 +183,10 @@ function Privacy() {
       <section className="card stack-sm">
         <h2 className="section-title">What stays on this computer</h2>
         <ul className="bullets">
-          <li>Everything — work history, verified facts, profile, every tailored resume and cover letter (with the JSON it was rendered from), applications, contacts, notes and token usage — is in one SQLite database{info ? <>: <span className="wrap-anywhere strong">{info.dbPath}</span></> : null}.</li>
-          <li>Your Claude API key is encrypted with the operating system’s protection (Windows DPAPI) before it’s stored.</li>
+          <li>Everything — work history, verified facts, profile, screening answers, job-site logins, every tailored resume and cover letter (with the JSON it was rendered from), applications, contacts, notes and token usage — is in one SQLite database{info ? <>: <span className="wrap-anywhere strong">{info.dbPath}</span></> : null}.</li>
+          <li>Your Claude API key and job-site passwords are encrypted with the operating system’s protection (Windows DPAPI) before they’re stored.</li>
           <li>Documents are saved in your ApplyFlow folder (Settings → Saved documents). Deleting an application doesn’t delete its files.</li>
-          <li>Your Dice sign-in lives only in ApplyFlow’s built-in browser profile, separate from Chrome or Edge.</li>
+          <li>Your Dice / Jobright browser session lives only in ApplyFlow’s built-in browser profile, separate from Chrome or Edge.</li>
         </ul>
         <div className="row">
           {info ? (
@@ -204,7 +215,7 @@ function Privacy() {
           <li>Change the employer names and dates you entered. AI-generated descriptions and achievements are drafts you should verify before use.</li>
           <li>Answer sponsorship, work authorization, clearance, criminal history, disability, veteran, demographic, salary, relocation or unclear experience questions.</li>
           <li>Submit an application without your explicit confirmation, or click anything when Dice’s page looks unfamiliar.</li>
-          <li>Touch CAPTCHAs, sign-in, MFA or other site security.</li>
+          <li>Touch CAPTCHAs, MFA or other multi-factor challenges. Email/password sign-in on job sites uses only credentials you stored in Profile settings.</li>
           <li>Collect analytics or tracking data.</li>
         </ul>
       </section>

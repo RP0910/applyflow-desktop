@@ -25,6 +25,13 @@ describe('profile → form values', () => {
     expect(semanticOf({ label: 'Country', name: 'country', control: 'combobox' })).toBe('country');
     expect(semanticOf({ label: 'Country of citizenship', name: '', control: 'select' })).not.toBe('country');
   });
+  it('maps Workday-style address labels', () => {
+    expect(semanticOf({ label: 'Address Line 1', name: '', control: 'text' })).toBe('street');
+    expect(semanticOf({ label: 'Address Line 2', name: '', control: 'text' })).toBe('address_line2');
+    expect(semanticOf({ label: 'City', name: '', control: 'text' })).toBe('city');
+    expect(semanticOf({ label: 'State', name: '', control: 'select' })).toBe('state');
+    expect(semanticOf({ label: 'Postal Code', name: '', control: 'text' })).toBe('postal_code');
+  });
 });
 
 describe('Jobright addresses', () => {

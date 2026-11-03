@@ -59,7 +59,11 @@ export const genericAdapter: JobSiteAdapter = {
   extractJob: notAJobPage('the employer site'),
   jobKeyForUrl: () => null,
   findApplyControl: (doc) => {
-    const el = findApplyButton(doc, /^(apply|apply now|apply for this (job|position|role)|apply to this job|apply manually|start (your )?application|i(['’]m| am) interested)$/i);
+    // Prefer Workday-style "Autofill with Resume" when the Start Your Application dialog offers it.
+    const autofill = findApplyButton(doc, /^(autofill with resume|auto-?fill with resume|apply with resume)$/i);
+    const el =
+      autofill ??
+      findApplyButton(doc, /^(apply|apply now|apply for this (job|position|role)|apply to this job|apply manually|start (your )?application|i(['’]m| am) interested)$/i);
     return el ? { element: el, label: visibleText(el, 60) || 'Apply', external: false, href: el.getAttribute('href') } : null;
   },
   findApplicationRoot: root,

@@ -17,6 +17,7 @@ import { DiceInput, type TrustedRequest } from './diceInput';
 import { backTargetIndex, DICE_SEARCH_HOME, isDiceApplicationUrl, isDiceSearchUrl, searchIndex } from '../src/services/platforms/dice/navigation';
 import type { BridgeMethod, BrowserState } from '../src/platform/bridge';
 import type { PanelToContent } from '../src/types/messages';
+import type { SiteCredential } from '../src/types';
 
 const APP_NAME = 'ApplyFlow';
 const DICE_HOME = 'https://www.dice.com/';
@@ -360,6 +361,24 @@ function createDiceView(): WebContentsView {
 // ---------------- IPC ----------------
 type Handler = (...args: never[]) => unknown;
 
+/** Encrypt job-site passwords at rest (same OS protection as the Claude API key). */
+function encryptSiteCred(c: SiteCredential): SiteCredential {
+  const ok = safeStorage.isEncryptionAvailable();
+  const enc = ok ? safeStorage.encryptString(c.password).toString('base64') : Buffer.from(c.password, 'utf8').toString('base64');
+  return { ...c, password: `enc:${ok ? '1' : '0'}:${enc}` };
+}
+
+function decryptSiteCred(c: SiteCredential): SiteCredential {
+  const m = /^enc:([01]):(.+)$/.exec(c.password);
+  if (!m) return c; // plain (tests / older rows)
+  try {
+    const plain = m[1] === '1' ? safeStorage.decryptString(Buffer.from(m[2]!, 'base64')) : Buffer.from(m[2]!, 'base64').toString('utf8');
+    return { ...c, password: plain };
+  } catch {
+    return c;
+  }
+}
+
 function registerIpc(): void {
   const h: Partial<Record<BridgeMethod, Handler>> = {
     'kv.get': (k: string) => store.kvGet(k),
@@ -396,6 +415,13 @@ function registerIpc(): void {
     'resumes.delete': (id: string) => store.deleteResume(id),
     'profile.get': () => store.getProfile(),
     'profile.save': (p: Parameters<Store['saveProfile']>[0]) => store.saveProfile(p),
+    'siteCredentials.list': () => store.listSiteCredentials().map(decryptSiteCred),
+    'siteCredentials.get': (host: string) => {
+      const c = store.getSiteCredential(host);
+      return c ? decryptSiteCred(c) : null;
+    },
+    'siteCredentials.save': (c: SiteCredential) => decryptSiteCred(store.saveSiteCredential(encryptSiteCred(c))),
+    'siteCredentials.delete': (host: string) => store.deleteSiteCredential(host),
     'sessions.get': (k: string) => store.getSession(k),
     'sessions.save': (s: Parameters<Store['saveSession']>[0]) => store.saveSession(s),
     'sessions.latest': (ms: number) => store.latestSession(ms),

@@ -414,7 +414,7 @@ export async function runDocuments(
   if (!session.analysis) throw new Error('Analyze the job first.');
   if (!useClaude(deps)) throw new Error('Add a Claude API key and select the Claude engine in Settings. AI generation cannot use the local rewrite engine.');
   const baseFacts = compactFacts(master, profile);
-  if (!Object.keys(baseFacts.jobIds).length) throw new Error('Add employer names and dates in Profile & answers.');
+  if (!Object.keys(baseFacts.jobIds).length) throw new Error('Add employer names and dates in Profile settings.');
   // Token savings: prefer structured lists; cap full description when the user allows it.
   const job = compactJob(session.job, deps.settings.sendFullJobDescription, 12000);
   const tech = [

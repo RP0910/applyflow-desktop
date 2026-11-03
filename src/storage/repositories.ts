@@ -1,8 +1,13 @@
-import type { ApplicationRecord, CareerProfile, JobSession, MasterResume } from '@/types';
+import type { ApplicationRecord, CareerProfile, JobSession, MasterResume, SiteCredential } from '@/types';
+import { DEFAULT_SITE_PASSWORD } from '@/types';
 import { nowIso } from '@/utils/dates';
+import { withSyncedLocation } from '@/utils/address';
 import { getDb } from './db';
 import { emitChange } from './events';
 import { bridge } from '@/platform/bridge';
+import { storageGet, storageSet } from './chromeStorage';
+
+const SITE_CREDS_KEY = 'applyflow.siteCredentials.v1';
 
 // In the desktop app every call goes to SQLite through the bridge (`b`); IndexedDB is the
 // fallback for unit tests and design previews.
@@ -87,6 +92,12 @@ export const EMPTY_PROFILE: CareerProfile = {
   email: '',
   phone: '',
   location: '',
+  streetAddress: '',
+  addressLine2: '',
+  city: '',
+  state: '',
+  postalCode: '',
+  country: '',
   headline: '',
   professionalSummary: '',
   verifiedSkills: [],
@@ -111,16 +122,86 @@ export async function getProfile(): Promise<CareerProfile> {
 }
 
 export async function saveProfile(profile: CareerProfile): Promise<CareerProfile> {
+  const synced = withSyncedLocation(profile);
   const b = bridge();
   if (b) {
-    const saved = await b.invoke('profile.save', profile);
+    const saved = await b.invoke('profile.save', synced);
     emitChange('profile');
     return saved;
   }
-  const next = { ...profile, updatedAt: nowIso() };
+  const next = { ...synced, updatedAt: nowIso() };
   await (await getDb()).put('profile', next, 'default');
   emitChange('profile');
   return next;
+}
+
+// ---------- Job-site login credentials ----------
+
+function hostOf(urlOrHost: string): string {
+  try {
+    return new URL(urlOrHost.includes('://') ? urlOrHost : `https://${urlOrHost}`).hostname.toLowerCase();
+  } catch {
+    return urlOrHost.replace(/^https?:\/\//i, '').split('/')[0]!.toLowerCase();
+  }
+}
+
+export async function listSiteCredentials(): Promise<SiteCredential[]> {
+  const b = bridge();
+  if (b) return b.invoke('siteCredentials.list');
+  return (await storageGet<SiteCredential[]>(SITE_CREDS_KEY)) ?? [];
+}
+
+export async function getSiteCredential(urlOrHost: string): Promise<SiteCredential | null> {
+  const host = hostOf(urlOrHost);
+  const b = bridge();
+  if (b) return b.invoke('siteCredentials.get', host);
+  return (await listSiteCredentials()).find((c) => c.host === host) ?? null;
+}
+
+export async function saveSiteCredential(cred: SiteCredential): Promise<SiteCredential> {
+  const next: SiteCredential = { ...cred, host: hostOf(cred.host || cred.url), updatedAt: nowIso() };
+  const b = bridge();
+  if (b) return b.invoke('siteCredentials.save', next);
+  const all = (await listSiteCredentials()).filter((c) => c.host !== next.host);
+  all.push(next);
+  await storageSet(SITE_CREDS_KEY, all);
+  return next;
+}
+
+export async function deleteSiteCredential(host: string): Promise<void> {
+  const h = hostOf(host);
+  const b = bridge();
+  if (b) {
+    await b.invoke('siteCredentials.delete', h);
+    return;
+  }
+  await storageSet(SITE_CREDS_KEY, (await listSiteCredentials()).filter((c) => c.host !== h));
+}
+
+/**
+ * Return the stored login for this job site, creating one from the profile email and the
+ * default password when none exists yet.
+ */
+export async function ensureSiteCredential(url: string, email: string): Promise<SiteCredential | null> {
+  const trimmed = email.trim();
+  if (!trimmed) return null;
+  const host = hostOf(url);
+  if (!host) return null;
+  const existing = await getSiteCredential(host);
+  if (existing) {
+    // Keep email in sync with the profile when the stored email was empty or still the default.
+    if (existing.email.trim().toLowerCase() !== trimmed.toLowerCase()) {
+      return saveSiteCredential({ ...existing, email: trimmed, url: existing.url || url });
+    }
+    return existing;
+  }
+  let origin = url;
+  try {
+    origin = new URL(url).origin;
+  } catch {
+    origin = `https://${host}`;
+  }
+  return saveSiteCredential({ host, url: origin, email: trimmed, password: DEFAULT_SITE_PASSWORD, updatedAt: '' });
 }
 
 // ---------- Job sessions (in-progress work per job) ----------

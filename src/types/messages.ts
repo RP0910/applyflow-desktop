@@ -23,6 +23,8 @@ export type PanelToContent =
   | { type: 'AF_HIGHLIGHT_FIELD'; fieldId: string }
   /** `direct`: open the employer's posting from the page data instead of pressing the site's Apply button. */
   | { type: 'AF_OPEN_APPLICATION'; direct?: boolean }
+  /** Fill a job-site sign-in form with stored credentials and press Sign In. */
+  | { type: 'AF_SIGN_IN'; email: string; password: string }
   | { type: 'AF_ARM_SUBMIT'; token: string }
   /** `expectKey`: the application the run opened (formKeyFor); the page refuses if it shows another one. */
   | { type: 'AF_SUBMIT'; token: string; expectKey?: string | null }
@@ -106,6 +108,13 @@ export interface OpenApplicationResponse {
   externalUrl?: string | null;
 }
 
+export interface SignInResponse {
+  ok: boolean;
+  /** Credentials were typed and Sign In was pressed. */
+  submitted: boolean;
+  message: string;
+}
+
 export type ContentResponseMap = {
   AF_PING: { ok: true; version: string };
   AF_GET_PAGE_STATE: PageState;
@@ -117,6 +126,7 @@ export type ContentResponseMap = {
   AF_NEXT_STEP: NextStepResponse;
   AF_HIGHLIGHT_FIELD: { ok: boolean };
   AF_OPEN_APPLICATION: OpenApplicationResponse;
+  AF_SIGN_IN: SignInResponse;
   AF_ARM_SUBMIT: { ok: boolean };
   AF_SUBMIT: SubmitResponse;
   AF_SET_LAUNCHER: { ok: boolean };

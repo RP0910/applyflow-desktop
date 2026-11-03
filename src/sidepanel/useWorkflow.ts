@@ -16,7 +16,7 @@ import { TabUnreachableError } from '@/services/messaging';
 import { getApiKey } from '@/storage/settingsStore';
 import { onDataChange } from '@/storage/events';
 import { formKeyFor } from '@/services/platforms/registry';
-import { getApplication, getSession, latestSession, listApplications, saveApplication, saveProfile, saveSession } from '@/storage/repositories';
+import { ensureSiteCredential, getApplication, getSession, latestSession, listApplications, saveApplication, saveProfile, saveSession } from '@/storage/repositories';
 import { planAts, runAnalysis, runCoverLetter, runDocuments, revalidateEdited, revalidateLetter, scanTailored, scoreMaster, scoreTailored, type EngineDeps } from '@/services/workflow/engine';
 import { saveResume } from '@/storage/repositories';
 import { parseCheckPdf } from '@/services/ats/parseCheck';
@@ -381,6 +381,12 @@ export function useWorkflow(inputs: WorkflowInputs, deps: WorkflowDeps) {
     saveSession: (s) => setSession(s),
     settings,
     profile: profileRef.current,
+    saveProfile: async (p) => {
+      const saved = await saveProfile(p);
+      profileRef.current = saved;
+      return saved;
+    },
+    ensureSiteCredential: (url, email) => ensureSiteCredential(url, email),
     payload: (kind) => (sessionRef.current ? uploadPayload(sessionRef.current, settings, kind) : Promise.resolve(null)),
     fileName,
     sleep,
