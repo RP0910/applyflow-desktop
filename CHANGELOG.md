@@ -1,3 +1,7 @@
+# 2.2.5
+
+Fixed: the browser loading veil no longer covers Jobright while Tailor & Apply is writing the resume and cover letter. It appears only when opening the employer application (Step 2). See RELEASE-2.2.5.md.
+
 # 2.2.4
 
 Improved Screening Q&A with a built-in ATS question catalog, richer saved answers (control type, options, aliases), and conventional synonym-aware matching. Jobright’s “Did you apply?” is dismissed while opening the employer form and confirmed with “Yes, I applied!” only after a verified submission. Applications are not marked Applied from a submit click alone without site confirmation. The built-in browser shows an ApplyFlow veil while documents are prepared and the application opens. See RELEASE-2.2.4.md.

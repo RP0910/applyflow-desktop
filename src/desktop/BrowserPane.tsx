@@ -27,7 +27,7 @@ export function BrowserPane({ visible }: { visible: boolean }) {
     if (!editing) setAddress(state.url);
   }, [state.url, editing]);
 
-  // Workflow-driven veil (document prep + opening the employer application).
+  // Workflow-driven veil only while opening the employer application (not during document prep).
   useEffect(() => {
     const read = () => {
       const label = document.documentElement.dataset.afOpening;
@@ -89,9 +89,7 @@ export function BrowserPane({ visible }: { visible: boolean }) {
   const onDice = /^https:\/\/(www\.)?dice\.com\//i.test(state.url);
   const veilLabel = opening.show ? opening.label || 'Opening your application…' : 'Opening page…';
   const veilHint = opening.show
-    ? /prepar/i.test(veilLabel)
-      ? 'Writing your tailored resume and cover letter'
-      : 'Waiting for the employer’s application to load'
+    ? 'Waiting for the employer’s application to load'
     : 'Waiting for the page to finish loading';
 
   return (

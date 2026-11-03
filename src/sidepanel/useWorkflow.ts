@@ -105,14 +105,11 @@ const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 const docsStamp = (s: JobSession) => `${s.resume?.version ?? 0}|${s.includeCoverLetter ? (s.coverLetter?.version ?? 0) : 'none'}`;
 const uploadExt = (settings: Settings): 'pdf' | 'docx' => (!settings.resumeOutputFormats.includes('pdf') && settings.resumeOutputFormats.includes('docx') ? 'docx' : 'pdf');
 
-/** Desktop browser veil while documents are prepared and the employer application is opening. */
+/** Desktop browser veil only while opening the employer application (not during document prep). */
 function syncOpeningOverlay(run: ApplyRunState): void {
   if (typeof document === 'undefined') return;
-  const show = run.status === 'working' && run.stages.open !== 'done';
-  const label =
-    run.stages.open === 'active'
-      ? 'Opening your application…'
-      : 'Preparing your documents…';
+  const show = run.status === 'working' && run.stages.open === 'active';
+  const label = 'Opening your application…';
   if (show) document.documentElement.dataset.afOpening = label;
   else delete document.documentElement.dataset.afOpening;
   window.dispatchEvent(new CustomEvent('af:opening', { detail: { show, label } }));
