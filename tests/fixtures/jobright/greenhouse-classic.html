@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Job Application for Hardware Test Engineer at Acme Robotics</title>
+<!-- MOCK PAGE for ApplyFlow tests. Models the classic Greenhouse job board / embedded application
+     (boards.greenhouse.io/<board>/jobs/<id> and boards.greenhouse.io/embed/job_app?for=…&token=…):
+     form#application_form, #first_name #last_name #email #phone, Resume/CV and Cover Letter
+     "Attach" fields with hidden file inputs, the employer's questions (native selects, text,
+     a required privacy acknowledgement), the voluntary EEOC section, an invisible reCAPTCHA badge,
+     and input#submit_app "Submit Application". ?error=true → the job is no longer open. -->
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.5 Helvetica, Arial, sans-serif; color: #333; background: #fff; }
+  #wrapper { max-width: 760px; margin: 0 auto; padding: 24px; }
+  .field { margin: 0 0 16px; }
+  .field > label { display: block; font-weight: bold; margin-bottom: 4px; }
+  .asterisk { color: #b94a48; }
+  input[type=text], input[type=email], input[type=tel], select, textarea { width: 100%; padding: 6px 8px; border: 1px solid #ccc; border-radius: 3px; font: inherit; }
+  .attach-or-paste button { margin-right: 8px; }
+  .field-error-msg { color: #b94a48; font-size: 12px; }
+  #submit_app { background: #3a7cc1; color: #fff; border: 0; padding: 10px 24px; font-size: 15px; border-radius: 4px; cursor: pointer; }
+  .grecaptcha-badge { width: 256px; height: 60px; position: fixed; right: -186px; bottom: 14px; box-shadow: gray 0 0 5px; overflow: hidden; }
+  #eeoc_fields { border-top: 1px solid #ddd; margin-top: 24px; padding-top: 12px; }
+</style>
+</head>
+<body>
+<div id="wrapper"></div>
+<script>
+(function () {
+  var w = document.getElementById('wrapper');
+  if (/[?&]error=true\b/.test(location.search)) {
+    w.innerHTML = '<div id="flash-wrapper"><div class="flash-pending">The job you are looking for is no longer open.</div></div><h1>Current openings at Acme Robotics</h1><section class="level-0"><h3>Engineering</h3><div class="opening"><a href="/acmerobotics/jobs/4012345">Hardware Test Engineer</a><span class="location">Seattle, WA</span></div></section>';
+    return;
+  }
+  var q = function (id, label, control, required) {
+    return '<div class="field"><label for="' + id + '">' + label + (required ? ' <span class="asterisk">*</span>' : '') + '</label>' + control + '</div>';
+  };
+  var select = function (id, name, opts, required) {
+    return '<select id="' + id + '" name="' + name + '"' + (required ? ' aria-required="true"' : '') + '><option value="">--</option>' + opts.map(function (o, i) { return '<option value="' + (i + 1) + '">' + o + '</option>'; }).join('') + '</select>';
+  };
+  var attach = function (key, label, required) {
+    return '<div class="field" id="' + key + '_fieldset"><label>' + label + (required ? ' <span class="asterisk">*</span>' : '') + '</label>' +
+      '<div class="attach-or-paste" data-field="' + key + '"><button type="button" class="attach">Attach</button><button type="button">Dropbox</button><button type="button">Google Drive</button><button type="button" class="paste">or enter manually</button>' +
+      '<input type="file" id="' + key + '_file" name="job_application[' + key + ']" style="display:none" accept=".pdf,.doc,.docx,.txt,.rtf">' +
+      '<div class="filename" id="' + key + '_filename"></div></div><p class="help">(File types: pdf, doc, docx, txt, rtf)</p></div>';
+  };
+  w.innerHTML =
+    '<div id="header"><h1 class="app-title">Hardware Test Engineer</h1><span class="company-name">at Acme Robotics</span><div class="location">Seattle, WA</div></div>' +
+    '<div id="content"><p>Acme Robotics builds the test systems behind our flight hardware…</p></div>' +
+    '<div id="application"><h2 class="heading">Apply for this Job</h2><p class="required-fields"><span class="asterisk">*</span> Required</p>' +
+    '<form id="application_form" action="https://boards.greenhouse.io/acmerobotics/jobs/4012345" method="post" novalidate>' +
+      q('first_name', 'First Name', '<input type="text" id="first_name" name="job_application[first_name]" aria-required="true">', true) +
+      q('last_name', 'Last Name', '<input type="text" id="last_name" name="job_application[last_name]" aria-required="true">', true) +
+      q('email', 'Email', '<input type="text" id="email" name="job_application[email]" aria-required="true">', true) +
+      q('phone', 'Phone', '<input type="text" id="phone" name="job_application[phone]" aria-required="true">', true) +
+      attach('resume', 'Resume/CV', true) +
+      attach('cover_letter', 'Cover Letter', false) +
+      q('job_application_answers_attributes_0_text_value', 'LinkedIn Profile', '<input type="text" id="job_application_answers_attributes_0_text_value" name="job_application[answers_attributes][0][text_value]">', false) +
+      q('job_application_answers_attributes_1_text_value', 'Website', '<input type="text" id="job_application_answers_attributes_1_text_value" name="job_application[answers_attributes][1][text_value]">', false) +
+      q('job_application_answers_attributes_2_boolean_value', 'Are you legally authorized to work in the United States?', select('job_application_answers_attributes_2_boolean_value', 'job_application[answers_attributes][2][boolean_value]', ['Yes', 'No'], true), true) +
+      q('job_application_answers_attributes_3_boolean_value', 'Will you now or in the future require sponsorship for employment visa status (e.g., H-1B visa status)?', select('job_application_answers_attributes_3_boolean_value', 'job_application[answers_attributes][3][boolean_value]', ['Yes', 'No'], true), true) +
+      q('job_application_answers_attributes_4_text_value', 'How did you hear about this job?', '<input type="text" id="job_application_answers_attributes_4_text_value" name="job_application[answers_attributes][4][text_value]">', false) +
+      '<div class="field"><label><input type="checkbox" id="privacy_ack" name="job_application[answers_attributes][5][boolean_value]" aria-required="true"> I acknowledge that I have read the Acme Robotics Applicant Privacy Notice. <span class="asterisk">*</span></label></div>' +
+      '<div id="eeoc_fields"><h3>U.S. Equal Opportunity Employment Information (Completion is voluntary and will not subject you to adverse treatment)</h3>' +
+        q('job_application_gender', 'Gender', select('job_application_gender', 'job_application[gender]', ['Male', 'Female', 'Decline To Self Identify'], false), false) +
+        q('job_application_hispanic_ethnicity', 'Are you Hispanic/Latino?', select('job_application_hispanic_ethnicity', 'job_application[hispanic_ethnicity]', ['Yes', 'No', 'Decline To Self Identify'], false), false) +
+        q('job_application_veteran_status', 'Veteran Status', select('job_application_veteran_status', 'job_application[veteran_status]', ['I am not a protected veteran', 'I identify as one or more of the classifications of a protected veteran', "I don't wish to answer"], false), false) +
+        q('job_application_disability_status', 'Disability Status', select('job_application_disability_status', 'job_application[disability_status]', ['Yes, I have a disability (or previously had a disability)', 'No, I do not have a disability', "I don't wish to answer"], false), false) +
+      '</div>' +
+      '<div id="submit_buttons"><input type="submit" id="submit_app" value="Submit Application"></div>' +
+    '</form></div>' +
+    '<div class="grecaptcha-badge" data-style="bottomright"><div class="grecaptcha-logo"><iframe title="reCAPTCHA" src="https://www.google.com/recaptcha/api2/anchor?ar=1&amp;k=x&amp;size=invisible" width="256" height="60" frameborder="0"></iframe></div></div>';
+
+  ['resume', 'cover_letter'].forEach(function (key) {
+    var input = document.getElementById(key + '_file');
+    var box = document.getElementById(key + '_filename');
+    document.querySelector('[data-field="' + key + '"] .attach').addEventListener('click', function () { input.click(); });
+    input.addEventListener('change', function () {
+      var f = input.files && input.files[0];
+      box.innerHTML = f ? '<span>' + f.name + '</span> <a href="#" class="remove">Remove</a>' : '';
+    });
+  });
+
+  var form = document.getElementById('application_form');
+  form.addEventListener('submit', function (e) {
+    e.preventDefault();
+    document.querySelectorAll('.field-error-msg').forEach(function (n) { n.remove(); });
+    var missing = [];
+    form.querySelectorAll('[aria-required="true"]').forEach(function (el) {
+      var empty = el.type === 'checkbox' ? !el.checked : !el.value;
+      if (empty) missing.push(el);
+    });
+    if (!document.getElementById('resume_file').files.length) missing.push(document.getElementById('resume_file'));
+    if (missing.length) {
+      missing.forEach(function (el) {
+        var m = document.createElement('span');
+        m.className = 'field-error-msg';
+        m.setAttribute('role', 'alert');
+        m.textContent = 'This field is required.';
+        el.closest('.field').appendChild(m);
+      });
+      return;
+    }
+    window.__submitted = { first: document.getElementById('first_name').value, email: document.getElementById('email').value, resume: document.getElementById('resume_file').files[0].name };
+    setTimeout(function () {
+      if (!document.getElementById('wrapper')) return;
+      document.getElementById('wrapper').innerHTML = '<div id="application_confirmation"><h1>Thank you for applying.</h1><p>Your application has been received. If your application seems like a good fit for the position we will contact you soon.</p></div>';
+    }, 600);
+  });
+})();
+</script>
+</body>
+</html>

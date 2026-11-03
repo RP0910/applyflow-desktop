@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Test Engineering Technician @ Helio Systems</title>
+<!-- MOCK PAGE for ApplyFlow tests: an Ashby job page (jobs.ashbyhq.com/<org>/<id>) with
+     Overview / Application tabs; the form is at …/application. -->
+<style>
+  body { margin: 0; font: 15px/1.6 Inter, Arial, sans-serif; color: #222; }
+  .wrap { max-width: 800px; margin: 0 auto; padding: 32px 24px; }
+  nav.tabs a { margin-right: 16px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1 class="ashby-job-posting-heading">Test Engineering Technician</h1>
+  <nav class="tabs" aria-label="Job posting tabs"><a href="" id="t-overview">Overview</a><a href="" id="t-app">Application</a></nav>
+  <div class="ashby-job-posting-description"><p>Helio Systems builds satellite power systems…</p></div>
+  <a class="ashby-apply-btn" href="" id="apply" style="display:inline-block;background:#4f46e5;color:#fff;padding:10px 22px;border-radius:6px;text-decoration:none">Apply for this Job</a>
+</div>
+<script>
+  var base = location.pathname.replace(/\/(application)?\/?$/, '');
+  document.getElementById('t-overview').setAttribute('href', base);
+  document.getElementById('t-app').setAttribute('href', base + '/application');
+  document.getElementById('apply').setAttribute('href', base + '/application');
+</script>
+</body>
+</html>

@@ -1,0 +1,26 @@
+ApplyFlow Desktop 2.2.0 validation
+
+TypeScript: passed
+Automated tests: 289 passed, 5 skipped (local-only fixtures), 0 failed
+  new: tests/integration/jobright.test.ts (16) — Jobright → Lever / Greenhouse (classic in a careers-page frame,
+       redesigned with comboboxes) / Ashby / Workday / LinkedIn, closed and referral jobs, sign-in, CAPTCHA after
+       Submit, and the safety rules (run tied to its form, no false confirmations, no form-submit as "Apply")
+       tests/unit/jobrightUnits.test.ts (9), tests/unit/diceNavigation.test.ts, tests/unit/educationSettings.test.tsx,
+       tests/unit/replace.test.ts
+
+Real app (Electron 45), mock pages only — nothing reached jobright.ai, employer sites or Anthropic (Claude stubbed):
+  scripts/e2e-jobright.mjs — all checks passed:
+    candidate setup → Jobright list (toolbar) → 4 applications end to end with Tailor & Apply → questions →
+    Submit application → site confirmation → Back to search results:
+      Lever (resume read by Lever, corrected; location suggestion; cover letter in Additional information)
+      Greenhouse classic in a careers-page frame (saved answers reused; privacy acknowledgement asked)
+      Ashby (Yes/No buttons; resume field, not Autofill)
+      Greenhouse redesigned (country and location comboboxes; saved answer applied to a combobox question)
+    stops: Workday (Apply → Apply Manually → sign-in), closed job; Applications lists all 4 as Applied
+  scripts/e2e-replace.mjs — Dice resume replacement, all checks passed
+  back-to-search checks — 6 of 6 passed
+
+An independent review of the Jobright/employer-site code reported 10 findings; all were fixed and covered by tests.
+
+Not tested on the live sites (no Jobright account, employer sites or Claude key were available).
+Interactive Windows install/launch was not tested. Installer is unsigned.

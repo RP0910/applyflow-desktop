@@ -1,0 +1,10 @@
+ApplyFlow Desktop 2.2.2 validation
+
+TypeScript: passed
+Automated tests: 300 passed, 5 skipped (local-only fixtures), 0 failed
+  tests/unit/cvGenerate.test.ts: company research then CV generate as two Claude calls
+  tests/unit/forms.test.ts: similar screening-question reuse + category-only answers
+  tests/unit/jobvite.test.ts: Jobvite SELECT upload targets; placeholder company replacement
+  Prior 2.2.1 Jobright / Dice / ATS checks remain green
+
+Not done: signed-in live Jobright/Jobvite run with a real Anthropic key. Installer is unsigned.

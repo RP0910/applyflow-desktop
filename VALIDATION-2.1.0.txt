@@ -1,0 +1,9 @@
+ApplyFlow Desktop 2.1.0 validation
+
+TypeScript: passed
+Automated tests: 241 passed, 5 skipped (local-only fixtures), 0 failed
+Includes mock Claude generation and failure handling, simulated Dice apply/replace flow, JSON-to-PDF and PDF text extraction tests.
+
+No live Claude API key or signed-in Dice account was provided.
+Interactive Windows install/launch was not tested.
+Installer is unsigned.

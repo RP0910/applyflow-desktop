@@ -1,0 +1,30 @@
+ApplyFlow Desktop 2.2.1 validation
+
+TypeScript: passed
+Automated tests: 297 passed, 5 skipped (local-only fixtures), 0 failed
+  tests/integration/jobright.test.ts: 21. New in 2.2.1:
+    - clean title and brand name from "… Job Details | Company LLC"
+    - "Customize Your Resume" → "Apply Without Customizing"; the blank new tab is followed; "Fix My Resume Now" and
+      "Do not remind me again" are never touched
+    - the "Sign Up to Apply" dialog counts as sign-in
+    - Apply that does nothing stops after two tries, with instructions
+  tests/unit/jobrightUnits.test.ts: 12. New in 2.2.1:
+    - title cleaning
+    - another job's page data ignored inside the signed-in app; the job's own page is read instead
+  Test copy of Jobright's job page updated to the live site's behaviour: no employer address in page data by default;
+  APPLY WITH AUTOFILL; ant-modal dialogs; window.open() then tab.location.
+
+Real app (Electron 45), mock pages only. Nothing reached jobright.ai, employer sites or Anthropic (Claude stubbed):
+  scripts/e2e-jobright.mjs: all checks passed. Every job went through the Customize dialog and the hidden blank-tab
+    hand-off to the employer:
+      - Lever
+      - Greenhouse in a frame
+      - Ashby
+      - redesigned Greenhouse
+    Then: Submit → confirmation → Back to search results. Workday sign-in stop; closed job stop.
+  scripts/e2e-replace.mjs: Dice resume replacement, all checks passed
+  back-to-search checks: 6 of 6 passed
+
+Not done: a signed-in run on jobright.ai and a real application submission. No Jobright session was available to
+the developer, and passwords are not typed on the user's behalf.
+Interactive Windows install/launch was not tested. Installer is unsigned.

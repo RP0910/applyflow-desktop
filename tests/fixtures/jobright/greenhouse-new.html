@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Job Application for Electronics Technician at Acme Robotics</title>
+<!-- MOCK PAGE for ApplyFlow tests. Models Greenhouse's redesigned job board
+     (job-boards.greenhouse.io/<board>/jobs/<id>): the job, then form#application-form with
+     #first_name #last_name #email, #country and #candidate-location as react-select comboboxes
+     (role=combobox; options appear in a listbox when opened; the location list only after typing),
+     #phone, input#resume / #cover_letter (visually hidden) with Attach / Dropbox / Google Drive /
+     Enter manually buttons, the employer's questions as comboboxes, the voluntary self-identification
+     comboboxes, and "Submit application". A small vanilla-JS stand-in for react-select is included. -->
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 16px/1.5 "Helvetica Neue", Arial, sans-serif; color: #1d1d1d; }
+  main { max-width: 760px; margin: 0 auto; padding: 32px 24px 80px; }
+  .field-wrapper { margin-bottom: 20px; position: relative; }
+  .label { display: block; font-weight: 600; margin-bottom: 6px; }
+  .required { color: #c00; margin-left: 2px; }
+  .input { width: 100%; padding: 10px 12px; border: 1px solid #888; border-radius: 6px; font: inherit; }
+  .select__control { display: flex; align-items: center; min-height: 44px; border: 1px solid #888; border-radius: 6px; padding: 0 10px; cursor: pointer; }
+  .select__value-container { flex: 1; position: relative; display: flex; align-items: center; }
+  .select__placeholder, .select__single-value { position: absolute; left: 0; pointer-events: none; }
+  .select__placeholder { color: #777; }
+  .select__input { border: 0; outline: 0; font: inherit; width: 100%; background: transparent; padding: 8px 0; }
+  .select__menu { position: absolute; left: 0; right: 0; z-index: 10; background: #fff; border: 1px solid #ccc; border-radius: 6px; box-shadow: 0 4px 12px rgba(0,0,0,.15); max-height: 260px; overflow: auto; }
+  .select__option, .select__menu-notice { padding: 8px 12px; }
+  .select__option:hover { background: #eef; }
+  .visually-hidden { position: absolute !important; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  .btn--pill { border: 1px solid #333; border-radius: 999px; padding: 6px 16px; margin-right: 6px; background: #fff; cursor: pointer; }
+  .submit { background: #1d1d1d; color: #fff; padding: 12px 28px; font-size: 16px; }
+  .helper-text, .error-text { font-size: 13px; }
+  .error-text { color: #c00; }
+</style>
+</head>
+<body>
+<main id="root"></main>
+<script>
+(function () {
+  var root = document.getElementById('root');
+  var uid = 0;
+  var CITIES = ['St. Petersburg, Florida, United States', 'St. Petersburg, Russia', 'Seattle, Washington, United States', 'Indianapolis, Indiana, United States', 'Tampa, Florida, United States'];
+  var combos = [];
+  function combo(id, label, options, opts) {
+    opts = opts || {};
+    combos.push({ id: id, options: options, async: Boolean(opts.async) });
+    return '<div class="field-wrapper" data-combo="' + id + '"><label id="' + id + '-label" for="' + id + '" class="label">' + label + (opts.required ? '<span class="required">*</span>' : '') + '</label>' +
+      '<div class="select"><div class="select__control"><div class="select__value-container"><div class="select__placeholder">Select...</div>' +
+      '<input class="select__input" id="' + id + '" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-haspopup="true" aria-labelledby="' + id + '-label"' + (opts.required ? ' aria-required="true"' : '') + ' type="text" autocomplete="off" value=""></div>' +
+      '<span class="select__indicator" aria-hidden="true">▾</span></div></div><input type="hidden" name="' + id + '" value=""></div>';
+  }
+  function text(id, label, type, required) {
+    return '<div class="field-wrapper"><label id="' + id + '-label" for="' + id + '" class="label">' + label + (required ? '<span class="required">*</span>' : '') + '</label>' +
+      '<input class="input" id="' + id + '" name="' + id + '" type="' + type + '"' + (required ? ' aria-required="true"' : '') + ' aria-describedby="' + id + '-error"><p class="error-text" id="' + id + '-error"></p></div>';
+  }
+  function upload(id, label, required) {
+    return '<div class="field-wrapper file-upload" role="group" aria-labelledby="upload-label-' + id + '"><div class="label upload-label" id="upload-label-' + id + '">' + label + (required ? '<span class="required">*</span>' : '') + '</div>' +
+      '<div class="file-upload__wrapper"><input id="' + id + '" class="visually-hidden" type="file" accept=".pdf,.doc,.docx,.txt,.rtf"' + (required ? ' aria-required="true"' : '') + '>' +
+      '<div class="button-container"><button type="button" class="btn btn--pill attach" data-for="' + id + '">Attach</button><button type="button" class="btn btn--pill">Dropbox</button><button type="button" class="btn btn--pill">Google Drive</button><button type="button" class="btn btn--pill">Enter manually</button></div>' +
+      '<p class="file-upload__filename" id="' + id + '-filename"></p></div><p class="helper-text">Accepted file types: pdf, doc, docx, txt, rtf</p></div>';
+  }
+  root.innerHTML =
+    '<div class="job__header"><h1 class="section-header">Electronics Technician</h1><p>Seattle, WA</p><button type="button" class="btn btn--pill" id="apply-top">Apply</button></div>' +
+    '<div class="job__description"><p>Acme Robotics is hiring an Electronics Technician…</p></div>' +
+    '<div class="application--container"><h2>Apply for this job</h2><p><span class="required">*</span> indicates a required field</p>' +
+    '<form id="application-form" class="application--form" novalidate>' +
+      text('first_name', 'First Name', 'text', true) + text('last_name', 'Last Name', 'text', true) + text('preferred_name', 'Preferred First Name', 'text', false) +
+      text('email', 'Email', 'email', true) +
+      combo('country', 'Country', ['United States', 'Canada', 'Mexico', 'United Kingdom', 'India'], { required: true }) +
+      text('phone', 'Phone', 'tel', true) +
+      combo('candidate-location', 'Location (City)', CITIES, { required: true, async: true }) +
+      upload('resume', 'Resume/CV', true) + upload('cover_letter', 'Cover Letter', false) +
+      text('question_30001', 'LinkedIn Profile', 'text', false) +
+      combo('question_30002', 'Are you legally authorized to work in the United States?', ['Yes', 'No'], { required: true }) +
+      combo('question_30003', 'Will you now or in the future require sponsorship for employment visa status?', ['Yes', 'No'], { required: true }) +
+      combo('question_30004', 'Do you have hands-on experience with Altium Designer?', ['Yes', 'No'], { required: true }) +
+      '<div class="eeoc__container"><h3>Voluntary Self-Identification</h3>' +
+        combo('gender', 'Gender', ['Male', 'Female', 'Decline to self-identify']) +
+        combo('hispanic_ethnicity', 'Are you Hispanic/Latino?', ['Yes', 'No', 'Decline to self-identify']) +
+        combo('veteran_status', 'Veteran Status', ['I am not a protected veteran', 'I identify as one or more of the classifications of protected veteran', "I don't wish to answer"]) +
+        combo('disability_status', 'Disability Status', ['Yes, I have a disability (or previously had a disability)', 'No, I do not have a disability and have not had one in the past', "I don't wish to answer"]) +
+      '</div>' +
+      '<button type="submit" class="btn btn--pill submit">Submit application</button>' +
+    '</form></div>';
+
+  document.getElementById('apply-top').addEventListener('click', function () { document.getElementById('application-form').scrollIntoView(); });
+
+  // ---- react-select stand-in ----
+  combos.forEach(function (c) {
+    var wrap = document.querySelector('[data-combo="' + c.id + '"]');
+    var input = document.getElementById(c.id);
+    var control = wrap.querySelector('.select__control');
+    var valueBox = wrap.querySelector('.select__value-container');
+    var hidden = wrap.querySelector('input[type=hidden]');
+    var menu = null;
+    var timer = null;
+    function close() {
+      if (menu) menu.remove();
+      menu = null;
+      input.setAttribute('aria-expanded', 'false');
+      input.removeAttribute('aria-controls');
+    }
+    function render(list, notice) {
+      if (!menu) {
+        menu = document.createElement('div');
+        menu.className = 'select__menu';
+        wrap.querySelector('.select').appendChild(menu);
+      }
+      var lid = 'react-select-' + (++uid) + '-listbox';
+      menu.innerHTML = '<div class="select__menu-list" role="listbox" id="' + lid + '">' + (notice ? '<div class="select__menu-notice select__menu-notice--no-options">' + notice + '</div>' : list.map(function (o, i) { return '<div class="select__option" role="option" id="opt-' + uid + '-' + i + '" aria-selected="false" tabindex="-1">' + o + '</div>'; }).join('')) + '</div>';
+      input.setAttribute('aria-expanded', 'true');
+      input.setAttribute('aria-controls', lid);
+      menu.querySelectorAll('[role=option]').forEach(function (o) {
+        o.addEventListener('click', function () {
+          hidden.value = o.textContent;
+          var ph = valueBox.querySelector('.select__placeholder, .select__single-value');
+          if (ph) ph.remove();
+          var sv = document.createElement('div');
+          sv.className = 'select__single-value';
+          sv.textContent = o.textContent;
+          valueBox.insertBefore(sv, valueBox.firstChild);
+          input.value = '';
+          close();
+        });
+      });
+    }
+    function open() {
+      var q = input.value.trim().toLowerCase();
+      if (c.async) {
+        if (!q) return render([], 'Start typing...');
+        clearTimeout(timer);
+        timer = setTimeout(function () { render(c.options.filter(function (o) { return o.toLowerCase().indexOf(q) >= 0; }), null); }, 300);
+        render([], 'Loading...');
+        return;
+      }
+      render(c.options.filter(function (o) { return !q || o.toLowerCase().indexOf(q) >= 0; }), null);
+    }
+    control.addEventListener('mousedown', function (e) { if (menu) close(); else open(); });
+    input.addEventListener('keydown', function (e) {
+      if (e.key === 'ArrowDown' && !menu) open();
+      if (e.key === 'Escape') close();
+    });
+    input.addEventListener('input', function () { open(); });
+  });
+
+  ['resume', 'cover_letter'].forEach(function (id) {
+    var input = document.getElementById(id);
+    document.querySelector('.attach[data-for="' + id + '"]').addEventListener('click', function () { input.click(); });
+    input.addEventListener('change', function () {
+      var f = input.files && input.files[0];
+      document.getElementById(id + '-filename').innerHTML = f ? f.name + ' <button type="button" class="remove" aria-label="Remove file">✕</button>' : '';
+    });
+  });
+
+  var form = document.getElementById('application-form');
+  form.addEventListener('submit', function (e) {
+    e.preventDefault();
+    var missing = [];
+    form.querySelectorAll('[aria-required="true"]').forEach(function (el) {
+      var empty = el.type === 'file' ? !el.files.length : el.getAttribute('role') === 'combobox' ? !el.closest('[data-combo]').querySelector('input[type=hidden]').value : !el.value;
+      if (empty) missing.push(el.id);
+      if (empty) el.setAttribute('aria-invalid', 'true'); else el.removeAttribute('aria-invalid');
+      var err = document.getElementById(el.id + '-error');
+      if (err) err.textContent = empty ? 'This field is required.' : '';
+    });
+    window.__missing = missing;
+    if (missing.length) return;
+    window.__submitted = {};
+    form.querySelectorAll('input[type=hidden]').forEach(function (h) { window.__submitted[h.name] = h.value; });
+    window.__submitted.first_name = document.getElementById('first_name').value;
+    window.__submitted.resume = document.getElementById('resume').files[0].name;
+    setTimeout(function () { if (document.contains(root)) root.innerHTML = '<div class="confirmation"><h1>Thank you for applying.</h1><p>Your application has been received.</p></div>'; }, 500);
+  });
+})();
+</script>
+</body>
+</html>

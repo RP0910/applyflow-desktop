@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Test Engineering Technician @ Helio Systems</title>
+<!-- MOCK PAGE for ApplyFlow tests. Models Ashby's application tab (jobs.ashbyhq.com/<org>/<id>/application),
+     a React app without a <form> element: an "Autofill from resume" box at the top with its own file
+     input (never the resume field); fields with ids _systemfield_name, _systemfield_email,
+     _systemfield_resume (file, "Upload File" button), _systemfield_location (a combobox whose list
+     appears after typing), a phone and LinkedIn question; Yes/No questions rendered as two buttons;
+     a multi-line question; and "Submit Application" → "Thank you for applying" on the same page. -->
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 15px/1.6 Inter, Arial, sans-serif; color: #222; background: #fff; }
+  .wrap { max-width: 720px; margin: 0 auto; padding: 32px 24px 80px; }
+  .ashby-application-form-field-entry { margin-bottom: 22px; position: relative; }
+  .ashby-application-form-question-title { display: block; font-weight: 600; margin-bottom: 6px; }
+  ._required { color: #e11d48; margin-left: 2px; }
+  input[type=text], input[type=email], input[type=tel], textarea { width: 100%; padding: 9px 11px; border: 1px solid #cbd5e1; border-radius: 6px; font: inherit; }
+  ._yesno { display: flex; gap: 8px; }
+  ._option { padding: 8px 22px; border: 1px solid #cbd5e1; border-radius: 6px; background: #fff; cursor: pointer; }
+  ._option._active { background: #4f46e5; color: #fff; border-color: #4f46e5; }
+  .ashby-application-form-autofill-input-root { border: 1px dashed #94a3b8; border-radius: 8px; padding: 16px; margin-bottom: 28px; }
+  ._listbox { position: absolute; left: 0; right: 0; background: #fff; border: 1px solid #cbd5e1; border-radius: 6px; z-index: 5; }
+  ._listbox [role=option] { padding: 8px 12px; cursor: pointer; }
+  .ashby-application-form-submit-button { background: #4f46e5; color: #fff; border: 0; border-radius: 6px; padding: 12px 28px; font-size: 15px; cursor: pointer; }
+  ._error { color: #e11d48; font-size: 13px; }
+</style>
+</head>
+<body>
+<div class="wrap" id="app"></div>
+<script>
+(function () {
+  var app = document.getElementById('app');
+  var field = function (id, label, control, required) {
+    return '<div class="ashby-application-form-field-entry"><label class="ashby-application-form-question-title" for="' + id + '">' + label + (required ? '<span class="_required">*</span>' : '') + '</label>' + control + '</div>';
+  };
+  var yesno = function (id, label, required) {
+    return '<div class="ashby-application-form-field-entry" data-q="' + id + '"><label class="ashby-application-form-question-title" id="' + id + '-label">' + label + (required ? '<span class="_required">*</span>' : '') + '</label>' +
+      '<div class="_yesno"><button type="button" class="_option">Yes</button><button type="button" class="_option">No</button></div><input type="hidden" name="' + id + '" value=""></div>';
+  };
+  app.innerHTML =
+    '<h1 class="ashby-job-posting-heading">Test Engineering Technician</h1><nav aria-label="Job posting tabs"><a href="#">Overview</a> <a href="#" aria-current="page">Application</a></nav>' +
+    '<div class="ashby-application-form-container">' +
+      '<div class="ashby-application-form-autofill-input-root"><p><b>Autofill from resume</b></p><p>Upload your resume here to autofill key application fields.</p><button type="button" id="autofill-btn">Upload file</button><input type="file" id="autofill-input" style="display:none"></div>' +
+      field('_systemfield_name', 'Name', '<input type="text" id="_systemfield_name" name="_systemfield_name" required>', true) +
+      field('_systemfield_email', 'Email', '<input type="email" id="_systemfield_email" name="_systemfield_email" required>', true) +
+      field('_systemfield_resume', 'Resume', '<div class="_fileInput"><button type="button" id="resume-btn">Upload File</button> <span>or drag and drop here</span><input type="file" id="_systemfield_resume" name="_systemfield_resume" style="display:none" required><div class="_fileName"></div></div>', true) +
+      field('9f2c-phone', 'Phone Number', '<input type="tel" id="9f2c-phone" name="9f2c-phone" required>', true) +
+      field('_systemfield_location', 'Location', '<input type="text" id="_systemfield_location" role="combobox" aria-autocomplete="list" aria-expanded="false" autocomplete="off" placeholder="Start typing..." required><input type="hidden" id="loc-value" value="">', true) +
+      field('1b7d-linkedin', 'LinkedIn Profile', '<input type="text" id="1b7d-linkedin" name="1b7d-linkedin">', false) +
+      yesno('3c1e-auth', 'Are you legally authorized to work in the United States?', true) +
+      yesno('5d2a-spons', 'Will you now or in the future require visa sponsorship?', true) +
+      yesno('7e4b-ipc', 'Do you hold a current IPC-A-610 certification?', false) +
+      field('8a9c-why', 'Why are you interested in Helio Systems?', '<textarea id="8a9c-why" name="8a9c-why" rows="4"></textarea>', false) +
+      '<button type="button" class="ashby-application-form-submit-button">Submit Application</button>' +
+    '</div>';
+
+  document.getElementById('autofill-btn').addEventListener('click', function () { document.getElementById('autofill-input').click(); });
+  document.getElementById('autofill-input').addEventListener('change', function () { window.__autofillUsed = true; });
+  var resume = document.getElementById('_systemfield_resume');
+  document.getElementById('resume-btn').addEventListener('click', function () { resume.click(); });
+  resume.addEventListener('change', function () { var f = resume.files[0]; app.querySelector('._fileName').textContent = f ? f.name : ''; });
+
+  app.querySelectorAll('[data-q]').forEach(function (q) {
+    var opts = q.querySelectorAll('._option');
+    opts.forEach(function (b) {
+      b.addEventListener('click', function () {
+        opts.forEach(function (o) { o.classList.remove('_active'); o.setAttribute('aria-pressed', 'false'); });
+        b.classList.add('_active');
+        b.setAttribute('aria-pressed', 'true');
+        q.querySelector('input[type=hidden]').value = b.textContent;
+      });
+    });
+  });
+
+  var loc = document.getElementById('_systemfield_location');
+  var list = null, t = null;
+  var close = function () { if (list) list.remove(); list = null; loc.setAttribute('aria-expanded', 'false'); };
+  loc.addEventListener('input', function () {
+    clearTimeout(t);
+    var q = loc.value.trim().toLowerCase();
+    t = setTimeout(function () {
+      close();
+      if (!q) return;
+      var all = ['St. Petersburg, FL, United States', 'St. Petersburg, Russia', 'Seattle, WA, United States'];
+      var hits = all.filter(function (a) { return a.toLowerCase().indexOf(q.split(',')[0]) === 0; });
+      list = document.createElement('div');
+      list.className = '_listbox';
+      list.id = 'loc-listbox';
+      list.setAttribute('role', 'listbox');
+      list.innerHTML = hits.map(function (h) { return '<div role="option">' + h + '</div>'; }).join('');
+      loc.parentElement.appendChild(list);
+      loc.setAttribute('aria-controls', 'loc-listbox');
+      loc.setAttribute('aria-expanded', 'true');
+      list.querySelectorAll('[role=option]').forEach(function (o) {
+        o.addEventListener('click', function () { loc.value = o.textContent; document.getElementById('loc-value').value = o.textContent; close(); });
+      });
+    }, 250);
+  });
+  loc.addEventListener('keydown', function (e) { if (e.key === 'Escape') close(); });
+
+  app.querySelector('.ashby-application-form-submit-button').addEventListener('click', function () {
+    app.querySelectorAll('._error').forEach(function (n) { n.remove(); });
+    var bad = [];
+    ['_systemfield_name', '_systemfield_email', '9f2c-phone'].forEach(function (id) { if (!document.getElementById(id).value) bad.push(id); });
+    if (!resume.files.length) bad.push('_systemfield_resume');
+    if (!document.getElementById('loc-value').value) bad.push('_systemfield_location');
+    ['3c1e-auth', '5d2a-spons'].forEach(function (id) { if (!app.querySelector('[data-q="' + id + '"] input[type=hidden]').value) bad.push(id); });
+    if (bad.length) {
+      bad.forEach(function (id) {
+        var anchor = document.getElementById(id) || app.querySelector('[data-q="' + id + '"]');
+        var m = document.createElement('p'); m.className = '_error'; m.setAttribute('role', 'alert'); m.textContent = 'This field is required.';
+        anchor.closest('.ashby-application-form-field-entry').appendChild(m);
+      });
+      window.__missing = bad;
+      return;
+    }
+    window.__submitted = {
+      name: document.getElementById('_systemfield_name').value, email: document.getElementById('_systemfield_email').value, phone: document.getElementById('9f2c-phone').value,
+      location: document.getElementById('loc-value').value, auth: app.querySelector('[data-q="3c1e-auth"] input').value, spons: app.querySelector('[data-q="5d2a-spons"] input').value,
+      resume: resume.files[0].name, autofillUsed: Boolean(window.__autofillUsed),
+    };
+    setTimeout(function () { if (document.contains(app)) app.innerHTML = '<div class="ashby-application-form-success-container"><h2>Thank you for applying</h2><p>Your application was successfully submitted. We’ll be in touch.</p></div>'; }, 500);
+  });
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Northwind Avionics - PCB Layout Technician</title>
+<!-- MOCK PAGE for ApplyFlow tests. Models a Lever job page (jobs.lever.co/<company>/<posting id>):
+     the job and an "Apply for this job" link to …/apply. -->
+<style>
+  body { margin: 0; font: 15px/1.6 "Helvetica Neue", Arial, sans-serif; color: #515357; }
+  .main-header { padding: 18px 40px; border-bottom: 1px solid #e2e2e2; }
+  .content { max-width: 800px; margin: 0 auto; padding: 32px 24px; }
+  .postings-btn { display: inline-block; background: #579eee; color: #fff; padding: 10px 22px; border-radius: 3px; text-decoration: none; font-weight: 700; }
+</style>
+</head>
+<body>
+<div class="main-header page-full-width section-wrapper"><a class="main-header-logo" href="https://jobs.lever.co/northwind">Northwind Avionics</a></div>
+<div class="content">
+  <div class="posting-headline"><h2>PCB Layout Technician</h2><div class="posting-categories"><div class="location">Indianapolis, IN</div><div class="department">Engineering</div><div class="commitment">Full-time</div></div></div>
+  <div class="postings-btn-wrapper"><a class="postings-btn template-btn-submit" href="" id="apply-link">Apply for this job</a></div>
+  <div class="section page-centered"><p>Northwind Avionics designs flight computers…</p></div>
+</div>
+<script>
+  document.getElementById('apply-link').setAttribute('href', location.pathname.replace(/\/$/, '') + '/apply');
+</script>
+</body>
+</html>

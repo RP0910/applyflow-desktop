@@ -1,0 +1,14 @@
+Dear Hiring Team,
+
+I'm applying for the Senior Architect AI Engineering and Platforms role at Meridian Credit Analytics LLC. I'm currently a Principal Software Engineer, AI Platform at Northlake Payments, with 12 years of experience overall. The role's focus on AWS, Kubernetes and Large Language Models lines up closely with the work I've been doing.
+
+In my current role at Northlake Payments, I defined reference architectures and ran monthly architecture reviews for AI workloads, including model risk and data privacy controls aligned with PCI-DSS. Earlier there, as a Senior Software Engineer, I re-architected the transaction-scoring pipeline from a monolith into event-driven microservices on Kafka and Java Spring Boot, handling 9,000 events per second.
+
+Much of my work has involved AWS, Kubernetes, Large Language Models and MLOps. Recently, I designed and led delivery of an internal LLM gateway on AWS EKS that routes requests across multiple foundation model providers; adopted by 40+ product teams. Earlier in my career at Brightline Logistics, I built REST APIs in Java and Python for shipment tracking used by 1,200 enterprise customers. Outside my day job, I maintain open-source LLM evaluation harness (Python toolkit for regression-testing prompts and retrieval quality Maintains 1,100+ GitHub stars; used by teams to compare model versions before rollout.). I also hold the AWS Certified Solutions Architect – Professional (2022) Certified Kubernetes Administrator (CKA) certification.
+
+I'm based in Chicago, IL, so the on-site schedule works for me.
+
+I'd welcome the chance to discuss how I could contribute to Meridian Credit Analytics LLC. Thank you for your time and consideration.
+
+Sincerely,
+Jordan Rivera

@@ -1,0 +1,32 @@
+[18:03:20] candidate set up (profile, employer, education)
+[18:03:21] opened Jobright recommendations with the toolbar button
+[18:03:21] PASS  panel labels it a Jobright job
+[18:03:31] Lever: reached the questions in 9.5s (Claude calls so far: 3)
+[18:03:31] PASS  followed Jobright → Lever job page → /apply (https://jobs.lever.co/northwind/7c1f2e9a-5b3d-4c8e-9a10-2f6b8e0a5c71/apply)
+[18:03:31] PASS  Lever read the resume; ApplyFlow corrected name/email/phone (Grant Howard, grant.howard@example.com, (727) 555-0148)
+[18:03:31] PASS  location picked from Lever's suggestions (St. Petersburg, FL, USA)
+[18:03:31] PASS  tailored resume attached through real input (Grant-Howard-Northwind-Avionics-PCB-Layout-Technician-Resume-v1-20261102180321903.pdf)
+[18:03:31] PASS  cover letter in “Additional information”
+[18:03:35] PASS  Lever confirmation page reached and recorded
+[18:03:35] PASS  “Back to search results” returned to the Jobright list
+[18:03:41] Greenhouse: first stop in 5.7s
+[18:03:41] PASS  followed the careers page's Greenhouse frame (https://boards.greenhouse.io/embed/job_app?for=acmerobotics&token=4012345&b=https%3A%2F%2Fcareers.acme-robotics.com%2Fjobs%2F4012345)
+[18:03:41] PASS  contact details filled
+[18:03:41] PASS  resume and cover letter attached (Grant-Howard-Acme-Robotics-Hardware-Test-Engineer-Resume-v1-20261102180336456.pdf Remove · Grant-Howard-Acme-Robotics-Hardware-Test-Engineer-Cover-Letter-v1-20261102180336456.pdf Remove)
+[18:03:41] PASS  self-identification and the privacy acknowledgement left to the person
+[18:03:42] Acme Robotics: the panel asked “I acknowledge that I have read the Acme Robotics Applicant Privacy Notice. *
+(required)”
+[18:03:42] PASS  saved answers from Lever applied; only the privacy acknowledgement was asked
+[18:03:43] PASS  Greenhouse received the application
+[18:03:51] Ashby: first stop in 6.9s
+[18:03:51] PASS  Ashby filled, location chosen, resume in the resume field (not Autofill) (St. Petersburg, FL, United States)
+[18:03:51] Helio Systems: the panel asked nothing (saved answers covered it)
+[18:03:51] PASS  Ashby received the Yes/No answers
+[18:03:58] Greenhouse (new): first stop in 5.4s — One question for you
+[18:03:58] PASS  dropdowns chosen: country “United States”, location “St. Petersburg, Florida, United States”
+[18:03:58] PASS  your saved answer (work authorization) applied to the dropdown question
+[18:03:58] Acme Robotics: the panel asked “Do you have hands-on experience with Altium Designer? *
+(required)”
+[18:04:09] PASS  Workday: pressed Apply → Apply Manually, stopped at sign-in
+[18:04:12] PASS  closed Greenhouse job: stopped with the reason
+[18:04:12] PASS  Applications shows 4 applied: Acme Robotics — Electronics Technician · Helio Systems — Test Engineering Technician · Acme Robotics — Hardware Test Engineer · Northwind Avionics — PCB Layout Technician

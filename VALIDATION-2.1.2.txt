@@ -1,0 +1,31 @@
+ApplyFlow Desktop 2.1.2 validation
+
+TypeScript: passed
+Automated tests: 259 passed, 5 skipped (local-only fixtures), 0 failed
+  includes tests/unit/educationSettings.test.tsx (6 tests: Settings → Education) and tests/unit/replace.test.ts (12 tests: Dice resume-card shapes, Delete-safety, real-input plumbing, fallback)
+
+Real Chromium (Electron 45) end-to-end, scripts/e2e-replace.mjs, mock pages only (nothing reached dice.com):
+  2.1.0 code: 6 of 12 resume-card shapes failed (menu left open, nothing replaced).
+  2.1.1+ code:
+    PASS  [baseline]  619ms  ok=true verified=true method=replace-menu  shown=Grant-Howard-Resume-SAIC-Engineering-Technician-III-v47.pdf  replaceClicks=1  Attached your tailored 
+    PASS  [baseline cover letter]  ok=true verified=true method=input shown=Grant-Howard-Cover-Letter-SAIC-v74.pdf  Attached your tailored cover letter (Grant-Howard-Cover-Letter-
+    PASS  [pointer-menu]  601ms  ok=true verified=true method=replace-menu  shown=Grant-Howard-Resume-SAIC-Engineering-Technician-III-v93.pdf  replaceClicks=1  Attached your tailo
+    PASS  [svg-title]  601ms  ok=true verified=true method=replace-menu  shown=Grant-Howard-Resume-SAIC-Engineering-Technician-III-v93.pdf  replaceClicks=1  Attached your tailored
+    PASS  [label]  598ms  ok=true verified=true method=replace-menu  shown=Grant-Howard-Resume-SAIC-Engineering-Technician-III-v46.pdf  replaceClicks=1  Attached your tailored res
+    PASS  [effect]  629ms  ok=true verified=true method=replace-menu  shown=Grant-Howard-Resume-SAIC-Engineering-Technician-III-v37.pdf  replaceClicks=1  Attached your tailored re
+    PASS  [bigdom]  625ms  ok=true verified=true method=replace-menu  shown=Grant-Howard-Resume-SAIC-Engineering-Technician-III-v14.pdf  replaceClicks=1  Attached your tailored re
+    PASS  [bigdom cover letter]  ok=true verified=true method=input shown=Grant-Howard-Cover-Letter-SAIC-v12.pdf  Attached your tailored cover letter (Grant-Howard-Cover-Letter-SA
+    PASS  [aria-hide]  616ms  ok=true verified=true method=replace-menu  shown=Grant-Howard-Resume-SAIC-Engineering-Technician-III-v45.pdf  replaceClicks=1  Attached your tailored
+    PASS  [trusted]  601ms  ok=true verified=true method=replace-menu  shown=Grant-Howard-Resume-SAIC-Engineering-Technician-III-v59.pdf  replaceClicks=1  Attached your tailored r
+    PASS  [slow]  2698ms  ok=true verified=true method=replace-menu  shown=Grant-Howard-Resume-SAIC-Engineering-Technician-III-v85.pdf  replaceClicks=1  Attached your tailored res
+    PASS  [detached]  602ms  ok=true verified=true method=replace-menu  shown=Grant-Howard-Resume-SAIC-Engineering-Technician-III-v65.pdf  replaceClicks=1  Attached your tailored 
+    PASS  [pointer-menu,svg-title,aria-hide,effect,slow]  2750ms  ok=true verified=true method=replace-menu  shown=Grant-Howard-Resume-SAIC-Engineering-Technician-III-v44.pdf  rep
+    PASS  [label,bigdom,trusted]  611ms  ok=true verified=true method=replace-menu  shown=Grant-Howard-Resume-SAIC-Engineering-Technician-III-v97.pdf  replaceClicks=1  Attached yo
+    PASS  [legacy-mock]  587ms  ok=true verified=true method=replace-menu  shown=Grant-Howard-Resume-SAIC-Engineering-Technician-III-v71.pdf  replaceClicks=1  Attached your tailor
+    All replace checks passed.
+  Also passed with the Dice view hidden (--hidden).
+  With real input switched off (APPLYFLOW_NO_TRUSTED=1, scripted fallback) all pass except pages that ignore scripted input.
+
+Packaged app (release/win-unpacked/resources/app.asar) checked to contain the 2.1.1 main process and Dice helper.
+No live signed-in Dice account was available; live-site behaviour must be confirmed on your machine.
+Interactive Windows install/launch was not tested. Installer is unsigned.

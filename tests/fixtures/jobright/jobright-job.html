@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Jobright.ai</title>
+<!-- MOCK PAGE for ApplyFlow tests. Not a real Jobright page. Models a Jobright job page
+     (https://jobright.ai/jobs/info/<id>): Next.js data (__NEXT_DATA__) with the job and the employer's
+     posting address, Overview / Responsibilities / Qualification (skill tags, Required, Preferred) /
+     Benefits, then company sections. As on the real site (checked November 2026):
+       title tag  "<Title> Job Details | <Company> LLC @ <Company> | Jobright.ai"
+       h1         "<Title> Job Details | <Company> LLC"; page data jobTitle the same, jobNlpTitle the clean title
+       Apply      "APPLY WITH AUTOFILL" (with an arrow icon). Pressing it shows the "Customize Your Resume in
+                  10 seconds" dialog (an ant-modal): "Fix My Resume Now" button, an "Apply Without
+                  Customizing" text link (a span), a "Do not remind me again" checkbox and a close ×.
+                  "Apply Without Customizing" opens a blank tab first and then sends it to the employer
+                  (window.open() then tab.location.href = …).
+     ?link=1     the page data names the employer address (the real site does not; default: no address)
+     ?nomodal=1  Apply opens the employer straight away (window.open(url))
+     ?dead=1     Apply does nothing
+     The job id picks the employer side:
+       gh-1      careers.acme-robotics.com with a Greenhouse form in a frame (classic Greenhouse)
+       ghnew-1   job-boards.greenhouse.io (redesigned Greenhouse, dropdowns are comboboxes)
+       lever-1   jobs.lever.co posting page → /apply form (Lever reads the resume)
+       ashby-1   jobs.ashbyhq.com overview → /application (Ashby, Yes/No buttons, location picker)
+       workday-1 a Workday portal that requires signing in
+       linkedin-1 LinkedIn (ApplyFlow leaves it to you)
+       closed-1  Greenhouse says the job is closed
+       tnt-1     a Jobright referral role: "Send My Profile", no employer application
+     ?signedout=1 → pressing Apply shows Jobright's "Sign Up to Apply" dialog instead (an Email box of
+     type text, "Sign up with Google", "Already a member? Sign in now"). -->
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 15px/1.5 -apple-system, "Segoe UI", Roboto, Arial, sans-serif; color: #18181b; background: #f7f8fa; }
+  header.site { display: flex; align-items: center; gap: 24px; height: 60px; padding: 0 24px; background: #fff; border-bottom: 1px solid #e5e7eb; }
+  header.site a { color: #18181b; text-decoration: none; }
+  main { max-width: 900px; margin: 24px auto; padding: 0 16px; }
+  .card { background: #fff; border-radius: 12px; padding: 20px 24px; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,.06); }
+  .chips span { display: inline-block; margin: 4px 8px 0 0; padding: 2px 10px; border-radius: 999px; background: #eef2ff; font-size: 13px; }
+  .apply { background: #00c48c; color: #fff; border: 0; border-radius: 8px; padding: 10px 26px; font-weight: 700; font-size: 15px; cursor: pointer; }
+  .skill-tag { display: inline-block; margin: 4px 6px 0 0; padding: 2px 10px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 13px; }
+  .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.4); display: flex; align-items: center; justify-content: center; }
+  .modal { background: #fff; border-radius: 12px; padding: 24px; width: 380px; }
+  .modal input { display: block; width: 100%; margin: 8px 0; padding: 8px; }
+  footer { padding: 24px; color: #6b7280; font-size: 13px; }
+</style>
+<script>
+(function () {
+  var id = decodeURIComponent((location.pathname.match(/\/jobs\/info\/([^/?#]+)/) || [])[1] || 'gh-1');
+  var JOBS = {
+    'gh-1': { title: 'Hardware Test Engineer', company: 'Acme Robotics', location: 'Seattle, WA', apply: 'https://careers.acme-robotics.com/jobs/4012345?gh_jid=4012345' },
+    'ghnew-1': { title: 'Electronics Technician', company: 'Acme Robotics', location: 'Seattle, WA', apply: 'https://job-boards.greenhouse.io/acmerobotics/jobs/4019999' },
+    'lever-1': { title: 'PCB Layout Technician', company: 'Northwind Avionics', location: 'Indianapolis, IN', apply: 'https://jobs.lever.co/northwind/7c1f2e9a-5b3d-4c8e-9a10-2f6b8e0a5c71' },
+    'ashby-1': { title: 'Test Engineering Technician', company: 'Helio Systems', location: 'Remote (US)', apply: 'https://jobs.ashbyhq.com/helio/3b9e1d2c-8a7f-4e6d-b5c4-1a2b3c4d5e6f' },
+    'workday-1': { title: 'Engineering Technician III', company: 'Contoso Defense', location: 'Indianapolis, IN', apply: 'https://contoso.wd5.myworkdayjobs.com/en-US/External/job/Indianapolis-IN/Engineering-Technician-III_R12345' },
+    'linkedin-1': { title: 'Engineering Technician', company: 'Fabrikam', location: 'Austin, TX', apply: 'https://www.linkedin.com/jobs/view/3999999999' },
+    'closed-1': { title: 'Senior Test Technician', company: 'Acme Robotics', location: 'Seattle, WA', apply: 'https://boards.greenhouse.io/acmerobotics/jobs/4000001?error=true' },
+    'tnt-1': { title: 'AI Engineer, Entry Level', company: 'Jobright.ai', location: 'United States', apply: null },
+  };
+  var job = JOBS[id] || JOBS['gh-1'];
+  window.__job = job;
+  var legal = job.company + ' LLC';
+  window.__legal = legal;
+  document.title = job.title + ' Job Details | ' + legal + ' @ ' + job.company + ' | Jobright.ai';
+  var nolink = !/link=1/.test(location.search) || /nolink=1/.test(location.search);
+  var data = {
+    props: { pageProps: { dataSource: {
+      jobResult: {
+        jobId: id, jobTitle: job.title + ' Job Details | ' + legal, jobNlpTitle: job.title, jobLocation: job.location, workModel: /remote/i.test(job.location) ? 'Remote' : 'Onsite',
+        employmentType: 'Full-time', jobSeniority: 'Mid Level', salaryDesc: '$72K/yr - $95K/yr', publishTimeDesc: '3 days ago',
+        jobSummary: job.company + ' is hiring a ' + job.title + ' to build, test and troubleshoot electronic assemblies for flight and ground systems, working with design engineers from prototype to production.',
+        coreResponsibilities: [
+          'Build, test and troubleshoot printed circuit board assemblies and cable harnesses to schematics and drawings',
+          'Perform functional and environmental testing with oscilloscopes, DMMs and power supplies; document results',
+          'Support engineers with ECAD design reviews, DFM feedback, BOMs and Gerber/ODB++ release packages',
+          'Maintain test fixtures and lab equipment; follow ESD and safety procedures'
+        ],
+        qualifications: {
+          mustHave: ["Associate's degree in Electronics Engineering Technology or equivalent experience", '3+ years of hands-on electronics assembly and test experience', 'Ability to read schematics, wiring diagrams and assembly drawings', 'Experience with Altium Designer or similar ECAD tools'],
+          preferredHave: ['IPC-A-610 or J-STD-001 certification', 'Experience with BGAs and rework stations', 'Security clearance or the ability to obtain one']
+        },
+        skillSummaries: ['ECAD', 'PCB', 'Altium Designer', 'DFM', 'BOMs', 'Gerbers', 'ODB++', 'BGAs', 'Oscilloscopes'],
+        applyLink: nolink ? undefined : job.apply, originalUrl: nolink ? undefined : job.apply, isCompanySiteLink: true,
+      },
+      companyResult: { companyName: job.company, companyDesc: job.company + ' builds avionics and robotics systems.', companyURL: 'https://' + job.company.toLowerCase().replace(/\W+/g, '') + '.example.com' }
+    } } },
+    page: '/jobs/info/[id]'
+  };
+  var s = document.createElement('script');
+  s.type = 'application/json';
+  s.id = '__NEXT_DATA__';
+  s.textContent = JSON.stringify(data);
+  document.head.appendChild(s);
+})();
+</script>
+</head>
+<body>
+<header class="site"><a href="/" aria-label="Jobright home"><b>jobright</b></a><nav aria-label="Main"><a href="/jobs/recommend">Jobs</a> <a href="/jobs/liked">Liked</a> <a href="/jobs/applied">Applied</a> <a href="/resume">Resume</a></nav></header>
+<main id="main"></main>
+<footer>© Jobright mock · <a href="/privacy">Privacy</a> · <a href="/terms">Terms</a></footer>
+<script>
+(function () {
+  var job = window.__job;
+  var d = JSON.parse(document.getElementById('__NEXT_DATA__').textContent).props.pageProps.dataSource.jobResult;
+  var esc = function (t) { return String(t).replace(/[&<>]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]; }); };
+  var li = function (a) { return a.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join(''); };
+  var tnt = !job.apply;
+  document.getElementById('main').innerHTML =
+    '<section class="card">' +
+      '<h1>' + esc(job.title) + ' Job Details | ' + esc(window.__legal) + '</h1>' +
+      '<div class="company-row"><b>' + esc(job.company) + '</b> · <span>' + d.publishTimeDesc + '</span></div>' +
+      '<div class="chips"><span>' + esc(job.location) + '</span><span>' + d.workModel + '</span><span>' + d.employmentType + '</span><span>' + d.salaryDesc + '</span><span>' + d.jobSeniority + '</span></div>' +
+      (tnt
+        ? '<p><b>Skip the applicant queue, get reviewed like a referral.</b></p><button type="button" class="apply" id="send-profile">Send My Profile</button>'
+        : '<p style="margin-top:16px"><button type="button" class="apply" id="apply"><span>APPLY WITH AUTOFILL</span><svg width="12" height="12" aria-hidden="true"><path d="M2 10 10 2"/></svg></button> <button type="button" class="ghost">Ask Orion</button></p>') +
+    '</section>' +
+    '<section class="card"><h2>Overview</h2><p>' + esc(d.jobSummary) + '</p></section>' +
+    '<section class="card"><h2>Responsibilities</h2><ul>' + li(d.coreResponsibilities) + '</ul></section>' +
+    '<section class="card"><h2>Qualification</h2><div class="skills">' + d.skillSummaries.map(function (k) { return '<span class="skill-tag">' + esc(k) + '</span>'; }).join('') + '</div>' +
+      '<h3>Required</h3><ul>' + li(d.qualifications.mustHave) + '</ul><h3>Preferred</h3><ul>' + li(d.qualifications.preferredHave) + '</ul></section>' +
+    '<section class="card"><h2>Benefits</h2><ul><li>Medical, dental and vision insurance</li><li>401(k) with company match</li></ul></section>' +
+    '<section class="card"><h2>Company</h2><p>' + esc(job.company) + ' builds avionics and robotics systems. Founded 2009, 500-1000 employees.</p></section>' +
+    '<section class="card"><h2>Funding</h2><p>Series C · $120M total</p></section>';
+  var btn = document.getElementById('apply');
+  var modal = function (html) {
+    var m = document.createElement('div');
+    m.className = 'ant-modal-root';
+    m.innerHTML = '<div class="ant-modal-mask modal-backdrop"></div><div class="ant-modal-wrap" role="dialog" aria-modal="true"><div class="ant-modal modal"><div class="ant-modal-content">' + html + '</div></div></div>';
+    document.body.appendChild(m);
+    return m;
+  };
+  var openEmployer = function () {
+    // Like Jobright: a blank tab first, then the employer's posting.
+    var tab = window.open('', '_blank');
+    setTimeout(function () { tab.location.href = job.apply; }, 30);
+  };
+  if (btn) btn.addEventListener('click', function () {
+    if (/dead=1/.test(location.search)) return;
+    if (/signedout=1/.test(location.search)) {
+      modal('<button type="button" class="ant-modal-close" aria-label="Close">×</button><h2>Sign Up to Apply</h2><p>Unlock your AI job search copilot</p><button type="button">Sign up with Google</button><div>or</div><input type="text" placeholder="Email"><button type="button">SIGN UP TO APPLY</button><p>Already a member? <a>Sign in now</a></p>');
+      return;
+    }
+    if (/nomodal=1/.test(location.search)) { window.open(job.apply, '_blank'); return; }
+    var m = modal('<button type="button" class="ant-modal-close" aria-label="Close">×</button><h2>Customize Your Resume in 10 seconds</h2><p>Your resume matches 72% of this job. Tailor it to get more interviews.</p>' +
+      '<button type="button" class="ant-btn ant-btn-primary" id="fix">Fix My Resume Now</button>' +
+      '<div class="apply-without"><span id="without">Apply Without Customizing</span></div>' +
+      '<label><input type="checkbox" id="noremind"> Do not remind me again</label>');
+    m.querySelector('#fix').addEventListener('click', function () { window.__fixClicked = true; });
+    m.querySelector('#noremind').addEventListener('change', function () { window.__noRemind = true; });
+    m.querySelector('#without').addEventListener('click', function () { m.remove(); openEmployer(); });
+  });
+})();
+</script>
+</body>
+</html>

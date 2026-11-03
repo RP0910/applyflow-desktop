@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Apply - Dice.com</title></head>
+<body>
+<!-- MOCK: static employer-questions step used by unit tests for field scanning and sensitive-question detection. -->
+<form data-testid="application-wizard">
+  <label for="fn">First Name *</label><input id="fn" name="fn" type="text" required>
+  <label for="ln">Last Name *</label><input id="ln" name="ln" type="text" required>
+  <label for="em">Email Address *</label><input id="em" name="em" type="email" required>
+  <label for="ph">Mobile phone</label><input id="ph" name="ph" type="tel" value="(555) 000-0000">
+  <fieldset><legend>Are you legally authorized to work in the United States? *</legend>
+    <label><input type="radio" name="auth" value="y" required> Yes</label><label><input type="radio" name="auth" value="n"> No</label>
+  </fieldset>
+  <fieldset><legend>Will you now or in the future require sponsorship for employment visa status?</legend>
+    <label><input type="radio" name="spon" value="y"> Yes</label><label><input type="radio" name="spon" value="n"> No</label>
+  </fieldset>
+  <label for="clr">Security clearance level</label><select id="clr" name="clr"><option value="">Select</option><option>None</option><option>Secret</option></select>
+  <label for="crim">Have you ever been convicted of a felony?</label><select id="crim" name="crim"><option value="">Select</option><option>Yes</option><option>No</option></select>
+  <label for="dis">Disability status</label><select id="dis" name="dis"><option value="">Select</option><option>Yes</option><option>No</option></select>
+  <label for="vet">Protected veteran status</label><select id="vet" name="vet"><option value="">Select</option><option>I am a protected veteran</option></select>
+  <label for="race">Race / Ethnicity (voluntary)</label><select id="race" name="race"><option value="">Select</option><option>Decline</option></select>
+  <label for="sal">Expected salary (USD)</label><input id="sal" name="sal" type="text">
+  <label for="rel">Are you willing to relocate to Chicago, IL?</label><input id="rel" name="rel" type="text">
+  <label for="yrs">Years of experience with Python *</label><input id="yrs" name="yrs" type="number" required>
+  <label for="dob">Date of birth</label><input id="dob" name="dob" type="text">
+  <label><input type="checkbox" id="agree" name="agree" required> I certify that the information provided is true and complete *</label>
+  <label for="li">LinkedIn URL</label><input id="li" name="li" type="url">
+  <label for="sum">Professional Summary</label><textarea id="sum" name="sum"></textarea>
+  <label for="cv">Upload your resume *</label><input id="cv" name="cv" type="file" required>
+  <label for="cl">Cover Letter (optional)</label><input id="cl" name="cl" type="file">
+  <label for="hid" hidden>Hidden</label><input id="hid" name="hid" type="hidden" value="x">
+  <label for="fav">What is your favorite programming paradigm?</label><input id="fav" name="fav" type="text">
+  <button type="submit">Submit Application</button>
+</form>
+</body>
+</html>

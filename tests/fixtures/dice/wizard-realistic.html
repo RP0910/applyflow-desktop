@@ -1,0 +1,254 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Apply: Engineering Technician III | MockDice</title>
+<!-- MOCK PAGE for ApplyFlow tests. Not a real Dice page. It models how Dice's step-1
+     "Resume & Cover Letter" card behaves in a real browser (Nov 2026):
+       - the resume is a file card; its "…" button (aria-label "File options") opens a menu
+         rendered at the end of <body> with Replace / Delete
+       - Replace removes the current file at once, then opens the operating system's file
+         chooser for a file input (only works with a real user activation, like any browser)
+       - after a file is chosen Dice uploads it, then shows its name
+     Behaviour variants (query string ?v=a,b,c) reproduce the shapes that broke ApplyFlow 2.1.0:
+       pointer-menu  the "…" menu opens on pointerdown (Radix-style), not on click()
+       svg-title     icons are SVGs with <title> text ("Replace icon"), so textContent ≠ "Replace"
+       label         Replace is a <label for=…>: the browser opens the chooser, no input.click() call
+       effect        Replace re-renders the card as an uploader and clicks its input afterwards
+       bigdom        hundreds of links/list items before the menu (mega-menu + footer)
+       aria-hide     opening the menu sets aria-hidden on the rest of the page
+       trusted       the menu only reacts to real (trusted) pointer/mouse input
+       slow          the upload takes 2.5 s before the new name appears
+       detached      Replace creates a fresh, unattached <input type=file> and clicks it -->
+<style>
+  :root { --ink:#18181b; --muted:#52525c; --line:#e4e4e7; --teal:#0b6e8a; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:15px/1.5 -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; color:var(--ink); background:#f4f4f5; }
+  .site-header { display:flex; align-items:center; gap:22px; height:64px; padding:0 28px; background:#fff; border-bottom:1px solid var(--line); }
+  .site-header .logo { font-weight:800; color:#fff; background:#c8102e; padding:6px 10px; border-radius:4px; text-decoration:none; }
+  .site-header nav a { color:var(--ink); text-decoration:none; margin-right:18px; }
+  .mega { display:none; }
+  .wizard { max-width:640px; margin:30px auto; padding:0 16px; }
+  .progress { height:12px; border-radius:999px; background:#e4e4e7; overflow:hidden; margin-top:18px; }
+  .progress span { display:block; width:50%; height:100%; background:var(--teal); }
+  .card { position:relative; background:#fff; border-radius:8px; padding:18px 20px; margin:14px 0; box-shadow:0 1px 3px rgba(0,0,0,.08); }
+  .card h3 { margin:0 0 10px; font-size:16px; }
+  .req { color:#c8102e; }
+  .file-row { display:flex; align-items:center; gap:10px; }
+  .file-row a { color:var(--teal); font-weight:600; text-decoration:none; }
+  .icon-btn { margin-left:auto; border:0; background:none; width:34px; height:34px; border-radius:50%; cursor:pointer; color:var(--teal); }
+  .meta { color:var(--muted); font-size:14px; margin:8px 0 0; }
+  .drop { display:block; border:2px dashed #7cc5d9; border-radius:6px; padding:22px; text-align:center; color:var(--teal); cursor:pointer; }
+  .hint { color:var(--muted); font-size:13px; }
+  .menu { position:absolute; z-index:50; width:150px; background:#fff; border-radius:6px; box-shadow:0 4px 16px rgba(0,0,0,.18); padding:4px; opacity:0; transition:opacity .15s; }
+  .menu.open { opacity:1; }
+  .menu [role=menuitem] { display:flex; align-items:center; gap:10px; padding:9px 12px; border-radius:4px; cursor:pointer; font-size:15px; }
+  .menu [role=menuitem]:focus { outline:2px solid #3b82f6; }
+  .wizard-nav { display:flex; justify-content:flex-end; margin-top:16px; }
+  .wizard-nav button { background:var(--teal); color:#fff; border:0; border-radius:999px; padding:10px 28px; font-weight:700; font-size:16px; }
+  .sr-only { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; }
+  .site-footer { padding:20px 28px; background:#fff; border-top:1px solid var(--line); columns:4; font-size:12px; }
+  .site-footer a { display:block; color:var(--muted); }
+</style>
+</head>
+<body>
+<header class="site-header">
+  <a href="/" class="logo">MockDice</a>
+  <nav aria-label="Main"><a href="/jobs">Job Search</a><a href="/companies">Companies</a><a href="/career-resources">Career Resources</a></nav>
+  <ul class="mega" id="mega"></ul>
+</header>
+<div id="app">
+  <main class="wizard">
+    <p>You’re Applying for</p>
+    <h1>Engineering Technician III</h1>
+    <p>@ SAIC in Indianapolis, IN</p>
+    <div class="progress"><span></span></div>
+    <p>Step 1 of 2</p>
+    <h2>Resume &amp; Cover Letter</h2>
+    <div class="card" id="resume-card"></div>
+    <div class="card" id="cover-card">
+      <h3>Cover letter</h3>
+      <label class="drop" id="cover-drop">
+        <span>Upload your cover letter</span>
+        <input type="file" id="cover-input" accept=".pdf,.doc,.docx,.txt,.rtf" style="display:none">
+      </label>
+      <p class="hint">File types supported .pdf, .doc, .docx, .txt, .rtf up to 2MB</p>
+    </div>
+    <div class="wizard-nav"><button type="button" id="next">Next</button></div>
+  </main>
+</div>
+<footer class="site-footer" id="footer"><a href="/about">About</a><a href="/contact">Contact</a><a href="/privacy">Privacy</a><a href="/terms">Terms</a></footer>
+<script>
+(function () {
+  'use strict';
+  var V = (new URLSearchParams(location.search).get('v') || '').split(',').filter(Boolean);
+  var has = function (f) { return V.indexOf(f) >= 0; };
+  var state = {
+    resume: 'Grant-Howard-FlowCV-Resume-20251222.pdf',
+    uploading: false,
+    menuOpen: false,
+    replaceClicks: 0,
+    nativePickerOpened: 0,
+    log: [],
+    variants: V,
+  };
+  window.__mock = state;
+  var svg = function (title, d) {
+    return '<svg width="18" height="18" viewBox="0 0 16 16" aria-hidden="true">' + (has('svg-title') ? '<title>' + title + '</title>' : '') + d + '</svg>';
+  };
+  var DOTS = svg('More options icon', '<circle cx="3" cy="8" r="1.5"/><circle cx="8" cy="8" r="1.5"/><circle cx="13" cy="8" r="1.5"/>');
+  var SYNC = svg('Replace icon', '<path d="M3 8a5 5 0 0 1 9-3M13 8a5 5 0 0 1-9 3" fill="none" stroke="currentColor"/>');
+  var TRASH = svg('Delete icon', '<path d="M4 5h8l-1 9H5zM3 4h10M6 2h4" fill="none" stroke="currentColor"/>');
+  var FILE = svg('File icon', '<path d="M4 1h5l3 3v11H4z" fill="none" stroke="currentColor"/>');
+
+  if (has('bigdom')) {
+    var mega = document.getElementById('mega');
+    var footer = document.getElementById('footer');
+    var html = '', fhtml = '';
+    for (var i = 0; i < 450; i++) html += '<li><a href="/jobs/q-skill-' + i + '">Skill ' + i + ' jobs</a></li>';
+    for (var j = 0; j < 220; j++) fhtml += '<a href="/l/' + j + '">Footer link ' + j + '</a>';
+    mega.innerHTML = html;
+    footer.innerHTML += fhtml;
+  }
+
+  // A hidden input that lives with the card's upload component (React keeps it mounted).
+  var resumeInput = document.createElement('input');
+  resumeInput.type = 'file';
+  resumeInput.id = ':r1a:';
+  resumeInput.accept = '.pdf,.doc,.docx,.txt,.rtf';
+  resumeInput.style.display = 'none';
+  resumeInput.addEventListener('change', function (e) { onResumeChosen(resumeInput, e); });
+  function onResumeChosen(input, e) {
+    var f = input.files && input.files[0];
+    if (!f) return;
+    state.log.push('resume change ' + f.name + ' trusted=' + e.isTrusted);
+    state.uploading = true;
+    render();
+    setTimeout(function () {
+      state.uploading = false;
+      state.resume = f.name;
+      state.uploadedAt = 'just now';
+      render();
+    }, has('slow') ? 2500 : 400);
+  }
+
+  var card = document.getElementById('resume-card');
+  function render() {
+    if (state.resume && !state.uploading) {
+      card.innerHTML =
+        '<h3>Resume <span class="req">*</span></h3>' +
+        '<div class="file-row">' + FILE + '<a href="#" class="file-link">' + state.resume + '</a>' +
+        '<button type="button" class="icon-btn" aria-label="File options" aria-haspopup="menu" aria-expanded="false">' + DOTS + '</button></div>' +
+        '<p class="meta">' + (state.uploadedAt ? 'Uploaded ' + state.uploadedAt : 'Uploaded to profile on 8/26/2026') + '</p>';
+      wireMenuButton(card.querySelector('.icon-btn'));
+    } else if (state.uploading) {
+      card.innerHTML = '<h3>Resume <span class="req">*</span></h3><p class="meta">Uploading…</p>';
+    } else {
+      card.innerHTML = '<h3>Resume <span class="req">*</span></h3><p class="hint">Add a resume to continue.</p>';
+      if (has('effect')) {
+        card.innerHTML += '<label class="drop" for=":r1a:"><span>Upload your resume</span></label>';
+      }
+    }
+  }
+  // The resume's file input is not part of the card: Dice keeps one uploader input at the
+  // application level (variant "detached": none at all — Replace creates a fresh one).
+  if (!has('detached')) document.querySelector('main.wizard').appendChild(resumeInput);
+
+  function closeMenu() {
+    var m = document.getElementById('file-menu');
+    if (m) m.remove();
+    state.menuOpen = false;
+    if (has('aria-hide')) document.getElementById('app').removeAttribute('aria-hidden');
+    var b = card.querySelector('.icon-btn');
+    if (b) b.setAttribute('aria-expanded', 'false');
+  }
+
+  function openMenu(btn, viaKeyboardish) {
+    if (state.menuOpen) return closeMenu();
+    state.menuOpen = true;
+    btn.setAttribute('aria-expanded', 'true');
+    var r = btn.getBoundingClientRect();
+    var menu = document.createElement('div');
+    menu.id = 'file-menu';
+    menu.className = 'menu';
+    menu.setAttribute('role', 'menu');
+    menu.style.top = (r.bottom + window.scrollY + 6) + 'px';
+    menu.style.left = (r.right + window.scrollX - 150) + 'px';
+    var replace = has('label')
+      ? '<label role="menuitem" tabindex="-1" for=":r1a:" class="replace">' + SYNC + '<span>Replace</span></label>'
+      : '<div role="menuitem" tabindex="-1" class="replace">' + SYNC + '<span>Replace</span></div>';
+    menu.innerHTML = replace + '<div role="menuitem" tabindex="-1" class="delete">' + TRASH + '<span>Delete</span></div>';
+    document.body.appendChild(menu);
+    requestAnimationFrame(function () { menu.classList.add('open'); });
+    if (has('aria-hide')) document.getElementById('app').setAttribute('aria-hidden', 'true');
+    if (viaKeyboardish) menu.querySelector('.replace').focus();
+    var item = menu.querySelector('.replace');
+    var act = function (e) {
+      if (has('trusted') && !e.isTrusted) return;
+      state.replaceClicks++;
+      state.log.push('replace ' + e.type + ' trusted=' + e.isTrusted);
+      // Like Dice: Replace removes the current file at once…
+      state.resume = null;
+      if (has('label')) {
+        // The <label> opens the chooser itself (the browser's default action, after this handler).
+        setTimeout(function () { closeMenu(); render(); }, 0);
+        return;
+      }
+      closeMenu();
+      render();
+      var open = function () {
+        var input = resumeInput;
+        if (has('detached')) {
+          input = document.createElement('input');
+          input.type = 'file';
+          input.accept = '.pdf,.doc,.docx';
+          input.addEventListener('change', function (e) { onResumeChosen(input, e); });
+        }
+        input.value = '';
+        input.click();
+        if (!input.hasAttribute('data-applyflow-file-target')) state.nativePickerOpened++;
+      };
+      if (has('effect')) setTimeout(open, 0);
+      else open();
+    };
+    item.addEventListener('click', act);
+    menu.querySelector('.delete').addEventListener('click', function (e) { state.log.push('DELETE ' + e.type); state.deleted = true; state.resume = null; closeMenu(); render(); });
+    setTimeout(function () {
+      document.addEventListener('pointerdown', function outside(e) {
+        if (!document.getElementById('file-menu') || document.getElementById('file-menu').contains(e.target)) return;
+        document.removeEventListener('pointerdown', outside, true);
+        closeMenu();
+      }, true);
+    }, 0);
+  }
+
+  function wireMenuButton(btn) {
+    if (has('pointer-menu')) {
+      btn.addEventListener('pointerdown', function (e) {
+        if (has('trusted') && !e.isTrusted) return;
+        if (e.button !== 0) return;
+        e.preventDefault();
+        openMenu(btn, false);
+      });
+    } else {
+      btn.addEventListener('click', function (e) {
+        if (has('trusted') && !e.isTrusted) return;
+        // Opened without a pointer (keyboard/virtual click) → focus the first item, like React Aria.
+        openMenu(btn, e.detail === 0);
+      });
+    }
+  }
+
+  var coverInput = document.getElementById('cover-input');
+  coverInput.addEventListener('change', function () {
+    var f = coverInput.files && coverInput.files[0];
+    if (!f) return;
+    var drop = document.getElementById('cover-drop');
+    drop.outerHTML = '<div class="file-row">' + FILE + '<span class="cover-name">' + f.name + '</span></div>';
+  });
+
+  render();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,182 @@
+{
+  "$schema": "applyflow.resume/1",
+  "basics": {
+    "name": "Jordan Rivera",
+    "headline": "Principal Software Engineer, AI Platforms | Architecture, AWS, Kubernetes",
+    "email": "jordan.rivera@example.com",
+    "phone": "(312) 555-0148",
+    "location": "Chicago, IL",
+    "links": [
+      "linkedin.com/in/jordan-rivera-example",
+      "github.com/jrivera-example"
+    ]
+  },
+  "summary": "Software engineer and architect with 12 years of experience building distributed systems and, since 2021, internal AI platforms. Designed the LLM gateway and retrieval services used by 40+ product teams at a payments company. Comfortable owning architecture from whiteboard to production, and mentoring engineers along the way.",
+  "skills": [
+    {
+      "group": "AI & Machine Learning",
+      "items": [
+        "LLM",
+        "AI platform",
+        "SageMaker",
+        "Bedrock",
+        "Retrieval-Augmented Generation",
+        "Prompt Engineering",
+        "MLOps",
+        "AI platforms",
+        "Responsible AI",
+        "MLflow",
+        "Vector Databases (pgvector)"
+      ]
+    },
+    {
+      "group": "DevOps & Infrastructure",
+      "items": [
+        "Kubernetes",
+        "CI/CD",
+        "Terraform",
+        "Observability",
+        "Docker",
+        "Helm",
+        "CI/CD (GitHub Actions)",
+        "Observability (Prometheus, Grafana, OpenTelemetry)"
+      ]
+    },
+    {
+      "group": "Cloud",
+      "items": [
+        "AWS",
+        "EKS",
+        "AWS (EC2, EKS, Lambda, S3, SageMaker, Bedrock)"
+      ]
+    },
+    {
+      "group": "Languages",
+      "items": [
+        "Python",
+        "Java",
+        "TypeScript",
+        "SQL",
+        "Bash"
+      ]
+    },
+    {
+      "group": "Architecture",
+      "items": [
+        "Event-Driven Architecture",
+        "Architecture Governance",
+        "Reference Architectures",
+        "Architecture Reviews",
+        "Microservices",
+        "System Design"
+      ]
+    },
+    {
+      "group": "Data",
+      "items": [
+        "Apache Kafka",
+        "Apache Spark",
+        "Airflow"
+      ]
+    },
+    {
+      "group": "Backend & APIs",
+      "items": [
+        "REST APIs",
+        "GRPC"
+      ]
+    },
+    {
+      "group": "Additional Skills",
+      "items": [
+        "AI",
+        "Architecture",
+        "Compliance",
+        "Agile"
+      ]
+    }
+  ],
+  "experience": [
+    {
+      "title": "Principal Software Engineer, AI Platform",
+      "company": "Northlake Payments",
+      "location": "Chicago, IL",
+      "start": "Mar 2021",
+      "end": "Present",
+      "bullets": [
+        "Defined reference architectures and ran monthly architecture reviews for AI workloads, including model risk and data privacy controls aligned with PCI-DSS.",
+        "Designed and led delivery of an internal LLM gateway on AWS EKS that routes requests across multiple foundation model providers; adopted by 40+ product teams.",
+        "Built a retrieval-augmented generation service with pgvector and Python that cut average support-ticket research time by 35%.",
+        "Introduced MLflow-based model registry and CI/CD pipelines with GitHub Actions, reducing model deployment time from two weeks to two days.",
+        "Mentored 8 engineers; two were promoted to senior engineer."
+      ],
+      "technologies": []
+    },
+    {
+      "title": "Senior Software Engineer",
+      "company": "Northlake Payments",
+      "location": "Chicago, IL",
+      "start": "Jun 2017",
+      "end": "Feb 2021",
+      "bullets": [
+        "Re-architected the transaction-scoring pipeline from a monolith into event-driven microservices on Kafka and Java Spring Boot, handling 9,000 events per second.",
+        "Led migration of 60 services to Kubernetes with Terraform and Helm, cutting infrastructure cost by 22%.",
+        "Partnered with data science to productionize fraud models on SageMaker with automated monitoring and drift alerts."
+      ],
+      "technologies": []
+    },
+    {
+      "title": "Software Engineer",
+      "company": "Brightline Logistics",
+      "location": "Evanston, IL",
+      "start": "Jul 2014",
+      "end": "May 2017",
+      "bullets": [
+        "Built REST APIs in Java and Python for shipment tracking used by 1,200 enterprise customers.",
+        "Implemented Airflow pipelines feeding a Redshift data warehouse for operations reporting.",
+        "Wrote integration and unit tests that raised coverage from 40% to 78%."
+      ],
+      "technologies": []
+    }
+  ],
+  "projects": [
+    {
+      "name": "Open-source LLM evaluation harness",
+      "description": "Python toolkit for regression-testing prompts and retrieval quality Maintains 1,100+ GitHub stars; used by teams to compare model versions before rollout.",
+      "bullets": []
+    }
+  ],
+  "education": [
+    {
+      "degree": "B.S. Computer Science",
+      "institution": "University of Illinois Urbana-Champaign",
+      "location": "",
+      "date": "2014",
+      "details": []
+    }
+  ],
+  "certifications": [
+    "AWS Certified Solutions Architect – Professional (2022) Certified Kubernetes Administrator (CKA) (2020)"
+  ],
+  "additional": [],
+  "coverLetter": {
+    "paragraphs": [
+      "Dear Hiring Team,",
+      "I'm applying for the Senior Architect AI Engineering and Platforms role at Meridian Credit Analytics LLC. I'm currently a Principal Software Engineer, AI Platform at Northlake Payments, with 12 years of experience overall. The role's focus on AWS, Kubernetes and Large Language Models lines up closely with the work I've been doing.",
+      "In my current role at Northlake Payments, I defined reference architectures and ran monthly architecture reviews for AI workloads, including model risk and data privacy controls aligned with PCI-DSS. Earlier there, as a Senior Software Engineer, I re-architected the transaction-scoring pipeline from a monolith into event-driven microservices on Kafka and Java Spring Boot, handling 9,000 events per second.",
+      "Much of my work has involved AWS, Kubernetes, Large Language Models and MLOps. Recently, I designed and led delivery of an internal LLM gateway on AWS EKS that routes requests across multiple foundation model providers; adopted by 40+ product teams. Earlier in my career at Brightline Logistics, I built REST APIs in Java and Python for shipment tracking used by 1,200 enterprise customers. Outside my day job, I maintain open-source LLM evaluation harness (Python toolkit for regression-testing prompts and retrieval quality Maintains 1,100+ GitHub stars; used by teams to compare model versions before rollout.). I also hold the AWS Certified Solutions Architect – Professional (2022) Certified Kubernetes Administrator (CKA) certification.",
+      "I'm based in Chicago, IL, so the on-site schedule works for me.",
+      "I'd welcome the chance to discuss how I could contribute to Meridian Credit Analytics LLC. Thank you for your time and consideration.",
+      "Sincerely,\nJordan Rivera"
+    ]
+  },
+  "meta": {
+    "generatedAt": "2026-11-02T10:16:16.971Z",
+    "engine": "local",
+    "model": null,
+    "version": 1,
+    "jobTitle": "Senior Architect AI Engineering and Platforms",
+    "company": "Meridian Credit Analytics LLC",
+    "jobUrl": "https://www.dice.com/job-detail/3f9a1c2e-7b4d-4e8a-9c1f-2d6b8e0a5c71"
+  }
+}

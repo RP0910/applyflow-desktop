@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Engineering Technician III - Contoso Defense Careers</title>
+<!-- MOCK PAGE for ApplyFlow tests. Models a Workday job page (*.myworkdayjobs.com): "Apply" opens a
+     "Start Your Application" dialog (Autofill with Resume / Apply Manually / Use My Last Application);
+     "Apply Manually" leads to Workday's Sign In page (email + password, Create Account), which only the
+     person can complete. -->
+<style>
+  body { margin: 0; font: 15px/1.5 Arial, sans-serif; color: #333; }
+  .wrap { max-width: 900px; margin: 0 auto; padding: 24px; }
+  button { padding: 8px 18px; border-radius: 16px; border: 1px solid #0875e1; background: #0875e1; color: #fff; cursor: pointer; margin: 4px; }
+  .dlg { position: fixed; inset: 0; background: rgba(0,0,0,.4); display: flex; align-items: center; justify-content: center; }
+  .dlg > div { background: #fff; padding: 24px; border-radius: 8px; width: 420px; }
+  label { display: block; margin: 10px 0 4px; }
+  input { width: 100%; padding: 8px; }
+</style>
+</head>
+<body>
+<div class="wrap" id="wd"></div>
+<script>
+(function () {
+  var wd = document.getElementById('wd');
+  function job() {
+    wd.innerHTML = '<h2 data-automation-id="jobPostingHeader">Engineering Technician III</h2><p>Indianapolis, IN · Full time · R12345</p><button type="button" data-automation-id="adventureButton" id="apply">Apply</button><div data-automation-id="jobPostingDescription"><p>Contoso Defense is seeking…</p></div>';
+    document.getElementById('apply').addEventListener('click', function () {
+      var d = document.createElement('div');
+      d.className = 'dlg';
+      d.innerHTML = '<div role="dialog" aria-modal="true" aria-label="Start Your Application"><h3>Start Your Application</h3><button type="button" data-automation-id="autofillWithResume">Autofill with Resume</button><button type="button" data-automation-id="applyManually" id="manual">Apply Manually</button><button type="button">Use My Last Application</button></div>';
+      document.body.appendChild(d);
+      document.getElementById('manual').addEventListener('click', function () { history.pushState({}, '', location.pathname.replace(/\/?$/, '/apply/applyManually')); d.remove(); signIn(); });
+    });
+  }
+  function signIn() {
+    wd.innerHTML = '<h2>Sign In</h2><form data-automation-id="signInContent" onsubmit="return false"><label for="em">Email Address</label><input id="em" type="email" data-automation-id="email"><label for="pw">Password</label><input id="pw" type="password" data-automation-id="password"><button type="submit">Sign In</button></form><p><a href="#">Create Account</a> · <a href="#">Forgot your password?</a></p>';
+  }
+  if (/applyManually/.test(location.pathname)) signIn(); else job();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,61 @@
+Senior Architect AI Engineering and Platforms
+Meridian Credit Analytics LLC — Chicago, IL
+https://www.dice.com/job-detail/3f9a1c2e-7b4d-4e8a-9c1f-2d6b8e0a5c71
+
+Meridian Credit Analytics is building the next generation of its AI platform to serve credit, fraud and identity products. We are hiring a Senior Architect to set the technical direction for AI engineering across the company.
+
+Responsibilities:
+
+• Define the target architecture for enterprise AI platforms, including LLM gateways, retrieval services and model serving.
+
+• Lead architecture reviews and publish reference architectures and engineering standards for AI workloads.
+
+• Partner with data science, security and product teams to move models from prototype to production.
+
+• Design scalable, secure cloud-native services on AWS and Kubernetes.
+
+• Establish MLOps practices including model registry, CI/CD for models, and monitoring with drift detection.
+
+• Drive responsible AI and model governance practices in a regulated environment.
+
+• Mentor engineers and architects across multiple product teams.
+
+Required Qualifications:
+
+• 10+ years of software engineering experience, including 3+ years in architecture roles.
+
+• Deep experience with AWS (EKS, SageMaker, Bedrock) and Kubernetes.
+
+• Hands-on experience building LLM applications, including retrieval-augmented generation and prompt engineering.
+
+• Proficiency in Python and Java.
+
+• Experience with event-driven architecture and Apache Kafka.
+
+• Experience with Terraform and CI/CD pipelines.
+
+• Bachelor's degree in Computer Science or a related field.
+
+Preferred Qualifications:
+
+• Experience with Azure OpenAI or Google Vertex AI.
+
+• Familiarity with FCRA, GLBA or other consumer-data regulations.
+
+• Experience with Databricks or Snowflake.
+
+• Master's degree in a technical field.
+
+Additional Information:
+
+This is an on-site role in Chicago, IL. Candidates must be authorized to work in the United States. This position is not eligible for visa sponsorship.
+
+Questions? Call Dana Whitfield, Technical Recruiter, at (312) 555-0147 or email dana.whitfield@meridian-example.com.
+
+Benefits:
+
+• Medical, dental and vision coverage
+
+• 401(k) with company match
+
+• Annual learning budget

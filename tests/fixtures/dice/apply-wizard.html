@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Apply - Senior Architect AI Engineering and Platforms - Dice.com</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- MOCK Dice-style application wizard for ApplyFlow tests and demos. Nothing is sent anywhere. -->
+<style>
+  :root { --ink:#1b2738; --muted:#5d6b7e; --line:#e3e7ee; --blue:#1450a3; }
+  * { box-sizing: border-box; }
+  body { margin:0; font: 14px/1.5 -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; color:var(--ink); background:#f6f7f9; }
+  header.top { display:flex; align-items:center; gap:24px; height:56px; padding:0 24px; background:#fff; border-bottom:1px solid var(--line); }
+  .brand { font-weight:800; font-size:13px; color:#fff; background:#5b6676; padding:4px 8px; border-radius:4px; }
+  .wrap { max-width:720px; margin:24px auto; padding:0 20px; }
+  .card { background:#fff; border:1px solid var(--line); border-radius:10px; padding:22px; }
+  .steps { display:flex; gap:8px; margin-bottom:14px; font-size:12px; color:var(--muted); }
+  .steps span[aria-current="step"] { color:var(--blue); font-weight:700; }
+  h1 { font-size:19px; margin:0 0 4px; }
+  h2 { font-size:15px; margin:18px 0 8px; }
+  .row { display:grid; gap:4px; margin-bottom:12px; }
+  label { font-weight:600; font-size:13px; }
+  input[type=text], input[type=email], input[type=tel], input[type=url], input[type=number], select, textarea { border:1px solid #c9d0db; border-radius:6px; padding:8px 10px; font:inherit; }
+  textarea { min-height:90px; }
+  fieldset { border:1px solid var(--line); border-radius:8px; margin:0 0 12px; padding:10px 12px; }
+  legend { font-weight:600; font-size:13px; padding:0 4px; }
+  .actions { display:flex; justify-content:space-between; margin-top:16px; }
+  button { border-radius:18px; padding:8px 22px; font-weight:600; cursor:pointer; border:1px solid var(--blue); }
+  .primary { background:var(--blue); color:#fff; }
+  .secondary { background:#fff; color:var(--blue); }
+  .error { color:#b42318; font-size:13px; margin-top:8px; }
+  .review dt { color:var(--muted); font-size:12px; }
+  .review dd { margin:0 0 8px; }
+  .success { text-align:center; padding:40px 20px; }
+  .success h1 { color:#136c45; }
+  .hint { color:var(--muted); font-size:12px; font-weight:400; }
+</style>
+</head>
+<body>
+<header class="top"><span class="brand">MockDice</span><span>Application</span></header>
+<div class="wrap">
+  <div class="card">
+    <div class="steps" aria-label="Application progress">
+      <span id="s1" aria-current="step">1. Contact info</span><span>›</span>
+      <span id="s2">2. Employer questions</span><span>›</span>
+      <span id="s3">3. Review</span>
+    </div>
+    <form id="wizard" data-testid="application-wizard" novalidate onsubmit="return false">
+      <!-- Step 1 -->
+      <section id="step1">
+        <h1>Senior Architect AI Engineering and Platforms</h1>
+        <p class="hint">Meridian Credit Analytics LLC, Chicago, IL</p>
+        <h2>Contact information</h2>
+        <div class="row"><label for="firstName">First name *</label><input id="firstName" name="firstName" type="text" required></div>
+        <div class="row"><label for="lastName">Last name *</label><input id="lastName" name="lastName" type="text" required></div>
+        <div class="row"><label for="email">Email *</label><input id="email" name="email" type="email" required></div>
+        <div class="row"><label for="phone">Phone *</label><input id="phone" name="phone" type="tel" required></div>
+        <div class="row"><label for="location">Current location</label><input id="location" name="location" type="text"></div>
+        <div class="row"><label for="linkedin">LinkedIn profile</label><input id="linkedin" name="linkedin" type="url"></div>
+        <h2>Documents</h2>
+        <div class="row"><label for="resume">Resume * <span class="hint">PDF or DOCX</span></label><input id="resume" name="resume" type="file" accept=".pdf,.docx" required></div>
+        <div class="row"><label for="coverLetter">Cover letter <span class="hint">optional</span></label><input id="coverLetter" name="coverLetter" type="file" accept=".pdf,.docx"></div>
+      </section>
+      <!-- Step 2 -->
+      <section id="step2" hidden>
+        <h2>Employer questions</h2>
+        <fieldset>
+          <legend>Are you legally authorized to work in the United States? *</legend>
+          <label><input type="radio" name="authorized" value="yes" required> Yes</label>
+          <label><input type="radio" name="authorized" value="no"> No</label>
+        </fieldset>
+        <fieldset>
+          <legend>Will you now or in the future require visa sponsorship? *</legend>
+          <label><input type="radio" name="sponsorship" value="yes" required> Yes</label>
+          <label><input type="radio" name="sponsorship" value="no"> No</label>
+        </fieldset>
+        <div class="row"><label for="k8sYears">How many years of experience do you have with Kubernetes? *</label><input id="k8sYears" name="k8sYears" type="number" min="0" required></div>
+        <div class="row"><label for="salary">Desired salary</label><input id="salary" name="salary" type="text"></div>
+        <div class="row"><label for="clearance">Do you hold an active security clearance?</label><select id="clearance" name="clearance"><option value="">Select…</option><option>None</option><option>Secret</option><option>Top Secret</option></select></div>
+        <div class="row"><label for="gender">Gender (voluntary self-identification)</label><select id="gender" name="gender"><option value="">Select…</option><option>Female</option><option>Male</option><option>Non-binary</option><option>Prefer not to say</option></select></div>
+        <div class="row"><label for="summary">Professional summary</label><textarea id="summary" name="summary"></textarea></div>
+        <div class="row"><label for="why">Why are you interested in this role?</label><textarea id="why" name="why"></textarea></div>
+      </section>
+      <!-- Step 3 -->
+      <section id="step3" hidden>
+        <h2>Review your application</h2>
+        <dl class="review" id="reviewList"></dl>
+        <div id="captchaSlot"></div>
+      </section>
+      <p class="error" id="err" role="alert"></p>
+      <div class="actions" id="actions">
+        <button type="button" class="secondary" id="back" hidden>Back</button>
+        <button type="button" class="primary" id="next">Next</button>
+      </div>
+    </form>
+    <div id="done" class="success" hidden>
+      <h1>Your application has been submitted</h1>
+      <p>Thanks for applying to Meridian Credit Analytics LLC. (Mock page — nothing was sent.)</p>
+    </div>
+  </div>
+</div>
+<script>
+  let step = 1;
+  const $ = (id) => document.getElementById(id);
+  function requiredOk(n) {
+    const sec = $('step' + n);
+    const missing = [];
+    sec.querySelectorAll('[required]').forEach((el) => {
+      if (el.type === 'radio') { if (!sec.querySelector(`input[name="${el.name}"]:checked`)) missing.push(el.name); }
+      else if (el.type === 'file') { if (!el.files || !el.files.length) missing.push(el.name); }
+      else if (!el.value.trim()) missing.push(el.name);
+    });
+    return Array.from(new Set(missing));
+  }
+  function render() {
+    [1, 2, 3].forEach((n) => { $('step' + n).hidden = n !== step; $('s' + n).toggleAttribute('aria-current', n === step); if (n === step) $('s' + n).setAttribute('aria-current', 'step'); });
+    $('back').hidden = step === 1;
+    $('next').textContent = step === 3 ? 'Submit application' : 'Next';
+    history.replaceState(null, '', location.pathname + '?step=' + step + (new URLSearchParams(location.search).get('captcha') ? '&captcha=1' : ''));
+    if (step === 3) {
+      const v = (id) => ($(id).value || '—');
+      const file = (id) => ($(id).files && $(id).files[0] ? $(id).files[0].name : 'none');
+      const r = (name) => (document.querySelector(`input[name="${name}"]:checked`) || {}).value || '—';
+      $('reviewList').innerHTML = [['Name', v('firstName') + ' ' + v('lastName')], ['Email', v('email')], ['Phone', v('phone')], ['Resume', file('resume')], ['Cover letter', file('coverLetter')], ['Authorized to work', r('authorized')], ['Sponsorship', r('sponsorship')], ['Kubernetes years', v('k8sYears')]]
+        .map(([k, val]) => `<dt>${k}</dt><dd>${String(val).replace(/</g, '&lt;')}</dd>`).join('');
+      if (new URLSearchParams(location.search).get('captcha')) $('captchaSlot').innerHTML = '<iframe title="captcha" src="about:blank#recaptcha" class="g-recaptcha" data-sitekey="mock" width="300" height="78"></iframe>';
+    }
+  }
+  $('next').addEventListener('click', () => {
+    $('err').textContent = '';
+    if (step < 3) {
+      const missing = requiredOk(step);
+      if (missing.length) { $('err').textContent = 'Please complete: ' + missing.join(', '); return; }
+      step++; render(); return;
+    }
+    $('wizard').hidden = true;
+    $('done').hidden = false;
+    document.title = 'Application submitted - Dice.com';
+  });
+  $('back').addEventListener('click', () => { step = Math.max(1, step - 1); render(); });
+  render();
+</script>
+</body>
+</html>

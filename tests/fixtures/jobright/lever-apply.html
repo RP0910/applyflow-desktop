@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Northwind Avionics - PCB Layout Technician</title>
+<!-- MOCK PAGE for ApplyFlow tests. Models Lever's application form (jobs.lever.co/<company>/<id>/apply):
+     form#application-form; "Resume/CV ✱" with input[name=resume] behind an "ATTACH RESUME/CV" button —
+     after a file is attached Lever shows "Parsing…" and fills name, email, phone and current company
+     from the resume itself (here deliberately not quite right); Full name, Email, Phone, Current location
+     (suggestions appear as you type), Current company, LinkedIn/GitHub/Portfolio URLs; the employer's
+     question card (radio buttons, required ✱); "Additional information" (comments); EEO selects;
+     an invisible hCaptcha; #btn-submit "Submit application" → …/thanks.
+     ?captcha=1: pressing Submit shows an hCaptcha challenge instead (as Lever sometimes does). -->
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 15px/1.6 "Helvetica Neue", Arial, sans-serif; color: #515357; }
+  .content { max-width: 760px; margin: 0 auto; padding: 32px 24px 80px; }
+  ul { list-style: none; padding: 0; }
+  .application-question { display: flex; margin-bottom: 18px; }
+  .application-label { width: 220px; font-weight: 700; }
+  .application-field { flex: 1; position: relative; }
+  .application-field input[type=text], .application-field input[type=email], .application-field select, .application-field textarea { width: 100%; padding: 6px 10px; border: 1px solid #ccc; border-radius: 3px; font: inherit; }
+  .required { color: #ff794f; margin-left: 4px; }
+  .visible-resume-upload { display: inline-block; position: relative; overflow: hidden; border: 1px solid #579eee; color: #579eee; padding: 6px 14px; border-radius: 3px; cursor: pointer; }
+  .visible-resume-upload input { position: absolute; left: 0; top: 0; opacity: 0; width: 100%; height: 100%; cursor: pointer; }
+  .dropdown-results { position: absolute; left: 0; right: 0; background: #fff; border: 1px solid #ccc; z-index: 5; }
+  .dropdown-location { padding: 6px 10px; cursor: pointer; }
+  .template-btn-submit { background: #579eee; color: #fff; border: 0; padding: 12px 28px; font-size: 15px; border-radius: 3px; cursor: pointer; }
+  .error-message { color: #d9534f; }
+  .h-captcha-challenge { width: 400px; height: 580px; border: 1px solid #ccc; }
+</style>
+</head>
+<body>
+<div class="main-header"><a class="main-header-logo" href="https://jobs.lever.co/northwind">Northwind Avionics</a></div>
+<div class="content">
+  <div class="posting-headline"><h2>PCB Layout Technician</h2><div class="location">Indianapolis, IN</div></div>
+  <form id="application-form" class="application-form" method="POST" enctype="multipart/form-data" novalidate>
+    <div class="section application-form"><h4>Submit your application</h4>
+      <ul>
+        <li class="application-question resume">
+          <label><div class="application-label">Resume/CV<span class="required">✱</span></div>
+          <div class="application-field"><a class="visible-resume-upload" role="button"><span class="default-label">ATTACH RESUME/CV</span><input type="file" name="resume" id="resume-upload-input" data-qa="input-resume"></a>
+          <span class="filename"></span><span class="resume-upload-working" style="display:none">Parsing…</span></div></label>
+        </li>
+        <li class="application-question"><label><div class="application-label">Full name<span class="required">✱</span></div><div class="application-field"><input type="text" name="name" data-qa="name-input" required></div></label></li>
+        <li class="application-question"><label><div class="application-label">Email<span class="required">✱</span></div><div class="application-field"><input type="email" name="email" data-qa="email-input" required></div></label></li>
+        <li class="application-question"><label><div class="application-label">Phone<span class="required">✱</span></div><div class="application-field"><input type="text" name="phone" data-qa="phone-input" required></div></label></li>
+        <li class="application-question"><label><div class="application-label">Current location</div><div class="application-field"><input type="text" name="location" id="location-input" class="location-input" autocomplete="off"><input type="hidden" name="selectedLocation" id="selected-location"><div class="dropdown-container"></div></div></label></li>
+        <li class="application-question"><label><div class="application-label">Current company</div><div class="application-field"><input type="text" name="org" data-qa="org-input"></div></label></li>
+        <li class="application-question"><label><div class="application-label">LinkedIn URL</div><div class="application-field"><input type="text" name="urls[LinkedIn]"></div></label></li>
+        <li class="application-question"><label><div class="application-label">GitHub URL</div><div class="application-field"><input type="text" name="urls[GitHub]"></div></label></li>
+        <li class="application-question"><label><div class="application-label">Portfolio URL</div><div class="application-field"><input type="text" name="urls[Portfolio]"></div></label></li>
+      </ul>
+    </div>
+    <div class="section application-form custom-question"><h4>Northwind Avionics questions</h4>
+      <ul>
+        <li class="application-question custom-question"><div class="application-label full-width">Are you legally authorized to work in the United States?<span class="required">✱</span></div>
+          <div class="application-field"><ul data-qa="multiple-choice">
+            <li><label><input type="radio" name="cards[a1b2][field0]" value="Yes" required><span class="application-answer-alternative">Yes</span></label></li>
+            <li><label><input type="radio" name="cards[a1b2][field0]" value="No"><span class="application-answer-alternative">No</span></label></li>
+          </ul></div></li>
+        <li class="application-question custom-question"><div class="application-label full-width">Will you now or in the future require visa sponsorship?<span class="required">✱</span></div>
+          <div class="application-field"><ul data-qa="multiple-choice">
+            <li><label><input type="radio" name="cards[a1b2][field1]" value="Yes" required><span class="application-answer-alternative">Yes</span></label></li>
+            <li><label><input type="radio" name="cards[a1b2][field1]" value="No"><span class="application-answer-alternative">No</span></label></li>
+          </ul></div></li>
+      </ul>
+    </div>
+    <div class="section application-form"><h4>Additional information</h4>
+      <ul><li class="application-question"><label><div class="application-field full-width"><textarea name="comments" id="additional-information" placeholder="Add a cover letter or anything else you want to share." rows="6"></textarea></div></label></li></ul>
+    </div>
+    <div class="section application-form eeo-section"><h4>U.S. Equal Employment Opportunity information (Completion is voluntary)</h4>
+      <ul>
+        <li class="application-question"><label><div class="application-label">Gender</div><div class="application-field"><select name="eeo[gender]"><option value="">Select ...</option><option>Male</option><option>Female</option><option>Decline to self-identify</option></select></div></label></li>
+        <li class="application-question"><label><div class="application-label">Race</div><div class="application-field"><select name="eeo[race]"><option value="">Select ...</option><option>White (Not Hispanic or Latino)</option><option>Decline to self-identify</option></select></div></label></li>
+        <li class="application-question"><label><div class="application-label">Veteran status</div><div class="application-field"><select name="eeo[veteran]"><option value="">Select ...</option><option>I am not a protected veteran</option><option>Decline to self-identify</option></select></div></label></li>
+      </ul>
+    </div>
+    <div class="h-captcha" data-sitekey="mock" data-size="invisible"><iframe src="https://newassets.hcaptcha.com/captcha/v1/static/hcaptcha.html#frame=checkbox-invisible" style="display:none" title="hCaptcha"></iframe></div>
+    <button type="submit" class="template-btn-submit postings-btn" id="btn-submit" data-qa="btn-submit">Submit application</button>
+  </form>
+</div>
+<script>
+(function () {
+  var form = document.getElementById('application-form');
+  var resume = document.getElementById('resume-upload-input');
+  resume.addEventListener('change', function () {
+    var f = resume.files && resume.files[0];
+    if (!f) return;
+    form.querySelector('.filename').textContent = f.name;
+    var working = form.querySelector('.resume-upload-working');
+    working.style.display = 'inline';
+    // Lever reads the resume and fills fields itself (not always correctly).
+    setTimeout(function () {
+      working.style.display = 'none';
+      var set = function (name, v) { var el = form.querySelector('[name="' + name + '"]'); if (el && !el.value) { el.value = v; el.dispatchEvent(new Event('input', { bubbles: true })); } };
+      set('name', 'GRANT M HOWARD');
+      set('email', 'grant.howard.old@example.net');
+      set('phone', '727-555-0100');
+      set('org', 'Raytheon');
+      window.__parsed = true;
+    }, 1200);
+  });
+  var loc = document.getElementById('location-input');
+  var box = form.querySelector('.dropdown-container');
+  var t = null;
+  loc.addEventListener('input', function () {
+    clearTimeout(t);
+    var q = loc.value.trim().toLowerCase();
+    t = setTimeout(function () {
+      var all = ['St. Petersburg, FL, USA', 'St. Petersburg, Russia', 'Seattle, WA, USA', 'Indianapolis, IN, USA'];
+      var hits = q ? all.filter(function (a) { return a.toLowerCase().indexOf(q.split(',')[0]) === 0; }) : [];
+      box.innerHTML = hits.length ? '<div class="dropdown-results">' + hits.map(function (h) { return '<div class="dropdown-location">' + h + '</div>'; }).join('') + '</div>' : '';
+      box.querySelectorAll('.dropdown-location').forEach(function (d) {
+        d.addEventListener('click', function () { loc.value = d.textContent; document.getElementById('selected-location').value = JSON.stringify({ name: d.textContent }); box.innerHTML = ''; });
+      });
+    }, 400);
+  });
+  form.addEventListener('submit', function (e) {
+    e.preventDefault();
+    form.querySelectorAll('.error-message').forEach(function (n) { n.remove(); });
+    var bad = [];
+    if (!resume.files.length) bad.push(resume);
+    form.querySelectorAll('[required]').forEach(function (el) {
+      if (el.type === 'radio') { if (!form.querySelector('input[name="' + el.name + '"]:checked')) bad.push(el); }
+      else if (!el.value) bad.push(el);
+    });
+    if (bad.length) {
+      bad.forEach(function (el) { var m = document.createElement('div'); m.className = 'error-message'; m.setAttribute('role', 'alert'); m.textContent = 'This field is required'; el.closest('.application-question').appendChild(m); });
+      return;
+    }
+    var v = function (n) { return form.querySelector('[name="' + n + '"]').value; };
+    window.__submitted = { name: v('name'), email: v('email'), phone: v('phone'), location: loc.value, selectedLocation: document.getElementById('selected-location').value, comments: v('comments'), resume: resume.files[0].name };
+    try { sessionStorage.setItem('lever-submitted', JSON.stringify(window.__submitted)); } catch (err) {}
+    if (/captcha=1/.test(location.search) && !window.__captchaDone) {
+      var c = document.createElement('div');
+      c.innerHTML = '<iframe class="h-captcha-challenge" title="Main content of the hCaptcha challenge" src="https://newassets.hcaptcha.com/captcha/v1/static/hcaptcha.html#frame=challenge"></iframe>';
+      document.body.appendChild(c);
+      return;
+    }
+    setTimeout(function () { location.assign(location.pathname.replace(/\/apply\/?$/, '/thanks')); }, 500);
+  });
+})();
+</script>
+</body>
+</html>

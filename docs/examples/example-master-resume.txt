@@ -1,0 +1,42 @@
+Jordan Rivera
+Principal Software Engineer, AI Platforms
+Chicago, IL | jordan.rivera@example.com | (312) 555-0148 | linkedin.com/in/jordan-rivera-example | github.com/jrivera-example
+
+SUMMARY
+Software engineer and architect with 12 years of experience building distributed systems and, since 2021, internal AI platforms. Designed the LLM gateway and retrieval services used by 40+ product teams at a payments company. Comfortable owning architecture from whiteboard to production, and mentoring engineers along the way.
+
+SKILLS
+Languages: Python, Java, TypeScript, SQL, Bash
+Cloud & Platform: AWS (EC2, EKS, Lambda, S3, SageMaker, Bedrock), Kubernetes, Docker, Terraform, Helm
+AI & Data: Large Language Models, Retrieval-Augmented Generation, Prompt Engineering, MLOps, MLflow, Vector Databases (pgvector), Apache Spark, Airflow
+Architecture: Microservices, Event-Driven Architecture, REST APIs, gRPC, System Design, Reference Architectures
+Practices: CI/CD (GitHub Actions), Observability (Prometheus, Grafana, OpenTelemetry), Agile, Architecture Reviews
+
+EXPERIENCE
+Principal Software Engineer, AI Platform | Northlake Payments | Chicago, IL | Mar 2021 – Present
+• Designed and led delivery of an internal LLM gateway on AWS EKS that routes requests across multiple foundation model providers; adopted by 40+ product teams.
+• Built a retrieval-augmented generation service with pgvector and Python that cut average support-ticket research time by 35%.
+• Defined reference architectures and ran monthly architecture reviews for AI workloads, including model risk and data privacy controls aligned with PCI-DSS.
+• Introduced MLflow-based model registry and CI/CD pipelines with GitHub Actions, reducing model deployment time from two weeks to two days.
+• Mentored 8 engineers; two were promoted to senior engineer.
+
+Senior Software Engineer | Northlake Payments | Chicago, IL | Jun 2017 – Feb 2021
+• Re-architected the transaction-scoring pipeline from a monolith into event-driven microservices on Kafka and Java Spring Boot, handling 9,000 events per second.
+• Led migration of 60 services to Kubernetes with Terraform and Helm, cutting infrastructure cost by 22%.
+• Partnered with data science to productionize fraud models on SageMaker with automated monitoring and drift alerts.
+
+Software Engineer | Brightline Logistics | Evanston, IL | Jul 2014 – May 2017
+• Built REST APIs in Java and Python for shipment tracking used by 1,200 enterprise customers.
+• Implemented Airflow pipelines feeding a Redshift data warehouse for operations reporting.
+• Wrote integration and unit tests that raised coverage from 40% to 78%.
+
+PROJECTS
+Open-source LLM evaluation harness — Python toolkit for regression-testing prompts and retrieval quality
+• Maintains 1,100+ GitHub stars; used by teams to compare model versions before rollout.
+
+EDUCATION
+B.S. Computer Science | University of Illinois Urbana-Champaign | 2014
+
+CERTIFICATIONS
+• AWS Certified Solutions Architect – Professional (2022)
+• Certified Kubernetes Administrator (CKA) (2020)

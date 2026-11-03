@@ -1,0 +1,45 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+dist-electron/
+dist-cli/
+release/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# OS
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Editors / IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Test / coverage
+coverage/
+.nyc_output/
+
+# Electron / packaging
+*.exe
+*.blockmap
+*.dmg
+*.AppImage
+*.snap
+*.deb
+*.rpm
+out/
