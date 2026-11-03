@@ -30,7 +30,7 @@ import { buildAllDocs, uploadFileName, uploadPayload } from '@/services/export/b
 import { folderFor, planApplicationFiles } from '@/services/downloads/planner';
 import { downloadFiles, showInFolder, type DownloadsApi } from '@/services/downloads/downloader';
 import { ensureApplicationOpen, INITIAL_RUN, processStep, runSteps, stepKey, type ApplyRunState, type RunnerIO } from '@/services/workflow/applyRunner';
-import { rememberAnswer } from '@/services/forms/mapper';
+import { rememberAnswer, toScreeningControl } from '@/services/forms/mapper';
 import { ClaudeError } from '@/services/claude/errors';
 import { newId, newToken } from '@/utils/id';
 import { addDays, nowIso, todayLocal } from '@/utils/dates';
@@ -105,6 +105,19 @@ const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 const docsStamp = (s: JobSession) => `${s.resume?.version ?? 0}|${s.includeCoverLetter ? (s.coverLetter?.version ?? 0) : 'none'}`;
 const uploadExt = (settings: Settings): 'pdf' | 'docx' => (!settings.resumeOutputFormats.includes('pdf') && settings.resumeOutputFormats.includes('docx') ? 'docx' : 'pdf');
 
+/** Desktop browser veil while documents are prepared and the employer application is opening. */
+function syncOpeningOverlay(run: ApplyRunState): void {
+  if (typeof document === 'undefined') return;
+  const show = run.status === 'working' && run.stages.open !== 'done';
+  const label =
+    run.stages.open === 'active'
+      ? 'Opening your application…'
+      : 'Preparing your documents…';
+  if (show) document.documentElement.dataset.afOpening = label;
+  else delete document.documentElement.dataset.afOpening;
+  window.dispatchEvent(new CustomEvent('af:opening', { detail: { show, label } }));
+}
+
 export function useWorkflow(inputs: WorkflowInputs, deps: WorkflowDeps) {
   const { settings, resumes, profile } = inputs;
   const [tabId, setTabId] = useState<number | null>(deps.pinnedTabId ?? null);
@@ -140,6 +153,7 @@ export function useWorkflow(inputs: WorkflowInputs, deps: WorkflowDeps) {
   const report = useCallback((next: ApplyRunState) => {
     runRef.current = next;
     setRun(next);
+    syncOpeningOverlay(next);
   }, []);
 
   const setSession = useCallback(async (s: JobSession | null) => {
@@ -496,7 +510,18 @@ export function useWorkflow(inputs: WorkflowInputs, deps: WorkflowDeps) {
       const pattern = q.label.trim().slice(0, 160);
       const saved = await saveProfile({
         ...p,
-        approvedAnswers: rememberAnswer(p.approvedAnswers, { category, questionPattern: pattern, answer: value.trim() }, () => newId('ans'), nowIso()),
+        approvedAnswers: rememberAnswer(
+          p.approvedAnswers,
+          {
+            category,
+            questionPattern: pattern,
+            answer: value.trim(),
+            control: toScreeningControl(q.control),
+            options: q.options?.length ? q.options : undefined,
+          },
+          () => newId('ans'),
+          nowIso(),
+        ),
       });
       profileRef.current = saved;
     }
@@ -636,9 +661,34 @@ export function useWorkflow(inputs: WorkflowInputs, deps: WorkflowDeps) {
     if (!r.ok) notify('info', r.message);
   }, [application, deps.downloads, notify]);
 
+  /**
+   * After a verified employer confirmation, open the Jobright job and press “Yes, I applied!”.
+   * Skipped when submission wasn’t confirmed (canceled, failed, still in progress, or manual guess).
+   */
+  const confirmJobrightApplied = useCallback(async (jobUrl: string) => {
+    if (tabId === null || !jobUrl) return;
+    const b = bridge();
+    if (b) await b.invoke('dice.navigate', jobUrl).catch(() => undefined);
+    for (let i = 0; i < 24; i++) {
+      if (abortRef.current?.signal.aborted) return;
+      await sleep(500);
+      const res = await deps.messenger.send(tabId, { type: 'AF_CONFIRM_JOBRIGHT_APPLIED' }).catch(() => null);
+      if (res?.clicked) {
+        notify('success', 'Marked as applied on Jobright.');
+        return;
+      }
+    }
+    notify('info', 'ApplyFlow recorded the application. If Jobright still asks “Did you apply?”, press “Yes, I applied!” there.');
+  }, [tabId, deps.messenger, notify]);
+
   const recordSubmitted = useCallback(async (confirmedByDice: boolean, how: 'applyflow' | 'manual') => {
     const s = sessionRef.current;
     if (!s || s.submittedAt) return;
+    // Only a verified site confirmation marks the job applied — never a cancel, failure, or in-progress form.
+    if (!confirmedByDice && how === 'applyflow') {
+      report({ ...runRef.current, status: 'attention', label: 'Check the page', message: `Submit was pressed, but ${pageRef.current?.siteName || 'the site'} hasn’t confirmed it yet. ApplyFlow will record it when the confirmation appears (or press “Record it as applied”).` });
+      return;
+    }
     setPhase('saving');
     try {
       const submittedAt = nowIso();
@@ -650,7 +700,7 @@ export function useWorkflow(inputs: WorkflowInputs, deps: WorkflowDeps) {
       let rec = await upsertRecord(next, 'Applied', { followUpDate });
       rec = await saveApplication({
         ...rec,
-        notes: [...rec.notes, { id: newId('note'), text: how === 'applyflow' ? (confirmedByDice ? `Submitted with ApplyFlow; ${pageRef.current?.siteName || 'the site'} showed a confirmation.` : `Submit clicked by ApplyFlow; confirmation not detected — check ${pageRef.current?.siteName || 'the site'}.`) : `Submitted on ${pageRef.current?.siteName || 'the site'}; ApplyFlow saw the confirmation and recorded it.`, createdAt: submittedAt }],
+        notes: [...rec.notes, { id: newId('note'), text: how === 'applyflow' ? (confirmedByDice ? `Submitted with ApplyFlow; ${pageRef.current?.siteName || 'the site'} showed a confirmation.` : `Submit clicked by ApplyFlow; confirmation not detected — check ${pageRef.current?.siteName || 'the site'}.`) : confirmedByDice ? `Submitted on ${pageRef.current?.siteName || 'the site'}; ApplyFlow saw the confirmation and recorded it.` : `Recorded as applied from ApplyFlow (confirmation not auto-detected).`, createdAt: submittedAt }],
       });
       setApplication(rec);
       const b = bridge();
@@ -672,10 +722,15 @@ export function useWorkflow(inputs: WorkflowInputs, deps: WorkflowDeps) {
       }
       if (!settings.saveJobDescriptionsLocally) await setSession({ ...next, job: { ...next.job, description: '' } });
       setLastResult(`Applied. ${rec.files.length ? `${rec.files.filter((f) => f.state === 'complete').length} files saved to ${bridge() ? '' : 'Downloads/'}${rec.folderPath}. ` : ''}Follow-up reminder on ${followUpDate}.`);
+      // Jobright’s tracker — only once ApplyFlow has recorded Applied (verified site confirmation or
+      // an explicit “Record it as applied”). Never while opening, canceling, or on a failed submit.
+      if (next.job.platform === 'jobright' && next.job.url) {
+        void confirmJobrightApplied(next.job.url);
+      }
     } finally {
       setPhase('idle');
     }
-  }, [settings.followUpDays, settings.autoDownloadOnSubmit, settings.saveJobDescriptionsLocally, setSession, upsertRecord, saveFiles, report]);
+  }, [settings.followUpDays, settings.autoDownloadOnSubmit, settings.saveJobDescriptionsLocally, setSession, upsertRecord, saveFiles, report, confirmJobrightApplied]);
   const recordSubmittedRef = useRef(recordSubmitted);
   recordSubmittedRef.current = recordSubmitted;
 
@@ -693,13 +748,17 @@ export function useWorkflow(inputs: WorkflowInputs, deps: WorkflowDeps) {
         report({ ...runRef.current, status: 'attention', label: 'Not submitted', message: `${res.message} Nothing was sent.` });
         return;
       }
-      if (res.needsUser) {
+      if (res.needsUser || !res.successDetected) {
         // Not applied until the site confirms (the page helper reports the confirmation when it appears).
-        report({ ...runRef.current, status: 'attention', label: 'Complete the CAPTCHA', message: res.message });
+        report({
+          ...runRef.current,
+          status: 'attention',
+          label: res.needsUser ? 'Complete the CAPTCHA' : 'Check the page',
+          message: res.message + (res.successDetected ? '' : ' If it shows that you applied, press “Record it as applied” below.'),
+        });
         return;
       }
-      await recordSubmitted(res.successDetected, 'applyflow');
-      if (!res.successDetected) notify('info', res.message);
+      await recordSubmitted(true, 'applyflow');
     } catch (e: unknown) {
       // Dice may load a new page after Submit, so the answer to the click is lost. Look at the
       // new page: if it shows Dice's confirmation, the application went through.
@@ -718,7 +777,7 @@ export function useWorkflow(inputs: WorkflowInputs, deps: WorkflowDeps) {
     } finally {
       setPhase('idle');
     }
-  }, [tabId, deps.messenger, recordSubmitted, report, notify]);
+  }, [tabId, deps.messenger, recordSubmitted, report]);
 
   const recordManualSubmit = useCallback(() => recordSubmitted(false, 'manual'), [recordSubmitted]);
 

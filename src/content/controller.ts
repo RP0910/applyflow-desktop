@@ -24,6 +24,7 @@ import { detectCaptcha, detectLoginRequired } from '@/services/platforms/dice/ad
 import { describeWizard, findDocumentCard, findFileInputFor, findNextControl, pageErrors, uploadTargets, wizardStep } from '@/services/platforms/dice/wizard';
 import type { FormSupport, JobSiteAdapter } from '@/services/platforms/types';
 import { ATS_SUCCESS_PATTERNS } from '@/services/platforms/ats/common';
+import { appliedConfirmDialog, confirmAppliedControl } from '@/services/platforms/jobright/adapter';
 import { controlLabel, deepQueryAll, isVisible, visibleText } from '@/services/platforms/dom';
 import { answerFieldAsync, fillFieldsAsync, highlightField, probeComboboxes, scanFields } from '@/services/forms/domFields';
 import { browserUploadDeps, uploadDocument, type UploadDeps } from '@/services/forms/upload';
@@ -336,6 +337,20 @@ export function createContentController(env: ControllerEnv) {
    * `direct`, the employer's posting from the page data). On an employer's site: the form itself —
    * its own address when the page only links to it or embeds it in a frame, else its Apply button.
    */
+  /** Press Jobright’s “Yes, I applied!” only after a verified employer submission. */
+  function confirmJobrightApplied(): ContentResponseMap['AF_CONFIRM_JOBRIGHT_APPLIED'] {
+    const adapter = adapterForUrl(env.url());
+    if (adapter?.id !== 'jobright') {
+      return { ok: false, clicked: false, message: 'Open the Jobright job page to mark it as applied there.' };
+    }
+    const btn = confirmAppliedControl(env.doc);
+    if (!btn) {
+      return { ok: false, clicked: false, message: 'Jobright’s “I applied” confirmation isn’t on this page yet.' };
+    }
+    btn.click();
+    return { ok: true, clicked: true, message: 'Marked as applied on Jobright.' };
+  }
+
   async function openApplication(direct = false): Promise<OpenApplicationResponse> {
     const adapter = adapterForUrl(env.url());
     const doc = env.doc;
@@ -343,6 +358,15 @@ export function createContentController(env: ControllerEnv) {
     const name = siteName(env.url());
     const blocker = adapter.blocker?.(doc, env.url()) ?? null;
     if (blocker) return { ok: false, external: blocker.kind === 'unsupported' || blocker.kind === 'referral', blocker, message: blocker.message };
+    // Jobright sometimes shows “Did you apply?” while the employer form is still opening — dismiss it
+    // (No) so ApplyFlow can continue; “Yes” is only pressed after a verified submission.
+    if (adapter.id === 'jobright') {
+      const prompt = appliedConfirmDialog(doc);
+      if (prompt?.no) {
+        prompt.no.click();
+        return { ok: true, external: false, message: 'Opening the employer’s application…' };
+      }
+    }
     const formUrl = adapter.applicationUrl?.(doc, env.url()) ?? null;
     if (adapter.kind === 'ats' && formUrl && formUrl !== env.url()) {
       navigate(formUrl);
@@ -417,12 +441,14 @@ export function createContentController(env: ControllerEnv) {
         return { ok: true } as ContentResponseMap[K];
       case 'AF_DIAGNOSE':
         return { ok: true, text: describeWizard(env.doc) } as ContentResponseMap[K];
+      case 'AF_CONFIRM_JOBRIGHT_APPLIED':
+        return confirmJobrightApplied() as ContentResponseMap[K];
       default:
         throw new Error('Unknown message');
     }
   }
 
-  return { pageState, scan, submit, nextStep, upload, successNow, successHere, openApplication, signIn, handle };
+  return { pageState, scan, submit, nextStep, upload, successNow, successHere, openApplication, signIn, confirmJobrightApplied, handle };
 }
 
 export type ContentController = ReturnType<typeof createContentController>;

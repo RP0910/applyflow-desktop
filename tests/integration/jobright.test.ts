@@ -382,4 +382,18 @@ describe('Jobright as it really behaves (2.2.1)', () => {
     expect(h.state().message).toMatch(/Apply Without Customizing/);
     expect(h.b.history).toEqual(['https://jobright.ai/jobs/info/lever-1?dead=1&nolink=1']);
   });
+
+  it('dismisses Jobright’s premature “Did you apply?” while opening (clicks No), and only presses Yes via AF_CONFIRM_JOBRIGHT_APPLIED', async () => {
+    const b = new FakeBrowser('https://jobright.ai/jobs/info/lever-1?askapplied=1&link=1');
+    expect(document.querySelector('[role="dialog"] h2')?.textContent).toMatch(/Did you apply/i);
+    expect(await b.send({ type: 'AF_CONFIRM_JOBRIGHT_APPLIED' })).toMatchObject({ ok: true, clicked: true });
+    expect((b.page as { __jobrightApplied?: boolean }).__jobrightApplied).toBe(true);
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+
+    const b2 = new FakeBrowser('https://jobright.ai/jobs/info/lever-1?askapplied=1&link=1');
+    expect(document.querySelector('[role="dialog"] h2')?.textContent).toMatch(/Did you apply/i);
+    expect(await b2.send({ type: 'AF_OPEN_APPLICATION' })).toMatchObject({ ok: true, message: /Opening the employer/ });
+    expect((b2.page as { __jobrightApplied?: boolean }).__jobrightApplied).toBe(false);
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+  });
 });

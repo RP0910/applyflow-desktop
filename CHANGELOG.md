@@ -1,3 +1,7 @@
+# 2.2.4
+
+Improved Screening Q&A with a built-in ATS question catalog, richer saved answers (control type, options, aliases), and conventional synonym-aware matching. Jobright’s “Did you apply?” is dismissed while opening the employer form and confirmed with “Yes, I applied!” only after a verified submission. Applications are not marked Applied from a submit click alone without site confirmation. The built-in browser shows an ApplyFlow veil while documents are prepared and the application opens. See RELEASE-2.2.4.md.
+
 # 2.2.1
 
 Fixed (Jobright): the run stopped at "Open the application". ApplyFlow now answers Jobright's "Customize Your Resume in 10 seconds" dialog with "Apply Without Customizing" (never "Fix My Resume Now", never "Do not remind me again"), follows the new tab Jobright opens for the employer's site into the built-in browser, recognises the "Sign Up to Apply" dialog as a sign-in, and stops with instructions instead of pressing Apply again and again. Job titles and companies are read correctly ("… Job Details | Company LLC", jobs opened inside Jobright's signed-in app: no more "Untitled job"). See RELEASE-2.2.1.md.

@@ -39,7 +39,7 @@ const LEDES: Partial<Record<DesktopView, string>> = {
   library: 'Employer details are managed in Profile settings.',
   studio: 'Turn resume JSON into a PDF or Word file with ApplyFlow’s own renderer. Edit any saved resume and re-render it — no AI, no tokens.',
   profile: 'Contact details, full address and job-site logins used to fill applications. Employers and education are below.',
-  answers: 'View and edit every screening question and answer saved in your local database. Similar questions are filled automatically on later applications.',
+  answers: 'Review common screening questions, save answers by input type, and reuse them when similar wording appears on another application — all stored locally, with no AI.',
   settings: 'Claude connection, documents, privacy and where files are saved.',
   privacy: 'Exactly what ApplyFlow stores, what it sends, and what it refuses to do.',
 };

@@ -53,8 +53,21 @@ function fakeDownloads(): DownloadsApi & { download: ReturnType<typeof vi.fn> } 
 async function seed() {
   await saveSettings({ engine: 'claude' });
   await setApiKey('test-key');
-  vi.spyOn(ClaudeProvider.prototype, 'generateCv').mockResolvedValue({data:cvFixture(),model:'test'});
-  await saveResume(exampleResume());
+  const master = exampleResume();
+  vi.spyOn(ClaudeProvider.prototype, 'researchCompanies').mockResolvedValue({
+    data: {
+      companies: master.parsed.experience.map((e, i) => ({
+        periodIndex: i,
+        name: e.company,
+        activeYears: `${e.startDate}-${e.endDate || 'present'}`,
+        techFit: 'relevant tech',
+        hq: e.location || '',
+      })),
+    },
+    model: 'test',
+  });
+  vi.spyOn(ClaudeProvider.prototype, 'generateCv').mockResolvedValue({ data: cvFixture(), model: 'test' });
+  await saveResume(master);
   await saveProfile({ ...EMPTY_PROFILE, fullName: 'Jordan Rivera', email: 'jordan.rivera@example.com', phone: '(312) 555-0148', location: 'Chicago, IL' });
 }
 

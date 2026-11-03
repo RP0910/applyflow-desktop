@@ -17,6 +17,7 @@
      ?link=1     the page data names the employer address (the real site does not; default: no address)
      ?nomodal=1  Apply opens the employer straight away (window.open(url))
      ?dead=1     Apply does nothing
+     ?askapplied=1  Shows Jobright’s “Did you apply?” tracker (Yes / No) instead of opening the employer
      The job id picks the employer side:
        gh-1      careers.acme-robotics.com with a Greenhouse form in a frame (classic Greenhouse)
        ghnew-1   job-boards.greenhouse.io (redesigned Greenhouse, dropdowns are comboboxes)
@@ -133,12 +134,20 @@
     var tab = window.open('', '_blank');
     setTimeout(function () { tab.location.href = job.apply; }, 30);
   };
+  var showAppliedPrompt = function () {
+    var m = modal('<button type="button" class="ant-modal-close" aria-label="Close">×</button><div style="text-align:center"><div class="icon">👜</div><h2>Did you apply?</h2><p>Let us know so we can help you track your application and refine future recommendation for you!</p><button type="button" class="apply" id="yes-applied">Yes, I applied!</button><button type="button" id="no-applied">No, I didn\'t apply</button></div>');
+    m.querySelector('#yes-applied').addEventListener('click', function () { window.__jobrightApplied = true; m.remove(); });
+    m.querySelector('#no-applied').addEventListener('click', function () { window.__jobrightApplied = false; m.remove(); });
+    return m;
+  };
+  if (/askapplied=1/.test(location.search)) showAppliedPrompt();
   if (btn) btn.addEventListener('click', function () {
     if (/dead=1/.test(location.search)) return;
     if (/signedout=1/.test(location.search)) {
       modal('<button type="button" class="ant-modal-close" aria-label="Close">×</button><h2>Sign Up to Apply</h2><p>Unlock your AI job search copilot</p><button type="button">Sign up with Google</button><div>or</div><input type="text" placeholder="Email"><button type="button">SIGN UP TO APPLY</button><p>Already a member? <a>Sign in now</a></p>');
       return;
     }
+    if (/askapplied=1/.test(location.search)) { showAppliedPrompt(); return; }
     if (/nomodal=1/.test(location.search)) { window.open(job.apply, '_blank'); return; }
     var m = modal('<button type="button" class="ant-modal-close" aria-label="Close">×</button><h2>Customize Your Resume in 10 seconds</h2><p>Your resume matches 72% of this job. Tailor it to get more interviews.</p>' +
       '<button type="button" class="ant-btn ant-btn-primary" id="fix">Fix My Resume Now</button>' +

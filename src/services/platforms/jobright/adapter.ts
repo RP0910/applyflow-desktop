@@ -404,21 +404,63 @@ const APPLY = /^(apply|apply now|apply on (the )?(company|employer)(['’]s)? (s
  * your resume, so it continues without Jobright's customization; it never ticks "Do not remind me again".
  */
 const DIALOG_APPLY = /^(apply without customi[sz]ing|apply without (changes|optimi[sz]ing|tailoring|autofill)|apply manually|continue (to apply|without customi[sz]ing)|skip( and apply| for now)?|apply anyway|apply directly|no,? (thanks|just apply)|go to (the )?(company|employer)('s)? (site|website)|apply on (the )?(company|employer)('s)? (site|website))$/i;
+/** Jobright’s post-apply tracker: “Did you apply?” with Yes / No. Not an Apply control. */
+const APPLIED_PROMPT = /did you apply\??/i;
+const APPLIED_YES = /^(yes,? i applied!?|i applied!?)$/i;
+const APPLIED_NO = /^(no,? i (didn['’]?t|did not) apply!?)$/i;
 const DIALOG = '[role="dialog"], [aria-modal="true"], .ant-modal, [class*="modal" i]';
 
 /** "APPLY WITH AUTOFILL ↗" → "APPLY WITH AUTOFILL". */
 const words = (t: string) => t.replace(/[^\p{L}\p{N}'’ ]+/gu, ' ').replace(/\s+/g, ' ').trim();
 
+function dialogButtons(d: HTMLElement): HTMLElement[] {
+  return deepQueryAll<HTMLElement>(d, 'a, button, [role="button"], [role="link"], span, u, div, p', 400).filter((el) => {
+    const t = words(el.innerText ?? el.textContent ?? '');
+    return t.length > 0 && t.length < 60 && isVisible(el) && !couldSubmit(el);
+  });
+}
+
+function pickInnermost(hits: HTMLElement[]): HTMLElement | null {
+  const hit = hits.find((el) => !hits.some((o) => o !== el && el.contains(o)));
+  return hit ? hit.closest<HTMLElement>('a, button, [role="button"], [role="link"]') ?? hit : null;
+}
+
+/** Jobright’s “Did you apply?” tracker dialog, when it’s on screen. */
+export function appliedConfirmDialog(doc: Document): { root: HTMLElement; yes: HTMLElement | null; no: HTMLElement | null } | null {
+  for (const d of deepQueryAll<HTMLElement>(doc, DIALOG, 20).filter(isVisible)) {
+    if (!APPLIED_PROMPT.test(visibleText(d, 800))) continue;
+    const btns = dialogButtons(d);
+    return {
+      root: d,
+      yes: pickInnermost(btns.filter((el) => APPLIED_YES.test(words(el.innerText ?? el.textContent ?? '')))),
+      no: pickInnermost(btns.filter((el) => APPLIED_NO.test(words(el.innerText ?? el.textContent ?? '')))),
+    };
+  }
+  return null;
+}
+
+/** “Yes, I applied!” / “I Applied” — only after a verified employer submission. */
+export function confirmAppliedControl(doc: Document): HTMLElement | null {
+  const dialog = appliedConfirmDialog(doc);
+  if (dialog?.yes) return dialog.yes;
+  const els = deepQueryAll<HTMLElement>(doc, 'a, button, [role="button"], [role="link"]', 400).filter(
+    (el) => isVisible(el) && !isPageChrome(el) && APPLIED_YES.test(words(controlLabel(el) || el.innerText || el.textContent || '')),
+  );
+  return pickInnermost(els);
+}
+
 export function dialogChoice(doc: Document): HTMLElement | null {
   for (const d of deepQueryAll<HTMLElement>(doc, DIALOG, 20).filter(isVisible)) {
+    // Never treat Jobright’s “Did you apply?” tracker as an Apply step.
+    if (APPLIED_PROMPT.test(visibleText(d, 800))) continue;
     // The link may be a plain <a>, <span> or <div> without a role: match by its own text.
-    const hits = deepQueryAll<HTMLElement>(d, 'a, button, [role="button"], [role="link"], span, u, div, p', 400).filter((el) => {
+    const hits = dialogButtons(d).filter((el) => {
       const t = words(el.innerText ?? el.textContent ?? '');
-      return t.length < 60 && (DIALOG_APPLY.test(t) || APPLY.test(t)) && isVisible(el) && !couldSubmit(el);
+      return DIALOG_APPLY.test(t) || APPLY.test(t);
     });
     // The innermost one: a click on it reaches handlers on it and on everything around it.
-    const hit = hits.find((el) => !hits.some((o) => o !== el && el.contains(o)));
-    if (hit) return hit.closest<HTMLElement>('a, button, [role="button"], [role="link"]') ?? hit;
+    const hit = pickInnermost(hits);
+    if (hit) return hit;
   }
   return null;
 }

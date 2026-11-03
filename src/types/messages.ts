@@ -31,7 +31,12 @@ export type PanelToContent =
   | { type: 'AF_SET_LAUNCHER'; visible: boolean }
   | { type: 'AF_DIAGNOSE' }
   /** Desktop: after a submit that reloaded the page, does the new page show Dice's confirmation? */
-  | { type: 'AF_CHECK_SUCCESS' };
+  | { type: 'AF_CHECK_SUCCESS' }
+  /**
+   * Jobright only: press “Yes, I applied!” / “I Applied” after ApplyFlow verified the employer
+   * submission. Never used while still opening or filling the application.
+   */
+  | { type: 'AF_CONFIRM_JOBRIGHT_APPLIED' };
 
 /** Where a document can be attached on the current step. */
 export interface UploadTarget {
@@ -132,6 +137,7 @@ export type ContentResponseMap = {
   AF_SET_LAUNCHER: { ok: boolean };
   AF_DIAGNOSE: { ok: boolean; text: string };
   AF_CHECK_SUCCESS: { ok: boolean; success: boolean };
+  AF_CONFIRM_JOBRIGHT_APPLIED: { ok: boolean; clicked: boolean; message: string };
 };
 
 /** Broadcasts from the content script (runtime.sendMessage). */

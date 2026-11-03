@@ -36,22 +36,22 @@ html, body, #root { height: 100%; overflow: hidden; }
 .browser-loading-overlay {
   position: absolute; inset: 0; z-index: 4;
   display: flex; align-items: center; justify-content: center;
-  background: rgba(28, 32, 38, 0.52);
-  backdrop-filter: blur(7px); -webkit-backdrop-filter: blur(7px);
-  pointer-events: none;
-  animation: browser-overlay-in 180ms ease-out;
+  background: rgba(28, 32, 38, 0.58);
+  backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+  animation: browser-overlay-in 200ms ease-out;
 }
 .browser-loading-card {
-  display: flex; flex-direction: column; align-items: center; gap: 10px;
-  padding: 22px 28px; border-radius: 14px;
-  background: rgba(255, 255, 255, 0.92); color: var(--ink);
-  box-shadow: 0 10px 36px rgba(0, 0, 0, 0.22);
-  min-width: 200px; text-align: center;
+  display: flex; flex-direction: column; align-items: center; gap: 12px;
+  padding: 28px 32px; border-radius: 16px;
+  background: rgba(255, 255, 255, 0.96); color: var(--ink);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.24);
+  min-width: 240px; max-width: min(360px, 90%); text-align: center;
 }
-.browser-loading-card p { margin: 0; font-weight: 600; font-size: 15px; }
-.browser-loading-hint { font-size: 12.5px; color: var(--muted); }
-.spinner-lg { width: 28px; height: 28px; border-width: 3px; border-color: rgba(0, 117, 149, 0.25); border-top-color: var(--blue); }
-@keyframes browser-overlay-in { from { opacity: 0; } to { opacity: 1; } }
+.browser-loading-card .brand-logo { margin-bottom: 2px; }
+.browser-loading-card p { margin: 0; font-weight: 600; font-size: 15.5px; }
+.browser-loading-hint { font-size: 12.5px; color: var(--muted); line-height: 1.35; }
+.spinner-lg { width: 30px; height: 30px; border-width: 3px; border-color: rgba(0, 117, 149, 0.22); border-top-color: var(--blue); }
+@keyframes browser-overlay-in { from { opacity: 0; transform: scale(0.98); } to { opacity: 1; transform: none; } }
 .apply-panel { border-left: 1px solid var(--border); min-width: 0; min-height: 0; display: flex; }
 .apply-panel .panel { height: 100vh; flex: 1; }
 .panel-desktop .nav { padding-top: 4px; }

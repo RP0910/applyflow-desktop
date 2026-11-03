@@ -11,7 +11,7 @@
  */
 import type { CareerProfile, FieldProposal, FieldSemantic, FillInstruction, JobSession, PageBlocker, PageState, Settings, SiteCredential } from '@/types';
 import type { ContentResponseMap, FilePayload, PanelToContent, ScanResponse } from '@/types/messages';
-import { markAnswerUsed, proposeFieldValues, rememberAnswer } from '@/services/forms/mapper';
+import { markAnswerUsed, proposeFieldValues, rememberAnswer, toScreeningControl } from '@/services/forms/mapper';
 import { formKeyFor } from '@/services/platforms/registry';
 import { nowIso } from '@/utils/dates';
 import { newId } from '@/utils/id';
@@ -430,7 +430,20 @@ export async function processStep(io: RunnerIO): Promise<'ready' | 'next' | 'mov
         answers = markAnswerUsed(answers, p.proposedValue, category, now);
         // Also upsert by question label so rephrased matches stay linked to this answer.
         if (p.label.trim()) {
-          answers = rememberAnswer(answers, { category, questionPattern: p.label.trim().slice(0, 160), answer: p.proposedValue.trim(), lastUsedAt: now, useCount: 1 }, () => newId('ans'), now);
+          answers = rememberAnswer(
+            answers,
+            {
+              category,
+              questionPattern: p.label.trim().slice(0, 160),
+              answer: p.proposedValue.trim(),
+              lastUsedAt: now,
+              useCount: 1,
+              control: toScreeningControl(p.control),
+              options: p.options?.length ? p.options : undefined,
+            },
+            () => newId('ans'),
+            now,
+          );
         }
       }
       await io.saveProfile({ ...io.profile, approvedAnswers: answers });

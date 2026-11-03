@@ -1,7 +1,7 @@
 /** Small pieces of the Jobright / employer-site support. */
 import { describe, expect, it } from 'vitest';
 import { countryOf, semanticOf } from '@/services/forms/mapper';
-import { isJobrightListUrl, jobrightJobId } from '@/services/platforms/jobright/adapter';
+import { appliedConfirmDialog, confirmAppliedControl, dialogChoice, isJobrightListUrl, jobrightJobId } from '@/services/platforms/jobright/adapter';
 import { backTargetIndex, isDiceApplicationUrl, isDiceSearchUrl } from '@/services/platforms/dice/navigation';
 import { visibleCaptcha, embeddedFormUrl, statusBlocker } from '@/services/platforms/ats/common';
 import { siteName } from '@/services/platforms/registry';
@@ -31,6 +31,20 @@ describe('profile → form values', () => {
     expect(semanticOf({ label: 'City', name: '', control: 'text' })).toBe('city');
     expect(semanticOf({ label: 'State', name: '', control: 'select' })).toBe('state');
     expect(semanticOf({ label: 'Postal Code', name: '', control: 'text' })).toBe('postal_code');
+  });
+});
+
+describe('Jobright “Did you apply?” tracker', () => {
+  it('finds Yes / No and never treats that dialog as an Apply choice', () => {
+    const doc = html(
+      `<div role="dialog" aria-modal="true"><h2>Did you apply?</h2><p>Let us know so we can help you track your application.</p>` +
+        `<button type="button">Yes, I applied!</button><button type="button">No, I didn't apply</button></div>`,
+    );
+    const d = appliedConfirmDialog(doc);
+    expect(d?.yes?.textContent).toMatch(/Yes, I applied/i);
+    expect(d?.no?.textContent).toMatch(/No, I didn't apply/i);
+    expect(confirmAppliedControl(doc)?.textContent).toMatch(/Yes, I applied/i);
+    expect(dialogChoice(doc)).toBeNull();
   });
 });
 

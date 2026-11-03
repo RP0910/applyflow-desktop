@@ -4,7 +4,7 @@
  */
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { bridge, type BrowserState } from '@/platform/bridge';
-import { Icon } from '@/components/Icon';
+import { BrandLogo, Icon } from '@/components/Icon';
 
 const EMPTY: BrowserState = { url: '', title: '', searchUrl: null, onSearch: false, onApplication: false, canGoBack: false, canGoForward: false, loading: true, ready: false };
 
@@ -13,7 +13,8 @@ export function BrowserPane({ visible }: { visible: boolean }) {
   const [state, setState] = useState<BrowserState>(EMPTY);
   const [address, setAddress] = useState('');
   const [editing, setEditing] = useState(false);
-  const [overlay, setOverlay] = useState(false);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [opening, setOpening] = useState<{ show: boolean; label: string }>({ show: false, label: '' });
 
   useEffect(() => {
     const b = bridge();
@@ -26,20 +27,41 @@ export function BrowserPane({ visible }: { visible: boolean }) {
     if (!editing) setAddress(state.url);
   }, [state.url, editing]);
 
+  // Workflow-driven veil (document prep + opening the employer application).
+  useEffect(() => {
+    const read = () => {
+      const label = document.documentElement.dataset.afOpening;
+      setOpening(label ? { show: true, label } : { show: false, label: '' });
+    };
+    const onOpening = (e: Event) => {
+      const d = (e as CustomEvent<{ show?: boolean; label?: string }>).detail;
+      setOpening({ show: Boolean(d?.show), label: d?.label || 'Opening your application…' });
+    };
+    read();
+    window.addEventListener('af:opening', onOpening);
+    return () => window.removeEventListener('af:opening', onOpening);
+  }, []);
+
   // A dialog in ApplyFlow's window must not be covered by the browser view.
   useEffect(() => {
-    const check = () => setOverlay(Boolean(document.querySelector('[role="dialog"], .modal-backdrop')));
+    const check = () => setDialogOpen(Boolean(document.querySelector('[role="dialog"], .modal-backdrop')));
     const mo = new MutationObserver(check);
     mo.observe(document.body, { childList: true, subtree: true });
     check();
     return () => mo.disconnect();
   }, []);
 
+  // Hide the native WebContentsView while a dialog, workflow veil, or page load overlay is up —
+  // otherwise the React overlay sits under the browser and the user can't see it.
+  const pageLoading = state.ready && state.loading;
+  const showVeil = opening.show || pageLoading;
+  const hideBrowser = dialogOpen || showVeil;
+
   useEffect(() => {
     const b = bridge();
     const el = hostRef.current;
     if (!b || !el) return;
-    const show = visible && !overlay;
+    const show = visible && !hideBrowser;
     void b.invoke('dice.setVisible', show);
     if (!show) return;
     const push = () => {
@@ -54,7 +76,7 @@ export function BrowserPane({ visible }: { visible: boolean }) {
       ro.disconnect();
       window.removeEventListener('resize', push);
     };
-  }, [visible, overlay]);
+  }, [visible, hideBrowser]);
 
   const go = (e: FormEvent) => {
     e.preventDefault();
@@ -65,6 +87,12 @@ export function BrowserPane({ visible }: { visible: boolean }) {
   };
 
   const onDice = /^https:\/\/(www\.)?dice\.com\//i.test(state.url);
+  const veilLabel = opening.show ? opening.label || 'Opening your application…' : 'Opening page…';
+  const veilHint = opening.show
+    ? /prepar/i.test(veilLabel)
+      ? 'Writing your tailored resume and cover letter'
+      : 'Waiting for the employer’s application to load'
+    : 'Waiting for the page to finish loading';
 
   return (
     <section className="browser" aria-label="Dice">
@@ -119,16 +147,17 @@ export function BrowserPane({ visible }: { visible: boolean }) {
             <span className="spinner spinner-dark" aria-hidden="true" /> Loading Dice…
           </div>
         ) : null}
-        {state.ready && state.loading ? (
+        {showVeil ? (
           <div className="browser-loading-overlay" role="status" aria-live="polite" aria-busy="true">
             <div className="browser-loading-card">
+              <BrandLogo height={40} />
               <span className="spinner spinner-lg" aria-hidden="true" />
-              <p>Opening page…</p>
-              <span className="browser-loading-hint">Waiting for the job application to load</span>
+              <p>{veilLabel}</p>
+              <span className="browser-loading-hint">{veilHint}</span>
             </div>
           </div>
         ) : null}
-        {overlay ? <div className="browser-wait">The Dice page is hidden while a dialog is open.</div> : null}
+        {dialogOpen && !showVeil ? <div className="browser-wait">The Dice page is hidden while a dialog is open.</div> : null}
       </div>
     </section>
   );

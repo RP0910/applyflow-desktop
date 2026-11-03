@@ -2,10 +2,31 @@
  * Field → proposed value. Pure function: no DOM access, fully testable.
  * Every proposal carries its source and a confidence so the user can see why.
  */
-import type { CareerProfile, CoverLetter, FieldProposal, FieldSemantic, FormFieldDescriptor, TailoredResume, ApprovedAnswer } from '@/types';
+import type { CareerProfile, CoverLetter, FieldProposal, FieldSemantic, FormFieldDescriptor, TailoredResume, ApprovedAnswer, ScreeningControl } from '@/types';
 import { formatLocationLine } from '@/utils/address';
 import { SENSITIVE_LABELS } from './sensitive';
-import { similarity, truncate } from '@/utils/text';
+import { truncate } from '@/utils/text';
+import {
+  MATCH_THRESHOLD,
+  answerFitsField,
+  matchOption,
+  patternsForAnswer,
+  questionSimilarity,
+  questionWords,
+  scoreAgainstPatterns,
+} from './questionMatch';
+
+/** Merge remembered answers when patterns are clearly the same question. */
+const REMEMBER_MERGE_THRESHOLD = 0.55;
+
+export { questionWords, matchOption } from './questionMatch';
+
+/** Map a live form control onto the Screening Q&A control set. */
+export function toScreeningControl(control: FormFieldDescriptor['control']): ScreeningControl | undefined {
+  if (control === 'text' || control === 'textarea' || control === 'select' || control === 'combobox' || control === 'radio' || control === 'checkbox') return control;
+  if (control === 'email' || control === 'tel' || control === 'url' || control === 'number' || control === 'date') return 'text';
+  return undefined;
+}
 
 const SEMANTIC_RULES: { semantic: FieldSemantic; re: RegExp; controls?: FormFieldDescriptor['control'][] }[] = [
   { semantic: 'resume_upload', re: /resume|\bcv\b|curriculum/i, controls: ['file'] },
@@ -114,40 +135,26 @@ const same = (a: string, b: string) => {
   return n(a) === n(b) || (digits(a).length >= 7 && digits(a) === digits(b));
 };
 
-/** Lowercased words that identify a question, for matching saved answers. */
-export function questionWords(text: string): string[] {
-  const STOP = new Set(['the', 'you', 'your', 'are', 'for', 'and', 'this', 'that', 'with', 'have', 'any', 'please', 'will', 'can', 'what', 'our', 'job', 'position', 'role', 'company']);
-  return Array.from(new Set(text.toLowerCase().replace(/[^a-z0-9+#\s]/g, ' ').split(/\s+/).filter((w) => w.length > 2 && !STOP.has(w))));
-}
-
 function splitName(full: string): { first: string; last: string } {
   const parts = full.trim().split(/\s+/);
   return { first: parts[0] ?? '', last: parts.length > 1 ? parts[parts.length - 1]! : '' };
 }
 
 export function approvedFor(answers: ApprovedAnswer[], f: Pick<FormFieldDescriptor, 'label' | 'context' | 'sensitive' | 'options' | 'control'>): string | null {
-  const text = `${f.label} ${f.context}`.toLowerCase();
-  const labelWords = questionWords(f.label);
-  const choice = f.control === 'radio' || f.control === 'select' || f.control === 'combobox';
-  const fits = (a: ApprovedAnswer) => !f.options.length || !choice || Boolean(matchOption(f.options, a.answer));
+  const fieldText = `${f.label} ${f.context}`.trim();
   const category = f.sensitive ? f.sensitive : 'general';
   const ranked = answers
-    .filter((a) => a.category === category && fits(a))
+    .filter((a) => a.category === category && answerFitsField(a, f))
     .map((a) => {
-      const words = questionWords(a.questionPattern);
-      // No pattern = the user's answer for every question in this category.
-      if (!words.length) return { a, score: 0.78 };
-      const all = words.every((w) => text.includes(w));
-      const overlap = labelWords.length ? words.filter((w) => labelWords.includes(w)).length / Math.max(words.length, labelWords.length) : 0;
-      const sim = a.questionPattern.trim() ? similarity(a.questionPattern, f.label) : 0;
-      // Prefer exact/near wording; allow softer matches for rephrased screening questions.
-      return { a, score: Math.max(all ? 1 : overlap, sim) };
+      const patterns = patternsForAnswer(a);
+      if (!patterns.length || patterns.every((p) => !questionWords(p).length)) return { a, score: 0.78 };
+      return { a, score: scoreAgainstPatterns(fieldText, patterns) };
     })
-    .filter((x) => x.score >= 0.45)
+    .filter((x) => x.score >= MATCH_THRESHOLD)
     .sort((x, y) => y.score - x.score || (y.a.useCount ?? 0) - (x.a.useCount ?? 0));
   if (ranked[0]) return ranked[0].a.answer;
   // Single saved answer for this category that fits the options — reuse it (e.g. Gender / Race / Veteran).
-  const categoryOnly = answers.filter((a) => a.category === category && fits(a));
+  const categoryOnly = answers.filter((a) => a.category === category && answerFitsField(a, f));
   if (categoryOnly.length === 1) return categoryOnly[0]!.answer;
   return null;
 }
@@ -160,13 +167,23 @@ export function rememberAnswer(
   now: string,
 ): ApprovedAnswer[] {
   const pattern = next.questionPattern.trim();
+  const nextPatterns = [pattern, ...(next.aliases ?? [])].filter(Boolean);
   const rest = answers.filter((a) => {
+    if (next.catalogId && a.catalogId === next.catalogId) return false;
     if (a.category !== next.category) return true;
-    if (!pattern && !a.questionPattern.trim()) return false;
-    if (pattern && a.questionPattern.trim().toLowerCase() === pattern.toLowerCase()) return false;
-    if (pattern && a.questionPattern.trim() && similarity(a.questionPattern, pattern) >= 0.85) return false;
+    if (!pattern && !a.questionPattern.trim() && !next.catalogId) return false;
+    const existing = patternsForAnswer(a);
+    if (pattern && existing.some((p) => p.trim().toLowerCase() === pattern.toLowerCase())) return false;
+    if (nextPatterns.length && existing.some((p) => nextPatterns.some((n) => n && scoreAgainstPatterns(n, [p]) >= REMEMBER_MERGE_THRESHOLD))) return false;
+    if (pattern && a.questionPattern.trim() && questionSimilarity(a.questionPattern, pattern) >= REMEMBER_MERGE_THRESHOLD) return false;
     return true;
   });
+  const aliases = Array.from(
+    new Set([...(next.aliases ?? []), ...((answers.find((a) => a.catalogId && a.catalogId === next.catalogId)?.aliases) ?? [])]
+      .map((s) => s.trim())
+      .filter((s) => s && s.toLowerCase() !== pattern.toLowerCase())),
+  );
+  const options = next.options?.map((o) => o.trim()).filter(Boolean);
   return [
     ...rest,
     {
@@ -177,6 +194,10 @@ export function rememberAnswer(
       approvedAt: next.approvedAt ?? now,
       lastUsedAt: next.lastUsedAt,
       useCount: next.useCount ?? 0,
+      control: next.control,
+      options: options?.length ? options : undefined,
+      aliases: aliases.length ? aliases : undefined,
+      catalogId: next.catalogId,
     },
   ];
 }
@@ -188,12 +209,6 @@ export function markAnswerUsed(answers: ApprovedAnswer[], answerText: string, ca
       ? { ...a, lastUsedAt: now, useCount: (a.useCount ?? 0) + 1 }
       : a,
   );
-}
-
-function matchOption(options: string[], value: string): string | null {
-  const v = value.trim().toLowerCase();
-  if (!v) return null;
-  return options.find((o) => o.trim().toLowerCase() === v) ?? options.find((o) => o.toLowerCase().includes(v) || v.includes(o.toLowerCase())) ?? null;
 }
 
 export function proposeFieldValues(fields: FormFieldDescriptor[], ctx: MapperContext): FieldProposal[] {
