@@ -111,6 +111,7 @@ export function useWorkflow(inputs: WorkflowInputs, deps: WorkflowDeps) {
   const [session, setSessionState] = useState<JobSession | null>(null);
   const [extractionError, setExtractionError] = useState<string | null>(null);
   const [phase, setPhase] = useState<ProgressPhase>('idle');
+  const [statusLine, setStatusLine] = useState('');
   const [lastResult, setLastResult] = useState<string>('');
   const [notices, setNotices] = useState<Notice[]>([]);
   const [duplicates, setDuplicates] = useState<DuplicateCheck | null>(null);
@@ -124,6 +125,7 @@ export function useWorkflow(inputs: WorkflowInputs, deps: WorkflowDeps) {
   const sessionRef = useRef<JobSession | null>(null);
   const runRef = useRef<ApplyRunState>(INITIAL_RUN);
   const runningRef = useRef(false);
+  const stepRef = useRef('');
   const quickApplyRef = useRef<() => Promise<void>>(async () => undefined);
   const profileRef = useRef(profile);
   sessionRef.current = session;
@@ -147,6 +149,14 @@ export function useWorkflow(inputs: WorkflowInputs, deps: WorkflowDeps) {
     if (s) await saveSession(s);
   }, []);
 
+  const setStep = useCallback((line: string) => {
+    stepRef.current = line;
+    setStatusLine(line);
+    if (runningRef.current && (runRef.current.status === 'working' || runRef.current.status === 'submitting')) {
+      report({ ...runRef.current, label: line });
+    }
+  }, [report]);
+
   const engineDeps = useCallback(async (): Promise<EngineDeps> => {
     if (!runningRef.current || !abortRef.current || abortRef.current.signal.aborted) abortRef.current = new AbortController();
     const b = bridge();
@@ -156,8 +166,8 @@ export function useWorkflow(inputs: WorkflowInputs, deps: WorkflowDeps) {
           void b.invoke('usage.add', { jobKey: cur?.jobKey ?? null, applicationId: cur?.applicationId ?? null, task, model, inputTokens: u.inputTokens, cacheReadTokens: u.cacheReadTokens, cacheWriteTokens: u.cacheWriteTokens, outputTokens: u.outputTokens }).catch(() => undefined);
         }
       : undefined;
-    return { settings, apiKey: await getApiKey(), signal: abortRef.current.signal, onUsage, ...deps.engine };
-  }, [settings, deps.engine]);
+    return { settings, apiKey: await getApiKey(), signal: abortRef.current.signal, onUsage, onStatus: setStep, ...deps.engine };
+  }, [settings, deps.engine, setStep]);
 
   const upsertRecord = useCallback(async (s: JobSession, stage: ApplicationStage, extra: Partial<ApplicationRecord> = {}) => {
     const existing = s.applicationId ? await getApplication(s.applicationId) : undefined;
@@ -308,10 +318,22 @@ export function useWorkflow(inputs: WorkflowInputs, deps: WorkflowDeps) {
     return uploadFileName(s, kind, uploadExt(settings));
   }, [settings]);
 
+  useEffect(() => {
+    const b = bridge();
+    if (!b) return;
+    return b.on('claudeChat:status', (st) => {
+      if (!runningRef.current || st.state !== 'ready') return;
+      const d = st.detail.trim();
+      if (!d || d === 'Connected' || d.startsWith('Checking') || d.startsWith('Opening Claude.ai…')) return;
+      setStep(d.endsWith('…') ? d : `${d}…`);
+    });
+  }, [setStep]);
+
   const makeDocuments = useCallback(async (masterOverride?: MasterResume): Promise<boolean> => {
     let s = sessionRef.current;
     const master = masterOverride ?? masterFromProps;
     if (!s || !master) return false;
+    setStep('Preparing tailored resume and cover letter…');
     const d = await engineDeps();
     if (!s.analysis || s.resumeId !== master.id || masterOverride) s = await analyzeSession(s, master);
     const r = await runDocuments(s, master, profileRef.current, d, tone, setPhase);
@@ -354,7 +376,7 @@ export function useWorkflow(inputs: WorkflowInputs, deps: WorkflowDeps) {
     const unsupported = next.evidence.filter((e) => e.importance === 'required' && (e.status === 'none' || e.status === 'conflict')).length;
     if (unsupported) notify('info', `${unsupported} required qualification${unsupported > 1 ? 's' : ''} from the job aren’t in your resume, so ${unsupported > 1 ? 'they were' : 'it was'} left out rather than claimed.`);
     return !resume.issues.some((i) => i.severity === 'critical') && !(next.coverLetter?.issues ?? []).some((i) => i.severity === 'critical');
-  }, [masterFromProps, engineDeps, analyzeSession, tone, settings, setSession, upsertRecord, notify]);
+  }, [masterFromProps, engineDeps, analyzeSession, tone, settings, setSession, upsertRecord, notify, setStep]);
 
   const runnerIO = useCallback((): RunnerIO => ({
     send: (msg) => deps.messenger.send(tabId as number, msg),
@@ -392,12 +414,14 @@ export function useWorkflow(inputs: WorkflowInputs, deps: WorkflowDeps) {
     abortRef.current = new AbortController();
     try {
       if (!s.duplicateAcknowledged && duplicates?.exact && hasApplied(duplicates.exact)) await setSession({ ...s, duplicateAcknowledged: true });
-      report({ ...INITIAL_RUN, status: 'working', label: 'Starting…' });
+      setStep('Starting Tailor & Apply…');
+      report({ ...INITIAL_RUN, status: 'working', label: 'Starting Tailor & Apply…' });
       const cur = sessionRef.current!;
       const outdated = Boolean(cur.resume && !cur.submittedAt && (cur.documentsFrom !== masterStamp(master) || cur.resume.contentSource !== 'cv-generate'));
       if (outdated) notify('info', 'Your candidate details or generation engine changed, so ApplyFlow is writing these documents again.');
       const needDocs = !cur.resume || outdated || (cur.includeCoverLetter && !cur.coverLetter);
       if (needDocs) {
+        setStep('Tailoring your resume and cover letter…');
         report({ ...runRef.current, label: 'Tailoring your resume and cover letter…', stages: { ...runRef.current.stages, documents: 'active' } });
         const clean = await makeDocuments();
         if (abortRef.current.signal.aborted) return;
@@ -421,12 +445,16 @@ export function useWorkflow(inputs: WorkflowInputs, deps: WorkflowDeps) {
       await afterRun(await runSteps(io));
     } catch (e: unknown) {
       if (e instanceof ClaudeError && e.code === 'aborted') report({ ...INITIAL_RUN, label: 'Cancelled.' });
-      else report({ ...runRef.current, status: 'attention', label: 'Something went wrong', message: errText(e, 'Something went wrong. Press Continue to try again.') });
+      else {
+        const step = stepRef.current || 'Tailor & Apply stopped';
+        setStep(step);
+        report({ ...runRef.current, status: 'attention', label: step, message: errText(e, 'Press Continue to try again.') });
+      }
     } finally {
       runningRef.current = false;
       setPhase('idle');
     }
-  }, [master, tabId, duplicates, setSession, report, makeDocuments, runnerIO, afterRun]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [master, tabId, duplicates, setSession, report, makeDocuments, runnerIO, afterRun, setStep]); // eslint-disable-line react-hooks/exhaustive-deps
   quickApplyRef.current = quickApply;
 
   const continueRun = useCallback(async (opts: { autoAdvance?: boolean } = {}) => {
@@ -449,11 +477,13 @@ export function useWorkflow(inputs: WorkflowInputs, deps: WorkflowDeps) {
         await afterRun(await runSteps(io));
       }
     } catch (e: unknown) {
-      report({ ...runRef.current, status: 'attention', label: 'Something went wrong', message: errText(e, 'Something went wrong. Press Continue to try again.') });
+      const step = stepRef.current || 'Apply step stopped';
+      setStep(step);
+      report({ ...runRef.current, status: 'attention', label: step, message: errText(e, 'Press Continue to try again.') });
     } finally {
       runningRef.current = false;
     }
-  }, [tabId, runnerIO, report, afterRun, quickApply]);
+  }, [tabId, runnerIO, report, afterRun, quickApply, setStep]);
 
   const answerQuestion = useCallback(async (q: FieldProposal, value: string, remember: boolean) => {
     const s = sessionRef.current;
@@ -880,7 +910,7 @@ export function useWorkflow(inputs: WorkflowInputs, deps: WorkflowDeps) {
 
   const duplicateApplied = Boolean(duplicates?.exact && hasApplied(duplicates.exact) && !session?.submittedAt);
   const busy = phase !== 'idle' || run.status === 'working' || run.status === 'submitting';
-  const progressText = run.status === 'working' || run.status === 'submitting' ? run.label : phase !== 'idle' ? `${PROGRESS_LABELS[phase]}…` : lastResult;
+  const progressText = statusLine || (run.status === 'working' || run.status === 'submitting' ? run.label : phase !== 'idle' ? `${PROGRESS_LABELS[phase]}…` : lastResult);
 
   return {
     tabId, page, session, master, extractionError, phase, busy, progressText, notices, dismiss, notify, duplicates, duplicateApplied, application,

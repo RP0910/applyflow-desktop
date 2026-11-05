@@ -36,6 +36,7 @@ export interface EngineDeps {
   chatComplete?: (req: ChatCompleteRequest) => Promise<{ text: string; model: string }>;
   saveCompanyResearch?: (jobKey: string, research: CompanyResearchReply) => void | Promise<void>;
   loadCompanyResearch?: (jobKey: string) => CompanyResearchReply | null | Promise<CompanyResearchReply | null>;
+  onStatus?: (line: string) => void;
 }
 
 interface ResumeModel {
@@ -406,6 +407,7 @@ export async function runDocuments(
   if (!useResumeModel(deps)) throw new Error(resumeModelError(deps));
   const baseFacts = compactFacts(master, profile);
   if (!Object.keys(baseFacts.jobIds).length) throw new Error('Add employer names and dates in Profile settings.');
+  deps.onStatus?.('Preparing job description for Claude…');
   const job = compactJob(session.job, deps.settings.sendFullJobDescription, 12000);
   const tech = [
     ...session.analysis.requiredSkills,
@@ -416,6 +418,7 @@ export async function runDocuments(
 
   const p = provider(deps);
   onPhase('researching_companies');
+  deps.onStatus?.('Starting company name research on Claude.ai…');
   let research: CompanyResearchReply;
   try {
     research = (await p.researchCompanies(baseFacts, job, tech, deps.signal)).data;
@@ -429,13 +432,16 @@ export async function runDocuments(
   }
 
   const periodCount = Object.keys(baseFacts.jobIds).length;
+  deps.onStatus?.('Saving researched company names…');
   const aligned = alignResearchToEmployers(research, periodCount);
   await persistCompanyResearch(deps, session.jobKey, aligned);
   const stored = (await loadCompanyResearch(deps, session.jobKey)) ?? aligned;
+  deps.onStatus?.('Updating CV prompt with researched company names…');
   const { master: draftMaster, replaced } = applyCompanyResearch(master, stored);
   const facts = compactFacts(draftMaster, profile);
 
   onPhase('generating_resume');
+  deps.onStatus?.('Generating tailored resume on Claude.ai…');
   let result: Awaited<ReturnType<ResumeModel['generateCv']>>;
   try {
     result = await p.generateCv(facts, job, deps.signal);

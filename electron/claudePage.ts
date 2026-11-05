@@ -96,26 +96,38 @@ globalThis.__afClaude = (function () {
     }
     return '';
   }
-  function assistantText() {
-    function last(nodes) {
-      var text = '';
-      for (var i = 0; i < nodes.length; i++) {
-        if (insideUser(nodes[i])) continue;
-        var t = (nodes[i].innerText || '').trim();
-        if (t) text = t;
-      }
-      return text;
+  function jsonFromCodeBlocks() {
+    var nodes = queryAll('pre, code, [data-testid*="code"], [class*="code-block"]');
+    for (var i = nodes.length - 1; i >= 0; i--) {
+      var t = (nodes[i].innerText || '').trim();
+      if (t.charAt(0) === '{' && /"companies"|"company_name"/.test(t)) return clip(t);
     }
-    var direct = last(queryAll('[data-testid="assistant-message"], [data-testid*="assistant-message"], [data-testid="ai-message"], [data-message-author="assistant"]'));
-    if (direct) return clip(direct);
+    return '';
+  }
+  function assistantParts() {
+    var nodes = queryAll('[data-testid="assistant-message"], [data-testid*="assistant-message"], [data-testid="ai-message"], [data-message-author="assistant"], .font-claude-response, .standard-markdown, .font-claude-message');
+    var out = [];
+    for (var i = 0; i < nodes.length; i++) {
+      if (insideUser(nodes[i])) continue;
+      var t = (nodes[i].innerText || '').trim();
+      if (t) out.push(t);
+    }
+    return out;
+  }
+  function assistantText() {
+    var code = jsonFromCodeBlocks();
+    if (code) return code;
+    var parts = assistantParts();
+    for (var j = parts.length - 1; j >= 0; j--) {
+      if (/\"companies\"|\"company_name\"/.test(parts[j])) return clip(parts[j]);
+    }
+    if (parts.length) return clip(parts[parts.length - 1]);
     var users = queryAll('[data-testid="user-message"], [data-testid*="user-message"]');
     var user = users.length ? users[users.length - 1] : null;
     if (user) {
       var followed = textAfter(user);
       if (followed) return clip(followed);
     }
-    var markdown = last(queryAll('.standard-markdown, .font-claude-message, .font-claude-response'));
-    if (markdown) return clip(markdown);
     return '';
   }
   function clip(text) {

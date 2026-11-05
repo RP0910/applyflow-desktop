@@ -3,7 +3,7 @@ import { CHALLENGE_LOOP_COUNT, CHALLENGE_LOOP_WINDOW_MS, CHALLENGE_STUCK_MS, Loo
 import { BrowserDiagnostics } from './browserSession';
 import { CLAUDE_PARTITION, type ClaudeBrowser, type ClaudeTab } from './claudeBrowser';
 import { CLAUDE_PAGE_API } from './claudePage';
-import { claudeReplyBody, claudeReplyReady, extractClaudeJson } from './claudeReply';
+import { claudeReplyBody, parseAssistantJson } from './claudeReply';
 
 const HOME = 'https://claude.ai/';
 const NEW_CHAT = 'https://claude.ai/new';
@@ -274,10 +274,13 @@ export function startClaudeChat(opts: {
     if (current.state !== 'ready') await checkStatus();
     if (cancelled.has(requestId)) return { ok: false, code: 'cancelled', detail: 'Cancelled.' };
     if (current.state !== 'ready') return sessionNotReady();
-    emit({ state: 'ready', detail: `Writing “${title}” in Claude.ai…`, checkedAt: new Date().toISOString() });
+    const research = /^Research\s*[—-]/i.test(title) || prompt.includes('"task":"company_research"');
+    const step = (detail: string) => emit({ state: 'ready', detail, checkedAt: new Date().toISOString() });
+    step(research ? 'Opening Claude.ai for company research…' : 'Opening Claude.ai for CV generation…');
     try {
       const wc = await ensureWorker();
       if (composerDirty || wc.onChallengePage() || !isNewChatUrl(wc.getURL())) {
+        step('Starting a new Claude.ai chat…');
         await wc.load(NEW_CHAT, 60_000);
         lastLoad = Date.now();
         composerDirty = false;
@@ -287,6 +290,7 @@ export function startClaudeChat(opts: {
       if (opened) return await settleFailure(opened);
       await ensureApi(wc);
       composerDirty = true;
+      step(research ? 'Sending company research to Claude.ai…' : 'Sending CV Generate prompt to Claude.ai…');
       const inserted = await wc.run(`globalThis.__afPrompt = ${JSON.stringify(prompt)}; globalThis.__afClaude.insert()`, true);
       if (inserted !== true) return await settleFailure({ ok: false, code: 'input', detail: 'Claude.ai did not accept the prompt in the message box.' });
       let sent = await wc.run('globalThis.__afClaude.clickSend()', true);
@@ -295,6 +299,7 @@ export function startClaudeChat(opts: {
         sent = await wc.run('globalThis.__afClaude.clickSend()', true);
       }
       if (sent !== true) return await settleFailure({ ok: false, code: 'input', detail: 'Claude.ai did not enable Send. Sign in again from the sidebar if the session expired.' });
+      step(research ? 'Waiting for company research from Claude.ai…' : 'Waiting for CV JSON from Claude.ai…');
       const before = (await snap(wc)).assistant;
       const reply = await waitForReply(wc, requestId, timeoutMs, before, prompt);
       if (!reply.ok) return await settleFailure(reply);
@@ -356,12 +361,12 @@ export function startClaudeChat(opts: {
       if (s.signedOut) return { ok: false, code: 'signed_out', detail: 'Claude.ai signed out while writing. Sign in again from the sidebar.' };
       if (s.usageLimited) return { ok: false, code: 'limit', detail: 'Claude.ai reported a usage limit on this account.' };
       const body = claudeReplyBody(s.assistant, prompt);
-      lastBody = body;
+      lastBody = s.assistant;
       const prior = before.replace(/\s+/g, ' ').trim();
-      const flat = body.replace(/\s+/g, ' ').trim();
+      const flat = (body || s.assistant).replace(/\s+/g, ' ').trim();
       if (flat.length >= 24 && flat !== prior && !prior.includes(flat)) saw = true;
       if (s.stop || flat.length >= 24) saw = true;
-      const json = extractClaudeJson(body);
+      const json = parseAssistantJson(s.assistant, prompt);
       if (json) {
         jsonStable = json === lastJson ? jsonStable + 1 : 0;
         lastJson = json;
@@ -377,7 +382,7 @@ export function startClaudeChat(opts: {
       }
       await delay(700);
     }
-    const tail = extractClaudeJson(lastBody) ?? (lastSnap ? extractClaudeJson(claudeReplyBody(lastSnap.assistant, prompt)) : null);
+    const tail = (lastSnap ? parseAssistantJson(lastSnap.assistant, prompt) : null);
     if (tail) return { ok: true, text: tail, model: lastSnap?.model || 'claude.ai', renamed: false };
     return saw
       ? { ok: false, code: 'timeout', detail: 'Claude.ai finished on screen but ApplyFlow could not read the JSON. Copy the reply into a new chat or try again.' }

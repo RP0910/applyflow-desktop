@@ -6,7 +6,7 @@ import type { ClaudeChatStatus } from '@/platform/bridge';
 import type { ClaudeBrowser, ClaudeTab } from '../../electron/claudeBrowser';
 import type { BrowserDiagnostics } from '../../electron/browserSession';
 import { startClaudeChat, type ClaudeChatController } from '../../electron/claudeChat';
-import { claudeReplyReady, extractClaudeJson } from '../../electron/claudeReply';
+import { claudeReplyReady, extractClaudeJson, parseAssistantJson } from '../../electron/claudeReply';
 
 const NEW_CHAT = 'https://claude.ai/new';
 const REPLY = '{"companies":[{"periodIndex":0,"name":"Northwind","activeYears":"2020","techFit":"platforms","hq":"Austin, TX"}]}';
@@ -192,5 +192,10 @@ describe('Claude.ai reply readiness', () => {
   it('extracts research JSON even when Claude adds UI text after it', () => {
     const research = '{"companies":[{"name":"Medidata Solutions, Inc.","activeYears":"1999-present","techFit":"Cloud clinical trial platform","hq":"New York, NY"}]} Copy Retry';
     expect(extractClaudeJson(research)).toBe('{"companies":[{"name":"Medidata Solutions, Inc.","activeYears":"1999-present","techFit":"Cloud clinical trial platform","hq":"New York, NY"}]}');
+  });
+
+  it('finds JSON in a code block when a later assistant line is not JSON', () => {
+    const page = 'Claude can make mistakes.\n```json\n' + REPLY + '\n```\nCopy';
+    expect(parseAssistantJson(page, 'Research employers.')).toBe(REPLY);
   });
 });

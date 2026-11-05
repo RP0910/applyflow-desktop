@@ -64,6 +64,7 @@ export class ClaudeError extends Error {
   }
 
   get userMessage(): string {
+    if (this.code === 'timeout' && this.detail?.trim()) return this.detail;
     return this.message;
   }
 }

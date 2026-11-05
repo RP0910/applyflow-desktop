@@ -174,7 +174,7 @@ export function PanelApp({ deps = {}, desktop = false }: { deps?: PanelDeps; des
       </main>
       <footer className="action-bar">
         <div className="progress-line" role="status" aria-live="polite">
-          <span>{primary.spinning ? '' : wf.progressText || primary.hint || ''}</span>
+          <span className="progress-line__text">{wf.progressText || primary.hint || ''}</span>
         </div>
         <div className="action-row">
           <button

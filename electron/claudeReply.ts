@@ -47,3 +47,17 @@ export function extractClaudeJson(body: string): string | null {
 export function claudeReplyReady(body: string): boolean {
   return extractClaudeJson(body) !== null;
 }
+
+/** Read JSON from assistant DOM text, code blocks, or fenced sections. */
+export function parseAssistantJson(assistant: string, prompt: string): string | null {
+  const trimmed = assistant.trim();
+  if (!trimmed) return null;
+  const candidates = [claudeReplyBody(assistant, prompt), trimmed];
+  for (const part of trimmed.split(/```(?:json)?/gi)) candidates.push(part.trim());
+  for (const src of candidates) {
+    if (!src) continue;
+    const json = extractClaudeJson(src);
+    if (json) return json;
+  }
+  return null;
+}

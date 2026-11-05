@@ -1,3 +1,7 @@
+# 2.2.12
+
+Fixed: Claude.ai reply reading from code blocks and multi-part assistant messages so company research reliably continues into CV generation. Live one-line Tailor & Apply status in the footer (ellipsis when long). See RELEASE-2.2.12.md.
+
 # 2.2.11
 
 Fixed: Claude.ai Chat now recognizes completed company-research JSON and moves on to CV generation automatically, instead of timing out while the reply is already on screen. Separate research and resume chat titles; clearer errors when research or CV generation fails. See RELEASE-2.2.11.md.
