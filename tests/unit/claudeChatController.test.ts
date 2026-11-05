@@ -198,4 +198,27 @@ describe('Claude.ai reply readiness', () => {
     const page = 'Claude can make mistakes.\n```json\n' + REPLY + '\n```\nCopy';
     expect(parseAssistantJson(page, 'Research employers.')).toBe(REPLY);
   });
+
+  it('reads JSON that Claude.ai rendered as prose with curly quotes', () => {
+    const page = '{\u201Ccompanies\u201D:[{\u201Cname\u201D:\u201DThrive Pet Healthcare, LLC\u201D,\u201DactiveYears\u201D:\u201D2019-present\u201D,\u201DtechFit\u201D:\u201DVet network similar to PetVet\u2019s.\u201D,\u201Dhq\u201D:\u201DRolling Meadows, IL\u201D}]}';
+    const json = parseAssistantJson(page, 'Research employers.');
+    expect(json).not.toBeNull();
+    expect(JSON.parse(json!)).toEqual({ companies: [{ name: 'Thrive Pet Healthcare, LLC', activeYears: '2019-present', techFit: 'Vet network similar to PetVet\u2019s.', hq: 'Rolling Meadows, IL' }] });
+  });
+
+  it('reads curly-quoted resume JSON and keeps quoted words inside prose', () => {
+    const page = 'Claude can make mistakes.\n{\u201ccompany_name\u201d: \u201cPetVet\u201d, \u201csummary\u201d: \u201cBuilt a \u201cbest-in-class\u201d TA team for the company\u2019s growth\u201d, \u201cskill_groups\u201d: [\u201cExcel\u201d, \u201cPower BI\u201d]}\nCopy Retry';
+    const json = parseAssistantJson(page, 'Write the resume.');
+    expect(json).not.toBeNull();
+    expect(JSON.parse(json!)).toEqual({
+      company_name: 'PetVet',
+      summary: 'Built a \u201cbest-in-class\u201d TA team for the company\u2019s growth',
+      skill_groups: ['Excel', 'Power BI'],
+    });
+  });
+
+  it('leaves straight-quoted resume JSON with curly quotes in prose untouched', () => {
+    const cv = '{"company_name":"PetVet","summary":"Led \u201cfast-track\u201d hiring"}';
+    expect(parseAssistantJson(cv, 'Write the resume.')).toBe(cv);
+  });
 });

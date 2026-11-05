@@ -1,3 +1,7 @@
+# 2.2.13
+
+Fixed: Claude.ai replies that use curly typographic quotes around JSON keys are normalized before parsing, and chat prompts ask for straight ASCII quotes. Continue button label truncates with an ellipsis when long. See RELEASE-2.2.13.md.
+
 # 2.2.12
 
 Fixed: Claude.ai reply reading from code blocks and multi-part assistant messages so company research reliably continues into CV generation. Live one-line Tailor & Apply status in the footer (ellipsis when long). See RELEASE-2.2.12.md.

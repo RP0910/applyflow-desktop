@@ -224,7 +224,9 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .spinner { width: 13px; height: 13px; border-radius: 50%; border: 2px solid var(--blue-line); border-top-color: var(--blue); animation: spin 0.8s linear infinite; flex: none; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .action-row { display: flex; gap: 8px; }
-.action-row .btn-primary { flex: 1; }
+.action-row .btn-primary { flex: 1 1 0; min-width: 0; padding-inline: 16px; }
+.action-row .btn-primary .btn-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.action-row .btn:not(.btn-primary) { flex: none; }
 .action-row .btn-primary .spinner { border-color: rgba(255,255,255,.4); border-top-color: #fff; }
 
 .panel-minimized .nav, .panel-minimized .panel-body, .panel-minimized .action-bar .progress-line { display: none; }

@@ -48,6 +48,33 @@ export function claudeReplyReady(body: string): boolean {
   return extractClaudeJson(body) !== null;
 }
 
+const CURLY = /[“”„‟″‶＂]/;
+
+/**
+ * Claude.ai sometimes answers with typographic quotes, so the JSON arrives as
+ * {“companies”:[…]}. Straighten only the quotes that sit next to JSON syntax
+ * ({ [ , : before, or : , } ] after) so quoted words inside resume prose
+ * (“best-in-class”) and apostrophes stay as they are.
+ */
+export function straightenJsonQuotes(text: string): string {
+  const out = text.split('');
+  for (let i = 0; i < out.length; i++) {
+    if (!CURLY.test(out[i]!)) continue;
+    let p = i - 1;
+    while (p >= 0 && /\s/.test(text[p]!)) p--;
+    let n = i + 1;
+    while (n < text.length && /\s/.test(text[n]!)) n++;
+    const opens = p >= 0 && '{[,:'.includes(text[p]!);
+    const closes = n < text.length && ':,}]'.includes(text[n]!);
+    if (opens || closes) out[i] = '"';
+  }
+  return out.join('');
+}
+
+function parsable(json: string): boolean {
+  try { JSON.parse(json); return true; } catch { return false; }
+}
+
 /** Read JSON from assistant DOM text, code blocks, or fenced sections. */
 export function parseAssistantJson(assistant: string, prompt: string): string | null {
   const trimmed = assistant.trim();
@@ -58,6 +85,12 @@ export function parseAssistantJson(assistant: string, prompt: string): string | 
     if (!src) continue;
     const json = extractClaudeJson(src);
     if (json) return json;
+  }
+  if (!CURLY.test(trimmed)) return null;
+  for (const src of candidates) {
+    if (!src) continue;
+    const json = extractClaudeJson(straightenJsonQuotes(src));
+    if (json && parsable(json)) return json;
   }
   return null;
 }

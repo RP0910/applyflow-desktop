@@ -188,7 +188,7 @@ export function PanelApp({ deps = {}, desktop = false }: { deps?: PanelDeps; des
             aria-busy={primary.spinning || undefined}
           >
             {primary.spinning ? <span className="spinner" aria-hidden="true" /> : null}
-            {primary.label}
+            <span className="btn-label">{primary.label}</span>
           </button>
           {primary.secondary ? (
             <button type="button" className="btn btn-lg" onClick={primary.secondary.run}>

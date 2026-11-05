@@ -41,8 +41,11 @@ function claudeChatTitlePrefix(prefix: string, company: unknown, role: unknown):
   return chars.length > 120 ? `${chars.slice(0, 119).join('')}…` : title;
 }
 
+/** Claude.ai may answer with typographic quotes, which are not valid JSON. */
+const CHAT_JSON_QUOTES = 'Write the JSON with plain ASCII straight double quotes ("), never curly quotes (“ ”). Inside string values, use single quotes instead of double quotes.';
+
 export function buildClaudeChatPrompt(system: string, user: string): string {
-  return `${system.trim()}\n\n${user.trim()}\n\nReply with one JSON object only. No markdown fences and no text before or after the JSON.`;
+  return `${system.trim()}\n\n${user.trim()}\n\nReply with one JSON object only. No markdown fences and no text before or after the JSON. ${CHAT_JSON_QUOTES}`;
 }
 
 export function parseClaudeChatJson<T>(text: string): T {
@@ -116,7 +119,7 @@ export class ClaudeChatProvider {
     let last: unknown;
     for (let attempt = 1; attempt <= 3; attempt++) {
       if (signal?.aborted) throw new ClaudeError('aborted');
-      const extra = attempt === 1 ? '' : '\n\nYour previous reply was incomplete or invalid. Return one complete JSON object only, with no markdown.';
+      const extra = attempt === 1 ? '' : `\n\nYour previous reply was incomplete or invalid. Return one complete JSON object only, with no markdown. ${CHAT_JSON_QUOTES}`;
       try {
         const { text, model } = await this.ask(`${prompt}${extra}`, title, signal);
         return accept(text, model);
