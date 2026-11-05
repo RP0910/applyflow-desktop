@@ -228,7 +228,6 @@ async function claudeCheckLoopDialog(closeSignIn: () => void): Promise<void> {
   }
 }
 
-/** Claude.ai Chat runs in Google Chrome; without Chrome it falls back to ApplyFlow's own browser. */
 async function openClaudeBrowser(): Promise<ClaudeBrowser> {
   if (process.platform === 'win32' && !MOCK_DICE && process.env.APPLYFLOW_CLAUDE_BROWSER !== 'electron') {
     try {
@@ -236,6 +235,7 @@ async function openClaudeBrowser(): Promise<ClaudeBrowser> {
         userDataDir: join(app.getPath('userData'), 'claude-chrome'),
         getWindow: () => win,
         diagnostics: browserDiagnostics,
+        icon: iconPath,
       });
     } catch (error) {
       browserDiagnostics.record({
@@ -462,6 +462,8 @@ function registerIpc(): void {
     'sessions.save': (s: Parameters<Store['saveSession']>[0]) => store.saveSession(s),
     'sessions.latest': (ms: number) => store.latestSession(ms),
     'sessions.delete': (k: string) => store.deleteSession(k),
+    'companyResearch.get': (k: string) => store.getCompanyResearch(k),
+    'companyResearch.save': (p: { jobKey: string; research: Parameters<Store['saveCompanyResearch']>[1] }) => store.saveCompanyResearch(p.jobKey, p.research),
     'applications.list': () => store.listApplications(),
     'applications.get': (id: string) => store.getApplication(id),
     'applications.byJobKey': (k: string) => store.applicationsByJobKey(k),
@@ -818,7 +820,10 @@ app.whenReady().then(() => {
   buildMenu();
   createWindow();
   claudeChat = startClaudeChat({
-    emit: (status) => send('claudeChat:status', status),
+    emit: (status) => {
+      if (!app.isPackaged) console.log(`[claudeChat] ${new Date().toISOString().slice(11, 19)} ${status.state}: ${status.detail}`);
+      send('claudeChat:status', status);
+    },
     openBrowser: openClaudeBrowser,
     diagnostics: browserDiagnostics,
     onChallengeLoop: (closeSignIn) => void claudeCheckLoopDialog(closeSignIn),

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { CV_CORE, cvSystem, validateCv, type CvReply } from '@/prompts/cvGenerate';
+import type { CompanyResearchReply } from '@/prompts/companyResearch';
 import { compactFacts } from '@/prompts/application';
 import { assembleCv } from '@/services/workflow/cvEngine';
 import { buildMasterFromForm, emptyBuilder, builderProblems } from '@/services/resume/builder';
@@ -64,11 +65,12 @@ describe('CV Generate 2.1 pipeline',()=>{
  });
  it('runs company research then CV generate as two separate calls',async()=>{
    const order:string[]=[];
+   const saved=new Map<string,CompanyResearchReply>();
    const researchCompanies=vi.fn().mockImplementation(async()=>{order.push('research');return{data:{companies:[{periodIndex:0,name:'HashiCorp',activeYears:'2020-Present',techFit:'TypeScript platforms',hq:''}]},model:'test'};});
-   const researchedReply={...reply,experience:[{...reply.experience[0]!,company:'HashiCorp'}]};
-   const generateCv=vi.fn().mockImplementation(async()=>{order.push('cv');return{data:researchedReply,model:'test'};});
+   const tailoredReply={...reply,experience:[{...reply.experience[0]!,company:'HashiCorp'}]};
+   const generateCv=vi.fn().mockImplementation(async()=>{order.push('cv');return{data:tailoredReply,model:'test'};});
    const phases:string[]=[];
-   const d={settings:{...DEFAULT_SETTINGS,engine:'claude' as const},apiKey:'test',providerFactory:()=>({generateCv,researchCompanies} as unknown as ClaudeProvider)};
+   const d={settings:{...DEFAULT_SETTINGS,engine:'claude' as const},apiKey:'test',providerFactory:()=>({generateCv,researchCompanies} as unknown as ClaudeProvider),saveCompanyResearch:async(k:string,v:CompanyResearchReply)=>{saved.set(k,v);},loadCompanyResearch:async(k:string)=>saved.get(k)??null};
    const a=await runAnalysis(session.job,false,master,profile,{...d,settings:{...d.settings,deepAnalysisWithClaude:false}});
    const result=await runDocuments({...session,analysis:a.analysis},master,profile,d,'professional',(p)=>phases.push(p));
    expect(researchCompanies).toHaveBeenCalledTimes(1);
@@ -78,12 +80,14 @@ describe('CV Generate 2.1 pipeline',()=>{
    expect(order.slice(1).every((x)=>x==='cv')).toBe(true);
    expect(phases.indexOf('researching_companies')).toBeGreaterThanOrEqual(0);
    expect(phases.indexOf('generating_resume')).toBeGreaterThan(phases.indexOf('researching_companies'));
-   expect(generateCv.mock.calls[0]![4]).toMatchObject({companies:[{periodIndex:0,name:'HashiCorp'}]});
+   expect(generateCv.mock.calls[0]!).toHaveLength(3);
    expect(JSON.parse(generateCv.mock.calls[0]![0].text).jobs[0].company).toBe('HashiCorp');
+   expect(saved.has(session.jobKey)).toBe(true);
    expect(result.resume.experience[0]!.company).toBe('HashiCorp');
-   expect(result.resume.experience[0]!.bullets).toContain(researchedReply.experience[0]!.bullets[0]);
-   expect(result.coverLetter!.text).toBe(researchedReply.cover_letter);
-   expect(result.notices.join(' ')).toMatch(/Company research completed before resume generation|Target not reached/);
+   expect(result.resume.experience[0]!.bullets).toContain(reply.experience[0]!.bullets[0]);
+   expect(result.coverLetter!.text).toBe(reply.cover_letter);
+   expect(result.companyResearch?.companies[0]?.name).toBe('HashiCorp');
+   expect(result.notices.join(' ')).toMatch(/Company research completed|Target not reached/);
  });
  it('does not start CV generate when company research fails or returns no companies',async()=>{
    const generateCv=vi.fn();
@@ -94,7 +98,7 @@ describe('CV Generate 2.1 pipeline',()=>{
    const a=await runAnalysis(session.job,false,master,profile,{...dFail,settings:{...dFail.settings,deepAnalysisWithClaude:false}});
    const s={...session,analysis:a.analysis};
    await expect(runDocuments(s,master,profile,dFail,'professional')).rejects.toThrow(/Company research must finish/);
-   await expect(runDocuments(s,master,profile,dEmpty,'professional')).rejects.toThrow(/no employers/);
+   await expect(runDocuments(s,master,profile,dEmpty,'professional')).rejects.toThrow(/no companies/);
    expect(generateCv).not.toHaveBeenCalled();
  });
  it('retains a complete draft after a refine failure once research succeeded',async()=>{

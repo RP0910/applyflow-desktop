@@ -1,16 +1,13 @@
 import { BrowserWindow, type WebContents } from 'electron';
 import { BrowserDiagnostics, monitorSession, watchContents, type SessionMonitor } from './browserSession';
 
-/** One Claude.ai page: the hidden background tab, or the sign-in window. */
 export interface ClaudeTab {
   readonly id: number;
   getURL(): string;
   getTitle(): string;
   isDestroyed(): boolean;
-  /** True while the page is a Cloudflare security check (nothing is run inside it). */
   onChallengePage(): boolean;
   load(url: string, timeoutMs: number): Promise<void>;
-  /** Runs code in ApplyFlow's isolated world on the page; the site's own scripts can't see it. */
   run(code: string, userGesture?: boolean): Promise<unknown>;
   focus(): void;
   close(): void;
@@ -24,10 +21,8 @@ export interface ClaudeMainResponse {
   challenge: boolean;
 }
 
-/** The browser behind the Claude.ai Chat connection. */
 export interface ClaudeBrowser {
   readonly kind: 'chrome' | 'electron';
-  /** Label used in browser diagnostics. */
   readonly partition: string;
   alive(): boolean;
   openWorker(): Promise<ClaudeTab>;
@@ -40,7 +35,6 @@ export interface ClaudeBrowser {
 export const CLAUDE_PARTITION = 'persist:applyflow-claude';
 const HELPER_WORLD = 4271;
 
-/** ApplyFlow's own browser engine. Used when Google Chrome is not available. */
 export function electronClaudeBrowser(opts: { getWindow: () => BrowserWindow | null; diagnostics: BrowserDiagnostics }): ClaudeBrowser {
   const mon: SessionMonitor = monitorSession(CLAUDE_PARTITION, opts.diagnostics);
   const windows = new Set<BrowserWindow>();
@@ -105,7 +99,6 @@ export function electronClaudeBrowser(opts: { getWindow: () => BrowserWindow | n
       };
       wc.on('will-navigate', block);
       wc.on('will-redirect', block);
-      // Painted so the composer exists, but invisible and click-through so it never covers the app.
       worker.setOpacity(0);
       worker.setIgnoreMouseEvents(true);
       worker.showInactive();
@@ -147,7 +140,6 @@ export function electronClaudeBrowser(opts: { getWindow: () => BrowserWindow | n
   };
 }
 
-/** Where the hidden background page may go: Claude.ai, its sign-in providers, and Cloudflare's check. */
 export function workerAllowed(url: string): boolean {
   if (/^about:blank$/i.test(url)) return true;
   try {

@@ -1,6 +1,6 @@
 import type { Settings } from '@/types';
 import type { CompanyResearchReply } from '@/prompts/companyResearch';
-import { COMPANY_RESEARCH_SYSTEM, companyResearchUser, researchPeriods, validateCompanyResearch } from '@/prompts/companyResearch';
+import { COMPANY_RESEARCH_SYSTEM, companyResearchUser, validateCompanyResearch } from '@/prompts/companyResearch';
 import type { CompactFacts } from '@/prompts/application';
 import { cvSystem, cvUser, validateCv, type CvReply } from '@/prompts/cvGenerate';
 import { bridge, type ClaudeChatCompleteResult } from '@/platform/bridge';
@@ -24,11 +24,19 @@ export interface ChatResumeDeps {
 }
 
 export function claudeChatTitle(company: unknown, role: unknown): string {
+  return claudeChatTitlePrefix('', company, role);
+}
+
+export function claudeChatResearchTitle(company: unknown, role: unknown): string {
+  return claudeChatTitlePrefix('Research — ', company, role);
+}
+
+function claudeChatTitlePrefix(prefix: string, company: unknown, role: unknown): string {
   const one = (value: unknown, fallback: string) => {
     const text = typeof value === 'string' ? value.replace(/[\u0000-\u001f]+/g, ' ').replace(/\s+/g, ' ').trim() : '';
     return text || fallback;
   };
-  const title = `${one(company, 'Company')} — ${one(role, 'Role')}`;
+  const title = `${prefix}${one(company, 'Company')} — ${one(role, 'Role')}`;
   const chars = [...title];
   return chars.length > 120 ? `${chars.slice(0, 119).join('')}…` : title;
 }
@@ -70,19 +78,18 @@ export class ClaudeChatProvider {
     return this.api().writeLetter(...args);
   }
 
-  researchCompanies(facts: CompactFacts, job: Record<string, unknown>, tech: string[], signal?: AbortSignal): Promise<ProviderResult<CompanyResearchReply>> {
-    const prompt = buildClaudeChatPrompt(COMPANY_RESEARCH_SYSTEM, companyResearchUser(job, facts, tech));
-    const periods = researchPeriods(facts).length;
-    return this.attempt(claudeChatTitle(job.company, job.title), prompt, signal, (text, model) => {
+  researchCompanies(_facts: CompactFacts, job: Record<string, unknown>, tech: string[], signal?: AbortSignal): Promise<ProviderResult<CompanyResearchReply>> {
+    const prompt = buildClaudeChatPrompt(COMPANY_RESEARCH_SYSTEM, companyResearchUser(job, tech));
+    return this.attempt(claudeChatResearchTitle(job.company, job.title), prompt, signal, (text, model) => {
       const data = parseClaudeChatJson<CompanyResearchReply>(text);
-      validateCompanyResearch(data, periods);
+      validateCompanyResearch(data);
       return { data, model };
     });
   }
 
-  generateCv(facts: CompactFacts, job: Record<string, unknown>, signal?: AbortSignal, revision?: string, research?: CompanyResearchReply | null): Promise<ProviderResult<CvReply>> {
+  generateCv(facts: CompactFacts, job: Record<string, unknown>, signal?: AbortSignal, revision?: string): Promise<ProviderResult<CvReply>> {
     const system = cvSystem(facts).map((block) => block.text).join('\n\n');
-    const prompt = buildClaudeChatPrompt(system, cvUser(job, revision, research));
+    const prompt = buildClaudeChatPrompt(system, cvUser(job, revision));
     const count = Object.keys(facts.jobIds).length;
     return this.attempt(claudeChatTitle(job.company, job.title), prompt, signal, (text, model) => {
       const data = parseClaudeChatJson<CvReply>(text);

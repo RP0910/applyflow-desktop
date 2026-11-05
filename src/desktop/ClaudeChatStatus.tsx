@@ -3,6 +3,14 @@ import { bridge, type ClaudeChatStatus as ChatStatus } from '@/platform/bridge';
 
 const CHECKING: ChatStatus = { state: 'checking', detail: 'Checking Claude.ai…', checkedAt: null };
 
+export function claudeChatIndicator(status: ChatStatus): { label: string; dot: 'green' | 'yellow' | 'red' } {
+  const writing = status.state === 'ready' && status.detail.startsWith('Writing ');
+  if (status.state === 'ready') return { label: writing ? 'Writing…' : 'Connected', dot: 'green' };
+  if (status.state === 'checking') return { label: 'Checking…', dot: 'yellow' };
+  if (status.state === 'connecting') return { label: 'Connecting…', dot: 'yellow' };
+  return { label: 'Sign in', dot: 'red' };
+}
+
 export function ClaudeChatStatus() {
   const [status, setStatus] = useState<ChatStatus>(() => (bridge() ? CHECKING : { state: 'signed_out', detail: 'Claude.ai Chat is available in the desktop app.', checkedAt: null }));
 
@@ -15,8 +23,7 @@ export function ClaudeChatStatus() {
     return () => { alive = false; off(); };
   }, []);
 
-  const dot = status.state === 'ready' ? 'green' : status.state === 'checking' || status.state === 'connecting' ? 'yellow' : 'red';
-  const label = status.state === 'ready' ? 'Connected' : status.state === 'checking' ? 'Checking…' : status.state === 'connecting' ? 'Connecting…' : 'Sign in';
+  const { label, dot } = claudeChatIndicator(status);
 
   return (
     <button

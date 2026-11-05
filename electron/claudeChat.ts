@@ -3,6 +3,7 @@ import { CHALLENGE_LOOP_COUNT, CHALLENGE_LOOP_WINDOW_MS, CHALLENGE_STUCK_MS, Loo
 import { BrowserDiagnostics } from './browserSession';
 import { CLAUDE_PARTITION, type ClaudeBrowser, type ClaudeTab } from './claudeBrowser';
 import { CLAUDE_PAGE_API } from './claudePage';
+import { claudeReplyBody, claudeReplyReady } from './claudeReply';
 
 const HOME = 'https://claude.ai/';
 const NEW_CHAT = 'https://claude.ai/new';
@@ -40,7 +41,6 @@ export interface ClaudeChatController {
 
 export function startClaudeChat(opts: {
   emit: (status: ClaudeChatStatus) => void;
-  /** Starts the browser behind the connection: Google Chrome, or ApplyFlow's own browser without it. */
   openBrowser: () => Promise<ClaudeBrowser>;
   diagnostics?: BrowserDiagnostics;
   onChallengeLoop?: (closeSignIn: () => void) => void;
@@ -53,6 +53,7 @@ export function startClaudeChat(opts: {
   let login: ClaudeTab | null = null;
   let loginStarting = false;
   let lastLoad = 0;
+  let composerDirty = false;
   let challengeAt = 0;
   let tail: Promise<void> = Promise.resolve();
   const cancelled = new Set<string>();
@@ -64,6 +65,11 @@ export function startClaudeChat(opts: {
 
   const getBrowser = (): Promise<ClaudeBrowser> => {
     if (browser?.alive()) return Promise.resolve(browser);
+    if (browser && !launching) {
+      browser.close();
+      browser = null;
+      worker = null;
+    }
     launching ??= opts.openBrowser().then((b) => {
       stopResponses?.();
       browser = b;
@@ -134,6 +140,12 @@ export function startClaudeChat(opts: {
     void enqueue(() => checkStatus());
   };
 
+  const sessionNotReady = (): Failure => {
+    const detail = current.detail || 'Claude.ai is not connected. Click the sidebar indicator and wait until it says Connected, then tailor again.';
+    if (current.state === 'signed_out') return { ok: false, code: 'signed_out', detail };
+    return { ok: false, code: 'challenge', detail };
+  };
+
   const checkStatus = async () => {
     if (loginOpen()) return;
     if (challengeAt && Date.now() - challengeAt < CHALLENGE_PAUSE_MS) return;
@@ -171,7 +183,6 @@ export function startClaudeChat(opts: {
     loginStarting = true;
     emit({ state: 'connecting', detail: SIGN_IN, checkedAt: current.checkedAt });
     loginChecks.reset('login');
-    // The hidden page steps aside (after a job in progress) so the security check runs only in the sign-in window.
     void enqueue(stepAside);
     void (async () => {
       try {
@@ -260,15 +271,22 @@ export function startClaudeChat(opts: {
     if (!prompt.trim()) return { ok: false, code: 'input', detail: 'The prompt was empty.' };
     if (cancelled.has(requestId)) return { ok: false, code: 'cancelled', detail: 'Cancelled.' };
     if (loginOpen() && current.state !== 'ready') return { ok: false, code: 'signed_out', detail: 'Finish signing in to Claude.ai in the sign-in window, then try again.' };
-    emit({ state: 'connecting', detail: `Writing “${title}” in Claude.ai…`, checkedAt: new Date().toISOString() });
+    if (current.state !== 'ready') await checkStatus();
+    if (cancelled.has(requestId)) return { ok: false, code: 'cancelled', detail: 'Cancelled.' };
+    if (current.state !== 'ready') return sessionNotReady();
+    emit({ state: 'ready', detail: `Writing “${title}” in Claude.ai…`, checkedAt: new Date().toISOString() });
     try {
       const wc = await ensureWorker();
-      await wc.load(NEW_CHAT, 60_000);
-      lastLoad = Date.now();
+      if (composerDirty || wc.onChallengePage() || !isNewChatUrl(wc.getURL())) {
+        await wc.load(NEW_CHAT, 60_000);
+        lastLoad = Date.now();
+        composerDirty = false;
+      }
       if (cancelled.has(requestId)) return { ok: false, code: 'cancelled', detail: 'Cancelled.' };
       const opened = await waitForComposer(wc, requestId);
       if (opened) return await settleFailure(opened);
       await ensureApi(wc);
+      composerDirty = true;
       const inserted = await wc.run(`globalThis.__afPrompt = ${JSON.stringify(prompt)}; globalThis.__afClaude.insert()`, true);
       if (inserted !== true) return await settleFailure({ ok: false, code: 'input', detail: 'Claude.ai did not accept the prompt in the message box.' });
       let sent = await wc.run('globalThis.__afClaude.clickSend()', true);
@@ -295,6 +313,7 @@ export function startClaudeChat(opts: {
       return { ok: false, code: /timeout/i.test(detail) ? 'timeout' : 'input', detail };
     } finally {
       cancelled.delete(requestId);
+      if (current.state === 'ready' && current.detail.startsWith('Writing ')) emit({ ...current, detail: 'Connected' });
     }
   };
 
@@ -339,13 +358,15 @@ export function startClaudeChat(opts: {
       if (s.signedOut) return { ok: false, code: 'signed_out', detail: 'Claude.ai signed out while writing. Sign in again from the sidebar.' };
       if (s.usageLimited) return { ok: false, code: 'limit', detail: 'Claude.ai reported a usage limit on this account.' };
       if (s.stop) sawStop = true;
-      const echo = echoedPrompt(s.assistant, prompt) || s.assistant.trim() === before.trim();
-      const marker = /"company_name"|"companies"|company_name/.test(s.assistant);
-      if (s.stop || (!echo && s.assistant !== last)) saw = true;
-      if (!echo && marker && !s.stop && s.assistant === last) stable += 1;
+      const body = claudeReplyBody(s.assistant, prompt);
+      const prior = before.replace(/\s+/g, ' ').trim();
+      const flat = body.replace(/\s+/g, ' ').trim();
+      const fresh = flat.length >= 24 && flat !== prior && !prior.includes(flat);
+      if (s.stop || fresh) saw = true;
+      if (fresh && claudeReplyReady(body) && !s.stop && flat === last) stable += 1;
       else stable = 0;
-      if (stable >= 3 && (sawStop || stable >= 6)) return { ok: true, text: s.assistant, model: s.model || 'claude.ai', renamed: false };
-      last = s.assistant;
+      if (stable >= 3 && (sawStop || stable >= 6)) return { ok: true, text: body, model: s.model || 'claude.ai', renamed: false };
+      last = flat;
       await delay(700);
     }
     return saw
@@ -402,6 +423,15 @@ function isClaudeUrl(url: string): boolean {
   return /^https:\/\/([^/]+\.)?claude\.ai\//i.test(url);
 }
 
+function isNewChatUrl(url: string): boolean {
+  try {
+    const u = new URL(url);
+    return /(^|\.)claude\.ai$/i.test(u.hostname) && /^\/new\/?$/.test(u.pathname);
+  } catch {
+    return false;
+  }
+}
+
 function onSignInPage(href: string): boolean {
   try {
     const u = new URL(href);
@@ -432,7 +462,6 @@ async function readAuth(wc: ClaudeTab, budgetMs: number, challengeGraceMs = 0): 
 
 async function snap(wc: ClaudeTab): Promise<PageSnap> {
   const href = wc.getURL();
-  // Security checks fingerprint the page they run in, so nothing is run there.
   if (wc.onChallengePage()) return { ...blankSnap(href), challenge: true };
   if (!isClaudeUrl(href)) return blankSnap(href);
   try {
@@ -467,12 +496,6 @@ function normalizeSnap(raw: unknown, href: string): PageSnap {
 
 function blankSnap(href: string): PageSnap {
   return { href, composer: false, sendEnabled: false, stop: false, assistant: '', model: 'claude.ai', challenge: false, signedOut: onSignInPage(href), usageLimited: false, chatId: null };
-}
-
-function echoedPrompt(assistant: string, prompt: string): boolean {
-  const sample = assistant.replace(/\s+/g, ' ').trim().slice(0, 160);
-  if (sample.length < 24) return true;
-  return prompt.replace(/\s+/g, ' ').includes(sample);
 }
 
 function delay(ms: number): Promise<void> {

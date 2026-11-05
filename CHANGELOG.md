@@ -1,3 +1,7 @@
+# 2.2.10
+
+Changed: company research now picks four real companies that match the job, saves that result with the job, and uses it to label employers on the draft resume. Claude.ai sign-in opens inside an ApplyFlow window, and the sidebar shows Writing… while a resume is being written. See RELEASE-2.2.10.md.
+
 # 2.2.9
 
 Changed: Claude.ai Chat runs in Google Chrome, with its own profile, so Claude.ai’s security check can finish. Sign in again in the Chrome window ApplyFlow opens. ApplyFlow still does not complete that check. If Chrome is missing, Claude.ai Chat uses the previous built-in browser. See RELEASE-2.2.9.md.

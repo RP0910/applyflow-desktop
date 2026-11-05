@@ -1,4 +1,6 @@
 import { ClaudeProvider } from '@/services/claude/provider';
+import type { MasterResume } from '@/types';
+import type { CompanyResearchReply } from '@/prompts/companyResearch';
 import { cvFixture } from '../cvFixture';
 import { describe, expect, it } from 'vitest';
 import { fromResumeDocument, readResumeDocument, renderCoverLetterPdf, renderResumePdf, renderResumeText, toResumeDocument } from '@/resume-renderer';
@@ -13,13 +15,35 @@ async function nodeLoader(data: ArrayBuffer) {
   return pdfjs.getDocument({ data: new Uint8Array(data), useSystemFonts: true, disableFontFace: true }).promise as never;
 }
 
+function researchForMaster(master: MasterResume) {
+  return {
+    companies: master.parsed.experience.map((e, periodIndex) => ({
+      periodIndex,
+      name: e.company,
+      activeYears: '2020-Present',
+      techFit: 'relevant to the role',
+      hq: e.location || '',
+    })),
+  };
+}
+
 async function tailored() {
   const job = mockJob();
   const master = exampleResume();
   const settings = { ...DEFAULT_SETTINGS, engine: 'claude' as const };
   const a = await runAnalysis(job, false, master, undefined, { settings, apiKey: null });
   const s = { ...emptySession(job, master.id), analysis: a.analysis, evidence: a.evidence };
-  return runDocuments(s, master, undefined, { settings, apiKey: 'test', providerFactory: () => ({ generateCv: async () => ({data:cvFixture(),model:'test'}) } as unknown as ClaudeProvider) }, 'professional');
+  const saved = new Map<string, CompanyResearchReply>();
+  return runDocuments(s, master, undefined, {
+    settings,
+    apiKey: 'test',
+    providerFactory: () => ({
+      researchCompanies: async () => ({ data: researchForMaster(master), model: 'test' }),
+      generateCv: async () => ({ data: cvFixture(), model: 'test' }),
+    } as unknown as ClaudeProvider),
+    saveCompanyResearch: async (k, v) => { saved.set(k, v); },
+    loadCompanyResearch: async (k) => saved.get(k) ?? null,
+  }, 'professional');
 }
 
 describe('resume JSON → PDF (no AI)', () => {

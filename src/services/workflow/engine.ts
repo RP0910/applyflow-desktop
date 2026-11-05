@@ -23,7 +23,8 @@ import { parsedToView, tailoredToView } from '@/services/export/render';
 import { uniqCaseInsensitive, wordCount } from '@/utils/text';
 import { newId } from '@/utils/id';
 import { nowIso } from '@/utils/dates';
-import { applyCompanyResearch, assembleCv, draftCorpus } from './cvEngine';
+import { alignResearchToEmployers, applyCompanyResearch, assembleCv, draftCorpus } from './cvEngine';
+import { loadCompanyResearch, persistCompanyResearch } from './companyResearchStore';
 import type { CompanyResearchReply } from '@/prompts/companyResearch';
 
 export interface EngineDeps {
@@ -33,6 +34,8 @@ export interface EngineDeps {
   signal?: AbortSignal;
   onUsage?: UsageReporter;
   chatComplete?: (req: ChatCompleteRequest) => Promise<{ text: string; model: string }>;
+  saveCompanyResearch?: (jobKey: string, research: CompanyResearchReply) => void | Promise<void>;
+  loadCompanyResearch?: (jobKey: string) => CompanyResearchReply | null | Promise<CompanyResearchReply | null>;
 }
 
 interface ResumeModel {
@@ -422,19 +425,23 @@ export async function runDocuments(
     throw new Error(`Company research must finish before resume generation. ${msg}`);
   }
   if (!research.companies.length) {
-    throw new Error('Company research returned no employers. Resume generation was not started.');
+    throw new Error('Company research returned no companies. Resume generation was not started.');
   }
 
-  const applied = applyCompanyResearch(master, research);
-  const workingMaster = applied.master;
-  const facts = compactFacts(workingMaster, profile);
+  const periodCount = Object.keys(baseFacts.jobIds).length;
+  const aligned = alignResearchToEmployers(research, periodCount);
+  await persistCompanyResearch(deps, session.jobKey, aligned);
+  const stored = (await loadCompanyResearch(deps, session.jobKey)) ?? aligned;
+  const { master: draftMaster, replaced } = applyCompanyResearch(master, stored);
+  const facts = compactFacts(draftMaster, profile);
+
   onPhase('generating_resume');
-  let result = await p.generateCv(facts, job, deps.signal, undefined, research);
-  let resume = assembleCv(result.data, workingMaster, profile, session, result.model);
+  let result = await p.generateCv(facts, job, deps.signal);
+  let resume = assembleCv(result.data, draftMaster, profile, session, result.model);
   const measure = (t: TailoredResume) => {
-    const corpus = draftCorpus(t, workingMaster);
+    const corpus = draftCorpus(t, master);
     const { plan } = planAts(session.job, session.analysis!, corpus, profile, deps.settings.defaultResumeLength);
-    return { plan, ats: scanTailored(t, plan, corpus, deps.settings), match: scoreTailored(session.job, session.analysis!, [], workingMaster, t, profile) };
+    return { plan, ats: scanTailored(t, plan, corpus, deps.settings), match: scoreTailored(session.job, session.analysis!, [], master, t, profile) };
   };
   let measured = measure(resume);
   const list = research.companies
@@ -443,18 +450,14 @@ export async function runDocuments(
     .map((c) => `${c.periodIndex + 1}. ${c.name}${c.hq ? ` (${c.hq})` : ''}`)
     .join('; ');
   const notices: string[] = [
-    `Company research completed before resume generation: ${list}. Verify employment claims before submitting.`,
+    `Company research completed: ${list}.`,
+    'Verify generated claims before submitting. Scores describe draft coverage, not verified experience.',
   ];
-  if (applied.replaced.length) {
+  if (replaced.length) {
     notices.push(
-      `Employers used for CV generate: ${applied.replaced
-        .map((r) => `${r.from} → ${r.to}${r.location ? ` @ ${r.location}` : ''}`)
-        .join('; ')}.`,
+      `Employer labels updated from saved research: ${replaced.map((r) => `${r.from} → ${r.to}`).join('; ')}.`,
     );
-  } else {
-    notices.push('Researched employer names already matched Profile; those names and HQs were kept for CV generate.');
   }
-  notices.push('Verify generated claims before submitting. Scores describe draft coverage, not verified experience.');
   for (let pass = 0; pass < 1 && (measured.ats.score <= 95 || measured.match.total <= 95); pass++) {
     const missing = measured.ats.keywords.filter((k) => k.found === 'missing').map((k) => k.term).slice(0, 16);
     const revision = JSON.stringify({
@@ -465,8 +468,8 @@ export async function runDocuments(
       checks: measured.ats.checks.filter((c) => c.status !== 'pass').map((c) => c.label).slice(0, 8),
     });
     try {
-      const refined = await p.generateCv(facts, job, deps.signal, revision, research);
-      const next = assembleCv(refined.data, workingMaster, profile, session, refined.model);
+      const refined = await p.generateCv(facts, job, deps.signal, revision);
+      const next = assembleCv(refined.data, draftMaster, profile, session, refined.model);
       const score = measure(next);
       if (score.ats.score >= measured.ats.score && score.match.total >= measured.match.total) {
         result = refined;

@@ -35,7 +35,6 @@ import {
   COMPANY_RESEARCH_SCHEMA,
   COMPANY_RESEARCH_SYSTEM,
   companyResearchUser,
-  researchPeriods,
   validateCompanyResearch,
   type CompanyResearchReply,
 } from '@/prompts/companyResearch';
@@ -108,17 +107,16 @@ export class ClaudeProvider {
     return this.json<ApplicationReply>(buildRefinePrompt(input), applicationSchema(false), 12000, signal, systemBlocks(facts), 'refine');
   }
 
-  async researchCompanies(facts: CompactFacts, job: Record<string, unknown>, tech: string[], signal?: AbortSignal): Promise<ProviderResult<CompanyResearchReply>> {
-    const periods = researchPeriods(facts).length;
+  async researchCompanies(_facts: CompactFacts, job: Record<string, unknown>, tech: string[], signal?: AbortSignal): Promise<ProviderResult<CompanyResearchReply>> {
     const r = await this.json<CompanyResearchReply>(
-      companyResearchUser(job, facts, tech),
+      companyResearchUser(job, tech),
       COMPANY_RESEARCH_SCHEMA,
       4000,
       signal,
       COMPANY_RESEARCH_SYSTEM,
       'company_research',
     );
-    validateCompanyResearch(r.data, periods);
+    validateCompanyResearch(r.data);
     return r;
   }
 
@@ -127,9 +125,8 @@ export class ClaudeProvider {
     job: Record<string, unknown>,
     signal?: AbortSignal,
     revision?: string,
-    research?: CompanyResearchReply | null,
   ): Promise<ProviderResult<CvReply>> {
-    const r = await this.json<CvReply>(cvUser(job, revision, research), CV_SCHEMA, 14000, signal, cvSystem(facts), 'cv_generate');
+    const r = await this.json<CvReply>(cvUser(job, revision), CV_SCHEMA, 14000, signal, cvSystem(facts), 'cv_generate');
     validateCv(r.data, Object.keys(facts.jobIds).length);
     return r;
   }

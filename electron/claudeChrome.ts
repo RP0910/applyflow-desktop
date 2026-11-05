@@ -1,13 +1,3 @@
-/**
- * The Claude.ai Chat connection in Google Chrome.
- *
- * ApplyFlow starts the user's installed Chrome with its own profile (separate from everyday Chrome)
- * and drives it over the DevTools protocol:
- * - a background window, parked off-screen and kept off the taskbar, writes the resumes;
- * - the sign-in window is an ordinary Chrome window the user finishes themselves.
- * Chrome's own identity is what lets Claude.ai's security check finish. ApplyFlow never clicks it,
- * never runs anything inside a check page, and keeps its page helper in an isolated world.
- */
 import { spawn, type ChildProcess } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -19,6 +9,7 @@ import { isChallengeResponse, isChallengeTitle } from './browserPolicy';
 import type { BrowserDiagnostics } from './browserSession';
 import type { ClaudeBrowser, ClaudeMainResponse, ClaudeTab } from './claudeBrowser';
 import { workerAllowed } from './claudeBrowser';
+import { ClaudeSignInWindow } from './claudeSignInWindow';
 import { Win32Embed } from './win32Embed';
 
 const WORLD = 'applyflow-claude';
@@ -29,7 +20,7 @@ export async function launchClaudeChrome(opts: {
   userDataDir: string;
   getWindow: () => BrowserWindow | null;
   diagnostics: BrowserDiagnostics;
-  /** Test hook: extra Chrome switches. */
+  icon?: string;
   extraArgs?: string[];
 }): Promise<ClaudeBrowser> {
   const exe = findChromeExecutable();
@@ -50,7 +41,7 @@ export async function launchClaudeChrome(opts: {
     `--window-position=${PARK},${PARK}`,
     '--window-size=1360,900',
     ...(opts.extraArgs ?? []),
-    'about:blank',
+    `--app=data:text/html,${encodeURIComponent('<!doctype html><title>Claude.ai</title>')}`,
   ], { stdio: 'ignore', windowsHide: false });
   child.on('error', () => undefined);
   let cdp: CdpClient;
@@ -70,7 +61,6 @@ export async function launchClaudeChrome(opts: {
   return host;
 }
 
-/** A Chrome left running by an earlier ApplyFlow would take over the new launch; ask it to quit first. */
 async function closeStale(userDataDir: string): Promise<void> {
   const file = join(userDataDir, 'DevToolsActivePort');
   if (!existsSync(file)) return;
@@ -82,7 +72,6 @@ async function closeStale(userDataDir: string): Promise<void> {
     cdp.close();
     await delay(800);
   } catch {
-    // Nothing is listening: the file is left over from a closed Chrome.
   }
 }
 
@@ -92,9 +81,14 @@ class ClaudeChrome implements ClaudeBrowser {
   private readonly tabs = new Map<string, ChromeTab>();
   private readonly listeners = new Set<(r: ClaudeMainResponse) => void>();
   private readonly stopEvents: () => void;
-  private spare: string | null = null;
+  private signInTarget = '';
+  private signInSurface: ChromeTab | null = null;
+  private signInWindow: ClaudeSignInWindow | null = null;
+  private signInLost = false;
+  private signInHwnd: bigint | null = null;
   private workerTarget = '';
   private closed = false;
+  private win32: Promise<Win32Embed | null> | null = null;
 
   constructor(
     private readonly opts: Parameters<typeof launchClaudeChrome>[0],
@@ -109,19 +103,29 @@ class ClaudeChrome implements ClaudeBrowser {
   async start(): Promise<void> {
     await this.cdp.send('Target.setDiscoverTargets', { discover: true });
     const list = (await (await fetch(`http://127.0.0.1:${this.port}/json/list`)).json()) as { id: string; type: string }[];
-    this.spare = list.find((t) => t.type === 'page')?.id ?? null;
+    this.signInTarget = list.find((t) => t.type === 'page')?.id ?? '';
+    if (!this.signInTarget) return;
+    await this.setBounds(this.signInTarget, { left: PARK, top: PARK, width: 1100, height: 760, windowState: 'normal' });
+    const page = await this.findParkedWindow();
+    if (!page) return;
+    this.signInHwnd = page;
+    const helper = await this.helper();
+    await helper?.toolWindow(page).catch(() => undefined);
+    this.signInWindow = new ClaudeSignInWindow({
+      parent: this.opts.getWindow,
+      helper: () => this.helper(),
+      page,
+      icon: this.opts.icon,
+      currentUrl: () => this.signInSurface?.getURL() ?? '',
+    });
   }
 
   alive(): boolean {
-    return !this.closed && !this.cdp.closed;
+    return !this.closed && !this.cdp.closed && !this.signInLost;
   }
 
   async openWorker(): Promise<ClaudeTab> {
-    let targetId = this.spare;
-    this.spare = null;
-    if (!targetId) {
-      ({ targetId } = await this.cdp.send<{ targetId: string }>('Target.createTarget', { url: 'about:blank', newWindow: true, background: true }));
-    }
+    const { targetId } = await this.cdp.send<{ targetId: string }>('Target.createTarget', { url: 'about:blank', newWindow: true, background: true });
     await this.setBounds(targetId, { left: PARK, top: PARK, width: 1360, height: 900, windowState: 'normal' });
     const tab = await this.attach(targetId, 'claude background');
     this.workerTarget = targetId;
@@ -130,6 +134,24 @@ class ClaudeChrome implements ClaudeBrowser {
   }
 
   async openLogin(url: string): Promise<ClaudeTab> {
+    const shown = await this.openSignInWindow(url).catch(() => null);
+    if (shown) return shown;
+    return this.openLoginWindow(url);
+  }
+
+  private async openSignInWindow(url: string): Promise<ClaudeTab | null> {
+    const win = this.signInWindow;
+    if (!win || !this.signInTarget || this.signInLost) return null;
+    if (!this.signInSurface || this.signInSurface.isDestroyed()) this.signInSurface = await this.attach(this.signInTarget, 'claude sign-in');
+    const session = new SignInSession(this.signInSurface, win);
+    const ok = await win.open(() => session.end());
+    if (!ok) return null;
+    void this.signInSurface.navigate(url).catch(() => undefined);
+    return session;
+  }
+
+  private async openLoginWindow(url: string): Promise<ClaudeTab> {
+    const known = new Set((await this.windows()).map((row) => row.hwnd.toString()));
     const { targetId } = await this.cdp.send<{ targetId: string }>('Target.createTarget', { url: 'about:blank', newWindow: true });
     const win = this.opts.getWindow();
     const width = 1100;
@@ -139,9 +161,58 @@ class ClaudeChrome implements ClaudeBrowser {
     const top = around ? Math.round(around.y + Math.max(0, (around.height - height) / 2)) : 80;
     await this.setBounds(targetId, { left, top, width, height, windowState: 'normal' });
     const tab = await this.attach(targetId, 'claude sign-in');
+    tab.hwnd = await this.findNewWindow(known);
     tab.focus();
     void tab.navigate(url).catch(() => undefined);
     return tab;
+  }
+
+  async raise(tab: ChromeTab): Promise<void> {
+    await this.setBounds(tab.targetId, { windowState: 'normal' });
+    await this.send('Target.activateTarget', { targetId: tab.targetId }).catch(() => undefined);
+    const helper = await this.helper();
+    if (!helper || !tab.hwnd) return;
+    await helper.front(tab.hwnd, this.ownerHandle()).catch(() => undefined);
+  }
+
+  private ownerHandle(): bigint | null {
+    const win = this.opts.getWindow();
+    if (!win || win.isDestroyed()) return null;
+    const buf = win.getNativeWindowHandle();
+    return buf.length >= 8 ? buf.readBigUInt64LE(0) : BigInt(buf.readUInt32LE(0));
+  }
+
+  private helper(): Promise<Win32Embed | null> {
+    if (process.platform !== 'win32') return Promise.resolve(null);
+    this.win32 ??= Win32Embed.start().catch(() => null);
+    return this.win32;
+  }
+
+  private async windows(): Promise<{ hwnd: bigint; left: number; top: number }[]> {
+    const pid = this.child.pid;
+    const helper = await this.helper();
+    if (!helper || !pid) return [];
+    return helper.find(pid).catch(() => []);
+  }
+
+  private async findParkedWindow(): Promise<bigint | null> {
+    const deadline = Date.now() + 6_000;
+    while (Date.now() < deadline) {
+      const parked = (await this.windows()).filter((row) => row.left < -5000 && row.hwnd !== this.signInHwnd);
+      if (parked.length) return parked[0]!.hwnd;
+      await delay(120);
+    }
+    return null;
+  }
+
+  private async findNewWindow(known: Set<string>): Promise<bigint | null> {
+    const deadline = Date.now() + 5_000;
+    while (Date.now() < deadline) {
+      const fresh = (await this.windows()).filter((row) => row.left > -5000 && !known.has(row.hwnd.toString()));
+      if (fresh.length) return fresh[0]!.hwnd;
+      await delay(120);
+    }
+    return null;
   }
 
   onMainResponse(cb: (r: ClaudeMainResponse) => void): () => void {
@@ -161,6 +232,8 @@ class ClaudeChrome implements ClaudeBrowser {
   close(): void {
     if (this.closed) return;
     void this.cdp.send('Browser.close').catch(() => undefined);
+    this.signInWindow?.dispose();
+    this.signInWindow = null;
     const child = this.child;
     setTimeout(() => killChrome(child), 3_000).unref?.();
     this.shutDown();
@@ -196,6 +269,7 @@ class ClaudeChrome implements ClaudeBrowser {
     if (this.closed) return;
     this.closed = true;
     this.stopEvents();
+    void this.win32?.then((helper) => helper?.close());
     this.cdp.close();
     for (const tab of this.tabs.values()) tab.markClosed();
     this.tabs.clear();
@@ -205,42 +279,23 @@ class ClaudeChrome implements ClaudeBrowser {
     const { sessionId } = await this.cdp.send<{ sessionId: string }>('Target.attachToTarget', { targetId, flatten: true });
     const tab = new ChromeTab(this, targetId, sessionId, source);
     this.tabs.set(targetId, tab);
-    // Page and Network events only. Runtime is never enabled: pages can notice it.
     await this.send('Page.enable', {}, sessionId);
     await this.send('Network.enable', {}, sessionId);
     await tab.readFrameTree();
     return tab;
   }
 
-  /** The background window stays "visible" to Windows (so Claude.ai keeps rendering) but leaves the taskbar. */
   private async hideFromTaskbar(): Promise<void> {
-    const pid = this.child.pid;
-    if (process.platform !== 'win32' || !pid) return;
-    let win32: Win32Embed | null = null;
-    try {
-      win32 = await Win32Embed.start();
-      const deadline = Date.now() + 6_000;
-      while (Date.now() < deadline) {
-        const rows = await win32.find(pid).catch(() => []);
-        const parked = rows.filter((row) => row.left < -5000);
-        if (parked.length) {
-          for (const row of parked) await win32.toolWindow(row.hwnd).catch(() => undefined);
-          return;
-        }
-        await delay(150);
-      }
-    } catch {
-      // Best effort: the window still works, it just shows on the taskbar.
-    } finally {
-      win32?.close();
-    }
+    const helper = await this.helper();
+    if (!helper) return;
+    const hwnd = await this.findParkedWindow();
+    if (hwnd) await helper.toolWindow(hwnd).catch(() => undefined);
   }
 
   private onEvent(event: CdpEvent): void {
     const p = event.params;
     if (event.method === 'Target.targetCreated') {
       const info = p.targetInfo as { targetId?: string; type?: string; openerId?: string } | undefined;
-      // The background page never opens windows of its own.
       if (info?.targetId && info.type === 'page' && info.openerId && info.openerId === this.workerTarget) {
         void this.cdp.send('Target.closeTarget', { targetId: info.targetId }).catch(() => undefined);
       }
@@ -261,6 +316,10 @@ class ClaudeChrome implements ClaudeBrowser {
         tab.markClosed();
       }
       if (targetId === this.workerTarget) this.workerTarget = '';
+      if (targetId === this.signInTarget) {
+        this.signInLost = true;
+        this.signInWindow?.hide();
+      }
       return;
     }
     if (event.method === 'Target.detachedFromTarget') {
@@ -277,11 +336,74 @@ class ClaudeChrome implements ClaudeBrowser {
   }
 }
 
+class SignInSession implements ClaudeTab {
+  readonly id: number;
+  private ended = false;
+  private readonly listeners = new Set<() => void>();
+
+  constructor(private readonly page: ChromeTab, private readonly win: ClaudeSignInWindow) {
+    this.id = page.id;
+    page.onClosed(() => this.end());
+  }
+
+  getURL(): string {
+    return this.page.getURL();
+  }
+
+  getTitle(): string {
+    return this.page.getTitle();
+  }
+
+  isDestroyed(): boolean {
+    return this.ended || this.page.isDestroyed();
+  }
+
+  onChallengePage(): boolean {
+    return !this.ended && this.page.onChallengePage();
+  }
+
+  load(url: string, timeoutMs: number): Promise<void> {
+    return this.page.load(url, timeoutMs);
+  }
+
+  run(code: string, userGesture?: boolean): Promise<unknown> {
+    return this.page.run(code, userGesture);
+  }
+
+  focus(): void {
+    if (!this.isDestroyed()) this.win.focus();
+  }
+
+  close(): void {
+    this.end();
+  }
+
+  onClosed(cb: () => void): void {
+    if (this.ended) cb();
+    else this.listeners.add(cb);
+  }
+
+  end(): void {
+    if (this.ended) return;
+    this.ended = true;
+    this.win.hide();
+    if (!this.page.isDestroyed()) void this.page.navigate('about:blank').catch(() => undefined);
+    for (const cb of this.listeners) {
+      try {
+        cb();
+      } catch {
+      }
+    }
+    this.listeners.clear();
+  }
+}
+
 let tabSeq = 0;
 
 class ChromeTab implements ClaudeTab {
   readonly id = ++tabSeq;
   challenge = false;
+  hwnd: bigint | null = null;
   private url = 'about:blank';
   private title = '';
   private closed = false;
@@ -320,20 +442,39 @@ class ChromeTab implements ClaudeTab {
   }
 
   load(url: string, timeoutMs: number): Promise<void> {
+    const reload = this.samePage(url);
     return new Promise((resolve, reject) => {
       let settled = false;
+      let armed = false;
       const finish = (error?: Error) => {
         if (settled) return;
         settled = true;
         clearTimeout(timer);
-        this.loadWaiters.delete(finish);
+        this.loadWaiters.delete(onLoad);
         if (error) reject(error);
         else resolve();
       };
+      const onLoad = (error?: Error) => {
+        if (error) finish(error);
+        else if (armed) finish();
+      };
       const timer = setTimeout(() => finish(new Error('Could not open Claude.ai before the time limit.')), timeoutMs);
-      this.loadWaiters.add(finish);
-      this.navigate(url).catch((e: unknown) => finish(e instanceof Error ? e : new Error('Could not open Claude.ai.')));
+      this.loadWaiters.add(onLoad);
+      this.navigate(url).then(() => {
+        armed = true;
+        if (!reload && this.samePage(url)) finish();
+      }).catch((e: unknown) => finish(e instanceof Error ? e : new Error('Could not open Claude.ai.')));
     });
+  }
+
+  private samePage(url: string): boolean {
+    try {
+      const a = new URL(this.url);
+      const b = new URL(url);
+      return a.origin === b.origin && a.pathname.replace(/\/$/, '') === b.pathname.replace(/\/$/, '');
+    } catch {
+      return this.url === url;
+    }
   }
 
   async run(code: string, userGesture = false): Promise<unknown> {
@@ -349,7 +490,6 @@ class ChromeTab implements ClaudeTab {
           userGesture,
         });
       } catch (error) {
-        // The page navigated and took the helper's world with it: make a new one once.
         if (attempt === 0 && !this.closed) {
           this.context = 0;
           continue;
@@ -363,9 +503,8 @@ class ChromeTab implements ClaudeTab {
 
   focus(): void {
     if (this.isDestroyed()) return;
-    void this.host.setBounds(this.targetId, { windowState: 'normal' });
-    void this.host.send('Target.activateTarget', { targetId: this.targetId }).catch(() => undefined);
     void this.command('Page.bringToFront').catch(() => undefined);
+    void this.host.raise(this);
   }
 
   close(): void {
@@ -401,15 +540,17 @@ class ChromeTab implements ClaudeTab {
     }
   }
 
+  private settleLoad(): void {
+    void this.refreshTitle().finally(() => {
+      for (const waiter of [...this.loadWaiters]) waiter();
+    });
+  }
+
   onInfo(url: string | undefined): void {
     if (url) this.url = url;
     void this.refreshTitle();
   }
 
-  /**
-   * The title of the document actually showing. Target events can deliver the previous document's title
-   * after a navigation (a cleared security check would look stuck), so the history entry is read instead.
-   */
   private async refreshTitle(): Promise<void> {
     try {
       const history = await this.command<{ currentIndex: number; entries: { title?: string; url?: string }[] }>('Page.getNavigationHistory');
@@ -435,16 +576,19 @@ class ChromeTab implements ClaudeTab {
       case 'Page.navigatedWithinDocument':
         if (p.frameId === this.mainFrameId && typeof p.url === 'string') this.url = p.url;
         return;
+      case 'Page.frameStoppedLoading': {
+        const frameId = typeof p.frameId === 'string' ? p.frameId : '';
+        if (this.mainFrameId && frameId && frameId !== this.mainFrameId) return;
+        this.settleLoad();
+        return;
+      }
       case 'Page.loadEventFired':
-        void this.refreshTitle().finally(() => {
-          for (const waiter of [...this.loadWaiters]) waiter();
-        });
+        this.settleLoad();
         return;
       case 'Page.javascriptDialogOpening':
         if (this.source === 'claude background') void this.command('Page.handleJavaScriptDialog', { accept: p.type === 'beforeunload' }).catch(() => undefined);
         return;
       case 'Page.frameRequestedNavigation':
-        // Keep the background page on Claude.ai and its sign-in providers.
         if (this.source === 'claude background' && p.frameId === this.mainFrameId && typeof p.url === 'string' && !workerAllowed(p.url)) {
           void this.command('Page.stopLoading').catch(() => undefined);
         }

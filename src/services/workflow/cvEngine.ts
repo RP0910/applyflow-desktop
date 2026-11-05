@@ -11,6 +11,11 @@ export function isPlaceholderCompany(name: string | null | undefined): boolean {
   return !t || PLACEHOLDER_COMPANY.test(t);
 }
 
+export function alignResearchToEmployers(research: CompanyResearchReply, periodCount: number): CompanyResearchReply {
+  const n = Math.max(0, Math.min(periodCount, research.companies.length));
+  return { companies: research.companies.slice(0, n).map((c, periodIndex) => ({ ...c, periodIndex })) };
+}
+
 export function applyCompanyResearch(master: MasterResume, research: CompanyResearchReply | null | undefined): {
   master: MasterResume;
   replaced: { from: string; to: string; periodIndex: number; location?: string }[];

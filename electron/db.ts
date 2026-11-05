@@ -1,4 +1,5 @@
 import { DatabaseSync, type SQLInputValue } from 'node:sqlite';
+import type { CompanyResearchReply } from '../src/prompts/companyResearch';
 import type { ApplicationRecord, CareerProfile, JobSession, MasterResume, SiteCredential } from '../src/types';
 import type { Contact, SearchHit, StoredDocument, StoredDocumentInput, UsageInput, UsageSummary } from '../src/platform/bridge';
 import { extractContacts, formatPhone, phoneDigits } from '../src/utils/contacts';
@@ -37,6 +38,7 @@ export class Store {
         data TEXT NOT NULL, source_data BLOB, created_at TEXT, updated_at TEXT);
       CREATE TABLE IF NOT EXISTS profile (id TEXT PRIMARY KEY, data TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS sessions (job_key TEXT PRIMARY KEY, data TEXT NOT NULL, updated_at TEXT);
+      CREATE TABLE IF NOT EXISTS company_research (job_key TEXT PRIMARY KEY, data TEXT NOT NULL, updated_at TEXT);
       CREATE TABLE IF NOT EXISTS applications (
         id TEXT PRIMARY KEY, job_key TEXT, company TEXT, title TEXT, location TEXT, stage TEXT,
         job_url TEXT, date_prepared TEXT, date_applied TEXT, follow_up_date TEXT,
@@ -209,6 +211,23 @@ export class Store {
   }
   deleteSession(jobKey: string): void {
     this.run('DELETE FROM sessions WHERE job_key = ?', jobKey);
+    this.run('DELETE FROM company_research WHERE job_key = ?', jobKey);
+  }
+
+  getCompanyResearch(jobKey: string): CompanyResearchReply | null {
+    const r = this.one('SELECT data FROM company_research WHERE job_key = ?', jobKey);
+    return r ? parse<CompanyResearchReply>(r.data) : null;
+  }
+
+  saveCompanyResearch(jobKey: string, research: CompanyResearchReply): CompanyResearchReply {
+    const at = now();
+    this.run(
+      'INSERT INTO company_research(job_key, data, updated_at) VALUES (?, ?, ?) ON CONFLICT(job_key) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at',
+      jobKey,
+      JSON.stringify(research),
+      at,
+    );
+    return research;
   }
 
   listApplications(): ApplicationRecord[] {

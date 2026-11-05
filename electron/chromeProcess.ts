@@ -13,7 +13,6 @@ export function freePort(): Promise<number> {
   });
 }
 
-/** Waits for Chrome's DevTools endpoint and returns the browser's WebSocket URL. */
 export async function waitForChrome(port: number, child: ChildProcess, timeoutMs = 20_000): Promise<string> {
   const deadline = Date.now() + timeoutMs;
   let exited = false;

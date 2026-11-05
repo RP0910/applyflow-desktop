@@ -40,6 +40,15 @@ describe('SQLite store', () => {
     expect(db.listResumes()[0]!.isDefault).toBe(true);
   });
 
+  it('stores company research separately from the session until resume generation reads it', () => {
+    const db = new Store(':memory:');
+    const research = { companies: [{ periodIndex: 0, name: 'Northwind Analytics', activeYears: '2018-2024', techFit: 'data platforms', hq: 'Chicago, IL' }] };
+    db.saveCompanyResearch('dice:research', research);
+    expect(db.getCompanyResearch('dice:research')).toEqual(research);
+    db.deleteSession('dice:research');
+    expect(db.getCompanyResearch('dice:research')).toBeNull();
+  });
+
   it('finds an application by any part of a phone number, a recruiter, the company or a word in the posting', () => {
     const db = new Store(':memory:');
     const s1 = db.saveSession(session('Meridian Credit Analytics LLC', 'Senior Architect', 'Build event-driven systems on Apache Kafka. Questions? Call Dana Whitfield at (312) 555-0147 or dana@meridian-example.com.', 'dice:1'));

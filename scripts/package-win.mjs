@@ -24,7 +24,6 @@ function removePreviousBuilds(currentVersion) {
 
 removePreviousBuilds(version);
 
-/** Cursor (or a running app) can lock release/win-unpacked. Package beside it, then copy the installers back. */
 function packagingOutput() {
   try {
     rmSync(path.join(releaseDir, 'win-unpacked', 'resources', 'app.asar'), { force: true });

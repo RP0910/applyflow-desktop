@@ -51,6 +51,43 @@ public static class AfWin {
     SetWindowPos(h, IntPtr.Zero, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0004 | 0x0020 | 0x0010);
     SetParent(h, new IntPtr(parent));
   }
+  [DllImport("user32.dll")] static extern bool SetForegroundWindow(IntPtr hWnd);
+  [DllImport("user32.dll")] static extern bool BringWindowToTop(IntPtr hWnd);
+  [DllImport("user32.dll")] static extern void keybd_event(byte vk, byte scan, uint flags, UIntPtr extra);
+  public static void Front(long hwnd, long owner) {
+    var h = new IntPtr(hwnd);
+    if (owner != 0) SetWindowLongPtr(h, -8, new IntPtr(owner));
+    ShowWindow(h, 9);
+    SetWindowPos(h, new IntPtr(-1), 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0040);
+    SetWindowPos(h, new IntPtr(-2), 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0040);
+    keybd_event(0x12, 0, 0, UIntPtr.Zero);
+    keybd_event(0x12, 0, 2, UIntPtr.Zero);
+    BringWindowToTop(h);
+    SetForegroundWindow(h);
+  }
+  delegate bool ChildProc(IntPtr hWnd, IntPtr lParam);
+  [DllImport("user32.dll")] static extern bool EnumChildWindows(IntPtr parent, ChildProc f, IntPtr l);
+  [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr hWnd);
+  [DllImport("user32.dll")] static extern int SetWindowRgn(IntPtr hWnd, IntPtr rgn, bool redraw);
+  [DllImport("gdi32.dll")] static extern IntPtr CreateRectRgn(int l, int t, int r, int b);
+  public static string Content(long hwnd) {
+    var h = new IntPtr(hwnd);
+    RECT w; if (!GetWindowRect(h, out w)) return "";
+    RECT best = new RECT(); long area = 0;
+    EnumChildWindows(h, (c, l) => {
+      var sb = new StringBuilder(64); GetClassName(c, sb, 64);
+      if (sb.ToString() != "Chrome_RenderWidgetHostHWND" || !IsWindowVisible(c)) return true;
+      RECT r; if (!GetWindowRect(c, out r)) return true;
+      long a = (long)(r.Right - r.Left) * (r.Bottom - r.Top);
+      if (a > area) { area = a; best = r; }
+      return true;
+    }, IntPtr.Zero);
+    if (area == 0) return "";
+    return (best.Left - w.Left) + ":" + (best.Top - w.Top) + ":" + (w.Right - best.Right) + ":" + (w.Bottom - best.Bottom);
+  }
+  public static void Crop(long hwnd, int l, int t, int r, int b) {
+    SetWindowRgn(new IntPtr(hwnd), CreateRectRgn(l, t, r, b), true);
+  }
   public static void Tool(long hwnd) {
     var h = new IntPtr(hwnd);
     ShowWindow(h, 0);
@@ -71,6 +108,9 @@ while (($line = [Console]::In.ReadLine()) -ne $null) {
     switch ($p[0]) {
       'find' { reply ("hwnds " + [AfWin]::Find([uint32]$p[1])) }
       'embed' { [AfWin]::Embed([int64]$p[1], [int64]$p[2]); reply 'ok' }
+      'front' { [AfWin]::Front([int64]$p[1], [int64]$p[2]); reply 'ok' }
+      'content' { reply ("content " + [AfWin]::Content([int64]$p[1])) }
+      'crop' { [AfWin]::Crop([int64]$p[1], [int]$p[2], [int]$p[3], [int]$p[4], [int]$p[5]); reply 'ok' }
       'tool' { [AfWin]::Tool([int64]$p[1]); reply 'ok' }
       'place' { [void][AfWin]::MoveWindow(([IntPtr][int64]$p[1]), [int]$p[2], [int]$p[3], [int]$p[4], [int]$p[5], $true); reply 'ok' }
       'show' { [void][AfWin]::ShowWindow(([IntPtr][int64]$p[1]), [int]$p[2]); reply 'ok' }
@@ -191,7 +231,22 @@ export class Win32Embed {
     return this.call(`place ${child} ${x} ${y} ${Math.max(0, w)} ${Math.max(0, h)}`).then(() => undefined);
   }
 
-  /** Keeps a top-level window visible to Windows but off the taskbar and Alt+Tab (WS_EX_TOOLWINDOW). */
+  async content(hwnd: bigint): Promise<{ left: number; top: number; right: number; bottom: number } | null> {
+    const line = (await this.call(`content ${hwnd}`)).replace(/^content\s*/, '').trim();
+    const parts = line.split(':').map(Number);
+    if (parts.length !== 4 || parts.some((n) => !Number.isFinite(n))) return null;
+    const [left, top, right, bottom] = parts as [number, number, number, number];
+    return { left, top, right, bottom };
+  }
+
+  crop(hwnd: bigint, left: number, top: number, right: number, bottom: number): Promise<void> {
+    return this.call(`crop ${hwnd} ${left} ${top} ${right} ${bottom}`).then(() => undefined);
+  }
+
+  front(hwnd: bigint, owner: bigint | null): Promise<void> {
+    return this.call(`front ${hwnd} ${owner ?? 0n}`).then(() => undefined);
+  }
+
   toolWindow(hwnd: bigint): Promise<void> {
     return this.call(`tool ${hwnd}`).then(() => undefined);
   }

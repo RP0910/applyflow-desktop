@@ -32,19 +32,26 @@ globalThis.__afClaude = (function () {
     nodes.sort(function (a, b) { return b.getBoundingClientRect().bottom - a.getBoundingClientRect().bottom; });
     return nodes[0] || null;
   }
+  function controlNamed(el, name, testId) {
+    var names = [el.getAttribute('aria-label') || '', el.innerText || ''];
+    for (var i = 0; i < names.length; i++) {
+      if (name.test(names[i].replace(/\\s+/g, ' ').trim())) return true;
+    }
+    return testId.test(el.getAttribute('data-testid') || '');
+  }
   function sendButton() {
     var buttons = queryAll('button');
     for (var i = 0; i < buttons.length; i++) {
       var b = buttons[i];
       if (b.disabled || b.getAttribute('aria-disabled') === 'true') continue;
-      if (/send/i.test(labelOf(b))) return b;
+      if (controlNamed(b, /^send(\\s+message)?$/i, /^send(-message)?-button$/i)) return b;
     }
     return null;
   }
   function stopButton() {
     var buttons = queryAll('button');
     for (var i = 0; i < buttons.length; i++) {
-      if (/stop/i.test(labelOf(buttons[i]))) return buttons[i];
+      if (controlNamed(buttons[i], /^stop(\\s+(respons(e|ing)|generating))?$/i, /^stop(-response)?-button$/i)) return buttons[i];
     }
     return null;
   }
@@ -65,34 +72,50 @@ globalThis.__afClaude = (function () {
     var m = location.pathname.match(/\\/chat\\/([0-9a-f-]{36})/i);
     return m ? m[1] : null;
   }
+  function insideUser(el) {
+    var node = el;
+    while (node && node !== document.documentElement) {
+      if (node.getAttribute && /user-message/i.test(node.getAttribute('data-testid') || '')) return true;
+      node = node.parentElement;
+    }
+    return false;
+  }
+  function textAfter(user) {
+    var node = user;
+    for (var depth = 0; depth < 6 && node; depth++) {
+      var sib = node.nextElementSibling;
+      var parts = [];
+      while (sib) {
+        if (sib.querySelector && sib.querySelector('[contenteditable="true"], textarea')) break;
+        if (!insideUser(sib)) parts.push(sib.innerText || '');
+        sib = sib.nextElementSibling;
+      }
+      var text = parts.join('\\n').trim();
+      if (text) return text;
+      node = node.parentElement;
+    }
+    return '';
+  }
   function assistantText() {
     function last(nodes) {
       var text = '';
       for (var i = 0; i < nodes.length; i++) {
+        if (insideUser(nodes[i])) continue;
         var t = (nodes[i].innerText || '').trim();
         if (t) text = t;
       }
       return text;
     }
-    var direct = last(queryAll('[data-testid="assistant-message"], [data-testid*="assistant-message"], [data-testid="ai-message"]'));
+    var direct = last(queryAll('[data-testid="assistant-message"], [data-testid*="assistant-message"], [data-testid="ai-message"], [data-message-author="assistant"]'));
     if (direct) return clip(direct);
-    var markdown = last(queryAll('.standard-markdown, .font-claude-message'));
-    if (markdown) return clip(markdown);
-    var users = queryAll('[data-testid="user-message"]');
+    var users = queryAll('[data-testid="user-message"], [data-testid*="user-message"]');
     var user = users.length ? users[users.length - 1] : null;
-    if (user && user.parentElement) {
-      var kids = user.parentElement.children;
-      var parts = [];
-      var started = false;
-      for (var i = 0; i < kids.length; i++) {
-        if (kids[i] === user) { started = true; continue; }
-        if (!started) continue;
-        if (kids[i].querySelector && kids[i].querySelector('[contenteditable="true"], textarea')) break;
-        parts.push(kids[i].innerText || '');
-      }
-      var after = parts.join('\\n').trim();
-      if (after) return clip(after);
+    if (user) {
+      var followed = textAfter(user);
+      if (followed) return clip(followed);
     }
+    var markdown = last(queryAll('.standard-markdown, .font-claude-message, .font-claude-response'));
+    if (markdown) return clip(markdown);
     return '';
   }
   function clip(text) {

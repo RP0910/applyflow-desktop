@@ -1,3 +1,4 @@
+import type { CompanyResearchReply } from '@/prompts/companyResearch';
 import type { ApplicationRecord, CareerProfile, JobSession, MasterResume, SiteCredential } from '@/types';
 import type { ContentEvent, ContentResponseMap, PanelToContent } from '@/types/messages';
 
@@ -23,6 +24,8 @@ export interface BridgeMethods {
   'sessions.save': (s: JobSession) => JobSession;
   'sessions.latest': (withinMs: number) => JobSession | null;
   'sessions.delete': (jobKey: string) => void;
+  'companyResearch.get': (jobKey: string) => CompanyResearchReply | null;
+  'companyResearch.save': (payload: { jobKey: string; research: CompanyResearchReply }) => CompanyResearchReply;
   'applications.list': () => ApplicationRecord[];
   'applications.get': (id: string) => ApplicationRecord | null;
   'applications.byJobKey': (jobKey: string) => ApplicationRecord[];

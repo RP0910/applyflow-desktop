@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 import { CLAUDE_PAGE_API } from '../../electron/claudePage';
 import { ClaudeError } from '@/services/claude/errors';
-import { claudeChatTitle, parseClaudeChatJson, ClaudeChatProvider } from '@/services/claude/chatResume';
+import { claudeChatResearchTitle, claudeChatTitle, parseClaudeChatJson, ClaudeChatProvider } from '@/services/claude/chatResume';
+import { claudeReplyBody, claudeReplyReady } from '../../electron/claudeReply';
+import { claudeChatIndicator } from '@/desktop/ClaudeChatStatus';
 import { compactFacts } from '@/prompts/application';
 import { runAnalysis, runDocuments } from '@/services/workflow/engine';
 import { buildMasterFromForm, emptyBuilder } from '@/services/resume/builder';
@@ -27,6 +29,23 @@ const reply: CvReply = {
 };
 
 describe('Claude.ai chat resume generation', () => {
+  it('keeps a signed-in session connected while a resume is being written', () => {
+    const writing = claudeChatIndicator({ state: 'ready', detail: 'Writing “American Red Cross — Associate” in Claude.ai…', checkedAt: null });
+    expect(writing).toEqual({ label: 'Writing…', dot: 'green' });
+    expect(claudeChatIndicator({ state: 'ready', detail: 'Connected', checkedAt: null })).toEqual({ label: 'Connected', dot: 'green' });
+    expect(claudeChatIndicator({ state: 'connecting', detail: 'Opening Claude.ai…', checkedAt: null }).label).toBe('Connecting…');
+  });
+
+  it('reads the answer and not the prompt that the page echoes', () => {
+    const prompt = 'You research real employers for a resume draft. Reply with JSON only matching the schema.';
+    expect(claudeReplyBody(prompt, prompt)).toBe('');
+    const reply = `${prompt}\n{"companies":[{"periodIndex":0,"name":"Northwind","activeYears":"2020","techFit":"platforms","hq":"Austin, TX"}]}`;
+    const body = claudeReplyBody(reply, prompt);
+    expect(body).toContain('"companies"');
+    expect(claudeReplyReady(body)).toBe(true);
+    expect(claudeReplyReady(prompt)).toBe(false);
+  });
+
   it('names each chat with the company and the role', () => {
     expect(claudeChatTitle('  Acme   Corp \n', 'Staff\tEngineer')).toBe('Acme Corp — Staff Engineer');
     expect(claudeChatTitle('', '')).toBe('Company — Role');
@@ -52,21 +71,39 @@ describe('Claude.ai chat resume generation', () => {
     const cvBodies: string[] = [];
     let cvCalls = 0;
     const research = { companies: [{ periodIndex: 0, name: 'Example Systems', activeYears: '2020-Present', techFit: 'TypeScript services', hq: '' }] };
+    const researchPrompts: string[] = [];
     const chatComplete = vi.fn(async ({ prompt, title }: { prompt: string; title: string }) => {
       titles.push(title);
-      if (prompt.includes('"task":"company_research"')) return { text: '```json\n' + JSON.stringify(research) + '\n```', model: 'claude.ai' };
+      if (prompt.includes('"task":"company_research"')) {
+        researchPrompts.push(prompt);
+        return { text: '```json\n' + JSON.stringify(research) + '\n```', model: 'claude.ai' };
+      }
       cvCalls += 1;
       cvBodies.push(prompt);
       if (cvCalls === 1) return { text: '{"company_name": "Hiring Co"', model: 'claude.ai' };
       return { text: JSON.stringify(reply), model: 'claude.ai (Sonnet 5.5 Medium)' };
     });
     const settings = { ...DEFAULT_SETTINGS, engine: 'claude' as const, resumeGenerationMethod: 'chat' as const };
-    const deps = { settings, apiKey: null, chatComplete };
+    const store = new Map<string, unknown>();
+    const deps = {
+      settings,
+      apiKey: null,
+      chatComplete,
+      saveCompanyResearch: async (k: string, v: unknown) => { store.set(k, v); },
+      loadCompanyResearch: async (k: string) => (store.get(k) as import('@/prompts/companyResearch').CompanyResearchReply | undefined) ?? null,
+    };
     const analyzed = await runAnalysis(session.job, false, master, profile, deps);
     const result = await runDocuments({ ...session, analysis: analyzed.analysis }, master, profile, deps, 'professional');
-    const expected = claudeChatTitle(session.job.company, session.job.title);
+    const resumeTitle = claudeChatTitle(session.job.company, session.job.title);
+    const researchTitle = claudeChatResearchTitle(session.job.company, session.job.title);
     expect(titles.length).toBeGreaterThanOrEqual(2);
-    expect(titles.every((title) => title === expected)).toBe(true);
+    expect(titles[0]).toBe(researchTitle);
+    expect(titles.slice(1).every((title) => title === resumeTitle)).toBe(true);
+    expect(researchPrompts).toHaveLength(1);
+    const instructions = researchPrompts[0]!.split('{"task":"company_research"')[0]!;
+    expect(instructions).toMatch(/identify real companies that match a job description/);
+    expect(instructions).not.toMatch(/resume|employment period|periodIndex/i);
+    expect(researchPrompts[0]).not.toContain('"periods"');
     expect(cvBodies[0]).toContain('<output_schema>');
     expect(cvBodies[0]).toContain('JOB DESCRIPTION');
     expect(cvBodies[0]).not.toContain(profile.email);
