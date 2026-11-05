@@ -199,6 +199,34 @@ describe('Claude.ai Chat job runner', () => {
     expect(tab.workers).toBe(before + 1);
   });
 
+  it('uses one chat each for research, job titles and the CV of a target job, and retries continue in that chat', async () => {
+    const ask = async (requestId: string, title: string, prompt: string) => {
+      const res = await settle(chat.complete({ requestId, prompt, title, timeoutMs: 60_000 }));
+      expect(res.ok).toBe(true);
+      return tab.url;
+    };
+    const research = await ask('a1', 'Research — Acme — PM', '{"task":"company_research"} Reply with JSON.');
+    const titles = await ask('a2', 'Titles — Acme — PM', '{"task":"suggest_role_titles"} Reply with JSON.');
+    const cv = await ask('a3', 'Acme — PM', 'Write the CV JSON for this role.');
+    expect(new Set([research, titles, cv]).size).toBe(3);
+    // Retries (and the CV refine pass) go back to the chat of the same kind.
+    expect(await ask('a4', 'Titles — Acme — PM', '{"task":"suggest_role_titles"} Reply with JSON again.')).toBe(titles);
+    expect(await ask('a5', 'Acme — PM', 'Revise the CV JSON.')).toBe(cv);
+    expect(await ask('a6', 'Research — Acme — PM', '{"task":"company_research"} Reply with JSON again.')).toBe(research);
+    // Another target job gets its own three chats.
+    const other = await ask('b1', 'Titles — Globex — PM', '{"task":"suggest_role_titles"} Reply with JSON.');
+    expect([research, titles, cv]).not.toContain(other);
+  });
+
+  it('lets Claude.ai finish writing a short JSON reply before the job ends, so the next job can leave the chat', async () => {
+    // A job-titles reply is complete JSON in the conversation while the page still shows Stop.
+    tab.conversation = { prompt: 'Suggest titles. Reply with JSON.', text: REPLY, done: false };
+    const res = await settle(chat.complete({ requestId: 't1', prompt: 'Suggest titles. Reply with JSON.', title: 'Titles — Acme — PM', timeoutMs: 60_000 }));
+    expect(res.ok).toBe(true);
+    // Streaming ends after 3 snapshots; the job returned only once a snapshot showed it had stopped.
+    expect(tab.polls).toBeGreaterThanOrEqual(4);
+  });
+
   it('records where a failed job stopped and why, for the diagnostics report', async () => {
     recorded.length = 0;
     tab.sendWorks = false;

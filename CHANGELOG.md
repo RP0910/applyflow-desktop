@@ -1,3 +1,7 @@
+# 2.3.0
+
+Fixed: Claude.ai Chat waits for a short JSON reply to finish writing (then presses Stop) before leaving the chat, so the next Tailor step is not blocked by Claude.ai’s leave-site prompt. See RELEASE-2.3.0.md.
+
 # 2.2.20
 
 Fixed: Claude.ai Chat keeps job titles in their own conversation, replaces a background tab that never opens, and waits until resume JSON is complete. The Claude.ai sign-in window stays above ApplyFlow’s header so clicks reach the page. See RELEASE-2.2.20.md.

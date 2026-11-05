@@ -443,11 +443,15 @@ export function startClaudeChat(opts: {
       if (!reply.ok) {
         rememberChatSlot(chatSlots, slotKey, wc.getURL());
         composerDirty = false;
+        if (reply.code !== 'cancelled' && reply.code !== 'challenge') await finishWriting(wc, 0);
         return await settleFailure(reply);
       }
       challengeAt = 0;
       rememberChatSlot(chatSlots, slotKey, wc.getURL());
       composerDirty = false;
+      // A short JSON reply (job titles) parses while Claude.ai is still writing. Leaving a chat mid-reply trips its
+      // "leave site?" guard, and the next job's navigation then never happens.
+      await finishWriting(wc, FINISH_WRITING_MS);
       void renameChat(wc, title);
       emit({ state: 'ready', detail: 'Connected', checkedAt: new Date().toISOString() });
       return { ok: true, text: reply.text, model: reply.model, renamed: false };
@@ -578,6 +582,23 @@ export function startClaudeChat(opts: {
       : { ok: false, code: 'timeout', detail: 'Claude.ai did not start a reply.' };
   };
 
+  /** Waits up to maxMs for Claude.ai to stop writing, then presses Stop, so the tab can leave this chat. */
+  const finishWriting = async (wc: ClaudeTab, maxMs: number): Promise<void> => {
+    const deadline = Date.now() + maxMs;
+    try {
+      for (;;) {
+        const s = await snap(wc);
+        if (!s.stop || s.challenge) return;
+        if (Date.now() >= deadline) break;
+        await delay(700);
+      }
+      await wc.run('globalThis.__afClaude && globalThis.__afClaude.clickStop()', true);
+      await delay(800);
+    } catch (e) {
+      if (e instanceof StuckError) recycleWorker();
+    }
+  };
+
   const renameChat = async (wc: ClaudeTab, title: string): Promise<boolean> => {
     const deadline = Date.now() + 8_000;
     while (Date.now() < deadline) {
@@ -638,6 +659,8 @@ function isNewChatUrl(url: string): boolean {
 
 /** Page scripts normally answer in milliseconds; one that hangs (page frozen, or mid-navigation) must not stall the job queue. */
 const RUN_LIMIT_MS = 30_000;
+/** How long a finished JSON reply may keep streaming before ApplyFlow presses Stop. */
+const FINISH_WRITING_MS = 45_000;
 const OPEN_LIMIT_MS = 60_000;
 
 export class StuckError extends Error {}
