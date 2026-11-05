@@ -1,8 +1,3 @@
-/**
- * Plain-text resume → structured sections.
- * Deterministic and conservative: anything it can't classify goes to `unparsed`
- * (shown to the user) rather than being dropped or guessed.
- */
 import type { ContactInfo, EducationEntry, ExperienceEntry, ParsedResume, ProjectEntry } from '@/types';
 import { uniqCaseInsensitive } from '@/utils/text';
 
@@ -31,7 +26,6 @@ const LOCATION_RE = new RegExp(
 const MONTH = '(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\\.?';
 const DATE_TOKEN = `(?:${MONTH}\\s+\\d{4}|${MONTH}\\s*['’]\\d{2}|\\d{1,2}[/.]\\d{4}|\\d{4})`;
 export const DATE_RANGE_RE = new RegExp(`(${DATE_TOKEN})\\s*(?:-|–|—|to|until)\\s*(${DATE_TOKEN}|present|current|now|today)`, 'i');
-/** Glyph bullets may touch the text ("•Built …" in FlowCV PDFs); dashes and numbers need a space. */
 const BULLET_RE = /^\s*(?:[•·▪●◦►‣⁃■□○◆❖➢✓✔⦁\uF0B7\uF0A7\uF076\uF0D8]\s*|[-*–—]\s+|\d+[.)]\s+)(?=\S)/;
 const TITLE_WORDS = /\b(engineer|developer|architect|manager|director|analyst|lead|consultant|scientist|specialist|administrator|designer|intern|officer|head|vp|vice president|president|principal|staff|programmer|owner|founder|co-founder|associate|coordinator|technician|strategist|researcher|advisor|partner|cto|cio|ceo)\b/i;
 const DEGREE_WORDS = /\b(b\.?s\.?c?|b\.?a\.?|m\.?s\.?c?|m\.?a\.?|mba|ph\.?d|doctor(ate)?|bachelor'?s?|master'?s?|associate'?s?|diploma|degree|b\.?tech|m\.?tech|b\.?e\.?|m\.?eng)\b/i;
@@ -46,7 +40,6 @@ function headingKey(line: string): SectionKey | null {
   return null;
 }
 
-/** "Professional Experience", "EDUCATION:" … — a known resume section heading. */
 export function isSectionHeading(line: string): boolean {
   return headingKey(line) !== null;
 }
@@ -69,7 +62,6 @@ function emptyContact(): ContactInfo {
   return { fullName: '', email: '', phone: '', location: '', links: [] };
 }
 
-/** Per-job technology lists ("Technologies", "Tech stack: …", "Environment: …"). */
 const STRONG_JOB_SUBS = new Set([
   'technologies', 'technology', 'tech stack', 'stack', 'tech', 'environment', 'technical environment', 'tools used', 'technologies used',
   'tools & technologies', 'tools and technologies', 'key technologies', 'skills used', 'technologies & tools', 'technologies and tools', 'tech used',
@@ -85,11 +77,6 @@ export function jobSubheading(line: string): { label: string; rest: string; stro
   return { label, rest: (m[2] ?? '').trim(), strong };
 }
 
-/**
- * Is this "Technologies"-style line a sub-heading inside a job (true) or the start of a
- * top-level Skills section (false)? Sub-headings are followed by another dated role before the
- * next real section, repeat under several jobs, or are styled differently from the main headings.
- */
 function isJobSubheadingAt(lines: string[], i: number, sub: { rest: string; strong: boolean }, headingCaps: boolean, seenBefore: boolean): boolean {
   for (let j = i + 1; j < lines.length; j++) {
     const l = lines[j]!.trim();
@@ -126,7 +113,6 @@ export function parseResumeText(input: string): ParsedResume {
       if (current !== 'header') sections[current].push('');
       continue;
     }
-    // "Technologies" / "Tech stack: …" under a job belongs to that job — it is not the Skills section.
     if (current === 'experience') {
       const sub = jobSubheading(line);
       if (sub && isJobSubheadingAt(lines, i, sub, experienceHeadingCaps, seenJobSub)) {
@@ -135,8 +121,6 @@ export function parseResumeText(input: string): ParsedResume {
         continue;
       }
     }
-    // "Skills: Python, Go" — heading and content on one line.
-    // Inside Skills, "Languages: Python, Go" is a category label, not a new section.
     const inline: RegExpMatchArray | null = current === 'skills' ? null : line.match(/^([A-Za-z &]{3,40})[:：]\s+(.+)$/);
     const k: SectionKey | null = headingKey(line) ?? (inline ? headingKey(inline[1]!) : null);
     if (k) {
@@ -180,7 +164,6 @@ export function parseResumeText(input: string): ParsedResume {
     }
     headerLeftovers.push(line);
   }
-  // A short paragraph directly under the header with no heading reads as a summary.
   let summary = sections.summary.filter(Boolean).join(' ').trim();
   if (!summary && headerLeftovers.length) {
     const prose = headerLeftovers.filter((l) => l.length > 60);
@@ -209,7 +192,6 @@ export function parseResumeText(input: string): ParsedResume {
   };
 }
 
-/** Split on separators, but never inside parentheses: "AWS (EC2, EKS), Python" → ["AWS (EC2, EKS)", "Python"]. */
 function splitTopLevel(line: string): string[] {
   const parts: string[] = [];
   let depth = 0;
@@ -232,10 +214,6 @@ const LABEL_WORDS = new Set(
   'ai ml data cloud platform platforms language languages programming tools tooling frameworks framework libraries databases database devops practices architecture other technologies technical methodologies methods frontend front-end backend back-end testing security soft skills infrastructure mobile web analytics core design management certifications concepts systems'.split(' '),
 );
 
-/**
- * "Helm AI & Data: Large Language Models" → ["Helm", "Large Language Models"].
- * Walks back from the colon over category words only, so a real skill before the label survives.
- */
 function splitEmbeddedLabel(part: string): string[] {
   const idx = part.indexOf(': ');
   if (idx < 0) return [part];
@@ -248,7 +226,6 @@ function splitEmbeddedLabel(part: string): string[] {
 
 const GLYPH = /[•·▪●◦►‣⁃■◆❖➢⦁\uF0B7\uF0A7]/;
 
-/** A category label in a skills grid ("Cloud & DevOps", "Video Players") rather than a skill. */
 function looksLikeLabel(frag: string): boolean {
   const t = frag.trim();
   const words = t.split(/\s+/);
@@ -256,7 +233,6 @@ function looksLikeLabel(frag: string): boolean {
 }
 
 export function parseSkills(lines: string[]): string[] {
-  // Grid layouts (FlowCV, Canva) put "•Skill" items in columns with unbulleted category labels between them.
   const frags = lines.flatMap((l) => l.split(/\s{2,}/)).map((f) => f.trim()).filter(Boolean);
   const bulleted = frags.filter((f) => GLYPH.test(f.charAt(0))).length;
   const gridLabels = bulleted >= 6 && bulleted >= frags.length * 0.6;
@@ -265,7 +241,6 @@ export function parseSkills(lines: string[]): string[] {
     if (!raw.trim()) continue;
     const pieces = gridLabels ? raw.split(/\s{2,}/).filter((f) => !(f.trim() && !GLYPH.test(f.trim().charAt(0)) && looksLikeLabel(f))) : [raw];
     for (const piece of pieces) {
-      // Drop "Cloud & DevOps:" style category labels.
       const line = stripBullet(piece.trim()).replace(/^[A-Za-z][A-Za-z &/+-]{1,40}:\s+/, '');
       for (const rawPart of splitTopLevel(line)) {
         for (const part of splitEmbeddedLabel(rawPart)) {
@@ -289,28 +264,18 @@ function splitSegments(header: string): string[] {
     .filter(Boolean);
 }
 
-/** Group lines into role blocks: header lines (until first bullet) + bullets. */
 const CONNECTOR = /^(?:of|and|&|for|the|in|at|to|\||[-–—,/@]|ai|ml|it|qa|ui|ux)$/i;
 
-/**
- * Undo lines that an older PDF reader glued together:
- *  - "…for operations teams. Staff Software Engineer, Comcast 06/2018 – 01/2023" (a role header
- *    swallowed by the last bullet of the role above), and
- *  - "Staff Engineer, Comcast 06/2018 – 01/2023 Built the platform that…" (a header that
- *    swallowed the first bullet).
- */
 export function splitMergedLine(line: string): string[] {
   const m = DATE_RANGE_RE.exec(line);
   if (!m) return [line];
   const before = line.slice(0, m.index);
   const after = line.slice(m.index + m[0].length);
-  // Header glued to the end of a bullet.
   if (before.trim().length > 40) {
     let cut = -1;
     const sentence = Array.from(before.matchAll(/[.!?;](?=\s+[A-Z])/g)).pop();
     if (sentence && sentence.index! > 20) cut = sentence.index! + 1;
     if (cut < 0) {
-      // No punctuation: walk back over a Title-Case run ("Staff Software Engineer, Comcast").
       const words = before.trimEnd().split(/(\s+)/);
       let i = words.length;
       let titleish = 0;
@@ -327,7 +292,6 @@ export function splitMergedLine(line: string): string[] {
         } else break;
       }
       const run = words.slice(i).join('').trim();
-      // Only when the dates end the line (a header), not mid-sentence in a real bullet.
       if (titleish >= 2 && TITLE_WORDS.test(run) && run.length < before.trim().length - 20 && after.trim().length <= 40) cut = before.lastIndexOf(run);
     }
     if (cut > 0) {
@@ -337,7 +301,6 @@ export function splitMergedLine(line: string): string[] {
       }
     }
   }
-  // A bullet glued after the header's dates (and optional location).
   const rest = after.trim();
   if (!isBullet(line) && before.trim().length <= 120 && rest.length > 60) {
     const loc = rest.match(new RegExp(`^(?:[|,·•–-]\\s*)?(${LOCATION_RE.source})`))?.[0] ?? '';
@@ -352,7 +315,6 @@ const PLACE_ONLY_RE = new RegExp(`^(?:${PLACE_NAMES})$`, 'i');
 const CITY_COMMA_RE = /^[A-Z][\p{L}.'’-]+(?:\s[A-Z][\p{L}.'’-]+){0,3},$/u;
 const CITY_PLACE_RE = /^[A-Z][\p{L}.'’-]+(?:\s[A-Z][\p{L}.'’-]+){0,3},\s*[A-Z][\p{L}.'’-]+(?:\s[A-Z][\p{L}.'’-]+){0,3}$/u;
 
-/** "Denver, CO", "Boston," (wraps to "United States"), "Tokyo, Japan", "Remote". */
 export function isLocationish(s: string): boolean {
   const t = s.replace(/^[|·,\s]+|[|·\s]+$/g, '').trim();
   if (!t || t.length > 40) return false;
@@ -364,10 +326,6 @@ export function isLocationish(s: string): boolean {
   return CITY_COMMA_RE.test(t) || CITY_PLACE_RE.test(t);
 }
 
-/**
- * Two-column layouts (dates and city in a narrow left column) come out of the PDF reader as
- * "Denver, CO  AI Video Playback Engineer". Split off the left-column location.
- */
 export function splitSideColumn(line: string): { side: string | null; main: string } {
   const idx = line.indexOf('  ');
   if (idx <= 0) return { side: null, main: line };
@@ -377,7 +335,6 @@ export function splitSideColumn(line: string): { side: string | null; main: stri
   return isLocationish(left) ? { side: left, main: right } : { side: null, main: line };
 }
 
-/** "Swift • Kotlin • Java", "Docker, Kubernetes, Terraform" — a short-item list. */
 function isListLine(line: string): boolean {
   const items = line.split(/\s*[•·▪●|,;]\s*/).map((x) => x.trim()).filter(Boolean);
   if (items.length < 2 && !(items.length === 1 && GLYPH.test(line.trim().charAt(0)) && items[0]!.split(/\s+/).length <= 4)) return false;
@@ -391,7 +348,6 @@ function listItems(line: string): string[] {
     .filter((x) => x && x.length <= 60);
 }
 
-/** The line above ends mid-thought, so this line continues it. */
 const OPEN_END = /(?:[,;:(/&–-]|\b(?:and|or|of|with|using|for|to|the|a|an|in|on|by|including|across|via|from|into|as|at|that|which|while|over|through|between|within|plus|such as))$/i;
 
 const LOCATION_AT_END = new RegExp(`(?:${LOCATION_RE.source})\\s*$`);
@@ -437,7 +393,6 @@ export function parseExperience(rawLines: string[]): ExperienceEntry[] {
       continue;
     }
     const dated = DATE_RANGE_RE.test(line);
-    // Technology list under the job ("Technologies" heading, then "Swift • Kotlin • …").
     const sub = jobSubheading(line);
     if (sub && (headerBuf.length || bullets.length)) {
       techMode = true;
@@ -445,7 +400,6 @@ export function parseExperience(rawLines: string[]): ExperienceEntry[] {
       if (sub.rest) techs.push(...listItems(sub.rest));
       continue;
     }
-    // A list that ended with a separator continues on the next line, even if that line is one word.
     const listOpen = techMode && /[,•·|;]\s*$/.test(lastTechLine);
     if (techMode && !dated && !side && (isListLine(line) || (listOpen && line.split(/\s+/).length <= 4))) {
       techs.push(...listItems(stripBullet(line)));
@@ -453,7 +407,6 @@ export function parseExperience(rawLines: string[]): ExperienceEntry[] {
       continue;
     }
     techMode = false;
-    // A line that finishes the bullet above it (the PDF wrapped it).
     const prev = bullets[bullets.length - 1];
     if (prev && !side && !dated && !isBullet(line) && (OPEN_END.test(prev) || /^[a-z(]/.test(line))) {
       bullets[bullets.length - 1] = prev.endsWith('-') && /^[a-z]/.test(line) ? `${prev}${line}` : `${prev} ${line}`;
@@ -463,14 +416,12 @@ export function parseExperience(rawLines: string[]): ExperienceEntry[] {
       bullets.push(stripBullet(line));
       continue;
     }
-    // "Denver, CO" or "Remote" on its own line belongs to the role header above it.
     const where = line.match(LOCATION_RE)?.[0];
     if (headerBuf.length && !bullets.length && where && where.length >= line.replace(/^[|,·\s]+|[|,·\s]+$/g, '').length - 1) {
       headerBuf.push(line);
       if (side) addSide(side);
       continue;
     }
-    // "Company | City, ST" right under a "Title  dates" line (ApplyFlow's and many templates' layout).
     const companyLine =
       headerBuf.length > 0 &&
       !bullets.length &&
@@ -480,7 +431,6 @@ export function parseExperience(rawLines: string[]): ExperienceEntry[] {
       (/\s[|—–·]\s/.test(line) || LOCATION_AT_END.test(line) || (headerBuf.length === 1 && DATE_RANGE_RE.test(headerBuf[0]!) && line.split(/\s+/).length <= 6 && isBullet(lines[i + 1]?.trim() ?? '')));
     const looksLikeHeader = dated || companyLine || (line.length < 100 && !/[.]$/.test(line) && (TITLE_WORDS.test(line) || nextHasDate(lines, i)));
     if (looksLikeHeader) {
-      // A second dated header with no bullets in between is the next role (or a promotion), not more of this header.
       const headerHasDate = headerBuf.some((h) => DATE_RANGE_RE.test(h));
       if (bullets.length || techs.length || (headerHasDate && (dated || nextHasDate(lines, i)))) flush();
       headerBuf.push(line);
@@ -488,7 +438,6 @@ export function parseExperience(rawLines: string[]): ExperienceEntry[] {
       continue;
     }
     if (side) addSide(side);
-    // Long prose line directly under a header → treat as a bullet (some resumes use paragraphs).
     if (headerBuf.length) bullets.push(line);
     else if (entries.length) entries[entries.length - 1]!.bullets.push(line);
     else headerBuf.push(line);
@@ -536,12 +485,9 @@ function buildEntry(headerLines: string[], bullets: string[]): ExperienceEntry {
       rest.push(s);
     }
   }
-  // "Title, Company" in a single segment
   if (!company && rest.length) company = rest.shift()!;
   if (!title && rest.length) title = rest.shift()!;
   if (title && !company && title.includes(',')) {
-    // "Principal Engineer, AI Platform, Northlake Payments": the employer is after the last comma
-    // whose remainder has no job-title words.
     const parts = title.split(',');
     for (let k = parts.length - 1; k >= 1; k--) {
       const t = parts.slice(0, k).join(',').trim();
@@ -568,7 +514,6 @@ function normalizeDateToken(t: string): string {
   return s;
 }
 
-/** "Bachelor's degree / Computer Science" → "Bachelor's degree in Computer Science". */
 function normalizeDegree(d: string): string {
   const m = d.match(/^(.*\b(?:degree|bachelor'?s?|master'?s?|b\.?s\.?c?|m\.?s\.?c?|b\.?a\.?|m\.?a\.?|ph\.?d\.?|associate'?s?|diploma|mba))\s*[/|]\s*(.+)$/i);
   return m ? `${m[1]!.trim()} in ${m[2]!.trim()}` : d;
@@ -624,7 +569,6 @@ function parseProjects(lines: string[]): ProjectEntry[] {
   return out;
 }
 
-/** Re-render a parsed resume as plain text — used for previews and the "original" side of comparisons. */
 export function parsedToText(p: ParsedResume): string {
   const out: string[] = [];
   if (p.contact.fullName) out.push(p.contact.fullName);
@@ -674,7 +618,6 @@ function coveredYears(entries: ExperienceEntry[]): number {
   return (Math.max(...spans.map((s) => s[1])) - Math.min(...spans.map((s) => s[0]))) / 12;
 }
 
-/** Basic structural sanity check used for the "malformed resume" error. */
 export function assessParse(p: ParsedResume): { ok: boolean; problems: string[] } {
   const problems: string[] = [];
   if (!p.contact.fullName) problems.push('No name found at the top of the resume.');
@@ -687,7 +630,6 @@ export function assessParse(p: ParsedResume): { ok: boolean; problems: string[] 
   if (glued.length) problems.push(`A job may be merged into the role above it (a bullet contains dates: “${glued[0]!.slice(0, 80)}…”). Re-import the resume, or upload the DOCX version.`);
   const jobInSkills = p.skills.filter((s) => DATE_RANGE_RE.test(s) || s.split(/\s+/).length > 8);
   if (jobInSkills.length) problems.push(`Your Skills list contains what looks like job history (“${jobInSkills[0]!.slice(0, 60)}…”), so a job may be missing. Re-import the resume, or upload the DOCX version.`);
-  // "8+ years of experience" in the summary but the jobs found cover far less → jobs were missed.
   const claimed = Number((p.summary.match(/(\d{1,2})\+?\s*(?:years|yrs)/i) ?? [])[1] ?? 0);
   const covered = coveredYears(p.experience);
   if (claimed >= 3 && covered > 0 && covered < claimed - 2) {

@@ -1,4 +1,3 @@
-/** Builds every document format for a session, and the files uploaded to Dice. */
 import type { JobSession, OutputFormat, ResumeFormat, Settings } from '@/types';
 import { DEFAULT_RESUME_FORMAT } from '@/types';
 import type { GeneratedDocs } from '@/services/downloads/planner';
@@ -10,7 +9,6 @@ import { sanitizeFilename } from '@/utils/filename';
 
 const bytesBlob = (b: Uint8Array, type: string) => new Blob([b as BlobPart], { type });
 
-/** The job keywords this resume truthfully carries — written into the PDF's keyword metadata. */
 function pdfKeywords(session: JobSession): string[] {
   return (session.atsPlan?.keywords ?? []).filter((k) => k.support === 'supported' && k.kind === 'hard').slice(0, 25).map((k) => k.term);
 }
@@ -43,7 +41,6 @@ export async function buildAllDocs(session: JobSession, settings: Settings): Pro
   return { resume: await buildResumeFormats(session, formats, settings.resumeFormat), coverLetter: await buildCoverLetterFormats(session, formats, settings.resumeFormat) };
 }
 
-/** The name the recruiter sees on the uploaded file. */
 export function uploadFileName(session: JobSession, kind: 'resume' | 'cover_letter', ext: 'pdf' | 'docx'): string {
   const name = sanitizeFilename(session.resume?.contact.fullName || 'Candidate', 'Candidate', 40);
   const job = sanitizeFilename(`${session.job.company}-${session.job.title}`, 'Job', 55);
@@ -60,7 +57,6 @@ function blobToBase64(b: Blob): Promise<string> {
   });
 }
 
-/** The single file to upload to Dice: PDF when enabled (best parsed by ATSs), otherwise DOCX. */
 export async function uploadPayload(session: JobSession, settings: Settings, kind: 'resume' | 'cover_letter'): Promise<{ name: string; mime: string; base64: string } | null> {
   const preferDocx = !settings.resumeOutputFormats.includes('pdf') && settings.resumeOutputFormats.includes('docx');
   const ext = preferDocx ? 'docx' : 'pdf';

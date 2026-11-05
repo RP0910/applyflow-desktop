@@ -1,6 +1,5 @@
 import type { MatchScore } from '@/types';
 
-/** Blue tints for positive factors, hatched red for penalties. */
 const SHADES = ['#007595', '#2b93ad', '#5fb0c4', '#93cbd9', '#c3e3eb'];
 const BAND_TEXT: Record<MatchScore['band'], string> = { strong: 'Strong match', good: 'Good match', fair: 'Fair match', weak: 'Weak match' };
 
@@ -8,9 +7,6 @@ function fmt(n: number): string {
   return Number.isInteger(n) ? String(n) : n.toFixed(1);
 }
 
-/**
- * The score ledger: every point and every deduction is itemized and explained.
- */
 export function MatchScoreCard({ score, title = 'Estimated match', compareTo }: { score: MatchScore; title?: string; compareTo?: MatchScore | null }) {
   const positives = score.components.filter((c) => !c.isPenalty);
   const penalties = score.components.filter((c) => c.isPenalty);

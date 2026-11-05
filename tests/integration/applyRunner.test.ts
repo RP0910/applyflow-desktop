@@ -1,7 +1,3 @@
-/**
- * The Quick Apply runner against the mock Dice wizard, through the real content controller:
- * attach → fill → stop for the user's answers → Next → stop at Submit. Never submits.
- */
 import { beforeAll, describe, expect, it } from 'vitest';
 import { createContentController } from '@/content/controller';
 import { installFileChooserInterceptor } from '@/content/fileChooserInterceptor';
@@ -65,7 +61,7 @@ describe('Quick Apply runner', () => {
     expect(await runSteps(h.io)).toBe('stopped');
     expect(h.wiz.state.resume).toBe('Jordan-Rivera-Resume.pdf');
     expect(h.state().attachments.resume).toMatchObject({ state: 'done', fileName: 'Jordan-Rivera-Resume.pdf' });
-    expect(h.state().attachments.coverLetter.state).toBe('skipped'); // cover letter turned off for this job
+    expect(h.state().attachments.coverLetter.state).toBe('skipped');
     expect(h.state().status).toBe('questions');
     expect(h.state().questions.map((q) => q.label)).toEqual([
       'Are you legally authorized to work in the United States?',
@@ -74,9 +70,8 @@ describe('Quick Apply runner', () => {
     ]);
     expect(h.state().questions[0]!.options).toEqual(['Yes', 'No']);
     expect(h.state().optional.map((q) => q.label)).toEqual(['How did you hear about this job?']);
-    expect(h.wiz.state.answers).toMatchObject({ q_auth: '', q_spon: '', q_years: '' }); // nothing guessed
+    expect(h.wiz.state.answers).toMatchObject({ q_auth: '', q_spon: '', q_years: '' });
 
-    // The user answers (in the panel); the runner continues to the review step and stops.
     for (const [i, v] of [[0, 'Yes'], [1, 'No'], [2, '8']] as const) await h.ctl.handle({ type: 'AF_ANSWER_FIELD', fieldId: h.state().questions[i]!.fieldId, value: v });
     expect(await runSteps(h.io)).toBe('ready');
     expect(h.state()).toMatchObject({ status: 'ready', step: { current: 3, total: 3 } });
@@ -133,7 +128,7 @@ describe('Quick Apply runner', () => {
 
   it('arriving on the review page with the old resume, goes back, replaces it and returns', async () => {
     const h = harness(EMPTY_PROFILE, {}, { header: 'slim', steps: 2 });
-    (h.doc.querySelector('.btn-next') as HTMLElement).click(); // the user clicked Next on Dice first
+    (h.doc.querySelector('.btn-next') as HTMLElement).click();
     expect(h.wiz.state.step).toBe(2);
     expect(await runSteps(h.io)).toBe('ready');
     expect(h.wiz.state.resume).toBe('Jordan-Rivera-Resume.pdf');
@@ -146,7 +141,6 @@ describe('Quick Apply runner', () => {
     const proto = HTMLInputElement.prototype;
     const patched = proto.click;
     proto.click = function () {
-      /* the page helper didn't load: Dice's chooser can't open without a user gesture */
     };
     try {
       expect(await runSteps(h.io)).toBe('stopped');
@@ -154,11 +148,10 @@ describe('Quick Apply runner', () => {
       proto.click = patched;
     }
     expect(h.state()).toMatchObject({ status: 'attention', need: 'resume', label: 'Attach your tailored resume' });
-    expect(h.wiz.state.step).toBe(1); // Next was not pressed with the old resume attached
+    expect(h.wiz.state.step).toBe(1);
     expect(h.wiz.state.resume).toBe('Jordan_Rivera_Resume_2025.pdf');
     expect(h.sent).not.toContain('AF_NEXT_STEP');
 
-    // The user picks the tailored copy from Downloads with Dice's own Replace.
     await uploadDocument(h.doc, findWizardRoot(h.doc)!, 'resume', { name: 'Jordan-Rivera-Resume.pdf', mime: 'application/pdf', base64: btoa('%PDF') }, testUploadDeps);
     expect(await runSteps(h.io)).toBe('ready');
     expect(h.state().attachments.resume).toMatchObject({ state: 'done', fileName: 'Jordan-Rivera-Resume.pdf' });

@@ -1,8 +1,3 @@
-/**
- * ClaudeProvider — the only module that talks to the Anthropic Messages API.
- * Inputs are already filtered to user-approved facts by the caller; outputs are
- * validated again by the truthfulness validator before the user sees them.
- */
 import type { Settings, ModelOption, CoverLetterAction } from '@/types';
 import { TRUTHFULNESS_RULES } from '@/prompts/system';
 import { ANALYZE_JOB_SCHEMA, buildAnalyzeJobPrompt, type AnalyzeJobReply } from '@/prompts/analyzeJob';
@@ -51,7 +46,6 @@ export interface ProviderResult<T> {
   usage?: Usage;
 }
 
-/** Called after every request with the tokens it used (stored per job in the database). */
 export type UsageReporter = (task: string, model: string, usage: Usage) => void;
 
 export class ClaudeProvider {
@@ -86,10 +80,6 @@ export class ClaudeProvider {
     return e === 'model_default' ? undefined : e;
   }
 
-  /**
-   * Every call gets at least `floor` tokens: thinking counts toward max_tokens, so small
-   * hard-coded limits (v1.0 used 2,000 for cover letters) get used up before the answer.
-   */
   private async json<T>(user: string, schema: Record<string, unknown>, floor = 8000, signal?: AbortSignal, system: string | SystemBlock[] = TRUTHFULNESS_RULES, task = 'other'): Promise<ProviderResult<T>> {
     const res = await this.client.createMessage({
       model: this.settings.model,
@@ -106,28 +96,20 @@ export class ClaudeProvider {
     return { data: parseJsonReply<T>(res.text), model: res.model, usage: res.usage };
   }
 
-  /**
-   * ApplyFlow 2.0: the resume content and (optionally) the cover letter for one job, in ONE
-   * request. The rules and the candidate's facts are a cached system prompt.
-   */
   writeApplication(facts: CompactFacts, input: ApplicationPromptInput, signal?: AbortSignal): Promise<ProviderResult<ApplicationReply>> {
     return this.json<ApplicationReply>(buildApplicationPrompt(input), applicationSchema(Boolean(input.letter)), 12000, signal, systemBlocks(facts), 'application');
   }
 
-  /** Write or revise only the cover letter (the cached system prompt is reused). */
   writeLetter(facts: CompactFacts, input: Parameters<typeof buildLetterPrompt>[0], signal?: AbortSignal): Promise<ProviderResult<{ letter: string[] }>> {
     return this.json<{ letter: string[] }>(buildLetterPrompt(input), LETTER_SCHEMA as unknown as Record<string, unknown>, 6000, signal, systemBlocks(facts), 'cover_letter');
   }
 
-  /** Optional ATS refine pass (Settings → Advanced). */
   refineApplication(facts: CompactFacts, input: Parameters<typeof buildRefinePrompt>[0], signal?: AbortSignal): Promise<ProviderResult<ApplicationReply>> {
     return this.json<ApplicationReply>(buildRefinePrompt(input), applicationSchema(false), 12000, signal, systemBlocks(facts), 'refine');
   }
 
-  /** Pass 1: company research only (short JSON). Never generates resume content. */
   async researchCompanies(facts: CompactFacts, job: Record<string, unknown>, tech: string[], signal?: AbortSignal): Promise<ProviderResult<CompanyResearchReply>> {
     const periods = researchPeriods(facts).length;
-    // Research JSON is small, but thinking still counts toward max_tokens — keep headroom.
     const r = await this.json<CompanyResearchReply>(
       companyResearchUser(job, facts, tech),
       COMPANY_RESEARCH_SCHEMA,
@@ -140,7 +122,6 @@ export class ClaudeProvider {
     return r;
   }
 
-  /** Pass 2: resume + cover letter from CV Generate, optionally guided by prior research JSON. */
   async generateCv(
     facts: CompactFacts,
     job: Record<string, unknown>,
@@ -153,7 +134,6 @@ export class ClaudeProvider {
     return r;
   }
 
-  /** Sends a tiny request to confirm the key and model both work. */
   async testConnection(): Promise<{ model: string; latencyMs: number }> {
     const started = Date.now();
     const res = await this.client.createMessage({
@@ -179,7 +159,6 @@ export class ClaudeProvider {
     return this.json<TailorResumeReply>(buildTailorResumePrompt(input), TAILOR_RESUME_SCHEMA as unknown as Record<string, unknown>, 16000, signal);
   }
 
-  /** ATS refine pass: fix what the scan found in the draft. */
   refineResume(input: RefinePromptInput, signal?: AbortSignal): Promise<ProviderResult<TailorResumeReply>> {
     return this.json<TailorResumeReply>(buildRefineResumePrompt(input), TAILOR_RESUME_SCHEMA as unknown as Record<string, unknown>, 16000, signal);
   }

@@ -22,7 +22,7 @@ describe('one compact Claude request per job', () => {
     expect(a.text).toBe(b.text);
     expect(a.text).not.toMatch(/jordan@example\.com|555-0148|linkedin/i);
     expect(Object.keys(a.jobIds)).toEqual(master.parsed.experience.map((_, i) => `j${i + 1}`));
-    expect(a.text).not.toMatch(/\n {2}/); // no pretty-printing
+    expect(a.text).not.toMatch(/\n {2}/);
   });
 
   it('puts a cache breakpoint after the rules and the candidate, and keeps the job out of the cached part', () => {
@@ -48,7 +48,6 @@ describe('one compact Claude request per job', () => {
     const { plan } = planAts(job, a.analysis, master, undefined, 'two_pages');
     const pp = promptPlan(plan, master);
     const facts = compactFacts(master);
-    // 1.x: two requests, each with the system rules, the job and the candidate's facts.
     const old =
       TRUTHFULNESS_RULES.length * 2 +
       buildTailorResumePrompt({ job: jobForPrompt(job, true), candidateFacts: candidateFactsForPrompt(master), allowedKeywords: ['a'], forbiddenKeywords: ['b'], length: 'two_pages', suggestedTitle: plan.targetTitle, summaryDirection: '', plan: pp }).length +
@@ -56,7 +55,6 @@ describe('one compact Claude request per job', () => {
     const cached = systemBlocks(facts).reduce((n, b) => n + b.text.length, 0);
     const perJob = buildApplicationPrompt({ job: compactJob(job, true), plan: compactPlan(pp, facts.jobIds), forbidden: ['b'], length: 'two_pages', summaryHint: '', letter: { tone: 'professional', minWords: 250, maxWords: 400 } }).length;
     const first = cached + perJob;
-    // Cached reads are billed at ~10% of normal input.
     const later = cached * 0.1 + perJob;
     console.log(`input characters per job — 1.x: ${old}; 2.0 first job: ${first}; 2.0 next jobs (cache): ~${Math.round(later)}`);
     expect(first).toBeLessThan(old * 0.75);

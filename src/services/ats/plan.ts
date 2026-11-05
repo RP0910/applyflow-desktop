@@ -1,8 +1,3 @@
-/**
- * The ATS plan: which job keywords the candidate can truthfully use and where, the headline
- * title, the years figure, and how many bullets each job gets. Built before any writing so
- * Claude and the local engine work from the same, checkable instructions.
- */
 import type { AtsKeyword, AtsPlan, CareerProfile, JobPosting, KeywordEvidence, MasterResume, SupportedKeyword } from '@/types';
 import { allowedResume } from '@/services/resume/facts';
 import { yearsOfExperience } from '@/services/matching/experience';
@@ -21,7 +16,6 @@ interface Part {
   text: string;
 }
 
-/** Every piece of the master resume (and confirmed profile skills) a keyword could be backed by. */
 export function evidenceParts(master: MasterResume, profile?: CareerProfile): Part[] {
   const a = allowedResume(master, profile);
   const userSkills = master.facts.filter((f) => f.kind === 'skill' && f.source !== 'resume' && f.status === 'confirmed').map((f) => f.text);
@@ -43,7 +37,6 @@ export function evidenceParts(master: MasterResume, profile?: CareerProfile): Pa
 
 const FAMILY = /\b(engineer|developer|architect|manager|scientist|analyst|designer|administrator|consultant|lead|director|specialist|programmer)\b/i;
 
-/** Does one of the candidate's real titles line up with the job title? */
 type Alignment = 'same' | 'close' | 'family' | 'none';
 
 export function titleAlignment(jobTitle: string, candidateTitles: string[]): Alignment {
@@ -72,11 +65,6 @@ export function titleAlignment(jobTitle: string, candidateTitles: string[]): Ali
 
 const LEVELS = ['intern', 'junior', 'mid', 'senior', 'lead', 'staff', 'principal', 'manager', 'director', 'executive'];
 
-/**
- * The title for the resume headline. ATS systems weight the job title heavily, so the job's own
- * title is used when the candidate's real titles line up with it (same role, seniority no
- * higher than they have held). Otherwise their most recent real title is used.
- */
 export function targetTitleFor(job: Pick<JobPosting, 'title'>, master: MasterResume): { title: string; source: 'job' | 'resume' } {
   const a = master.parsed;
   const titles = [...a.experience.map((e) => e.title), a.headline].filter(Boolean);
@@ -88,13 +76,11 @@ export function targetTitleFor(job: Pick<JobPosting, 'title'>, master: MasterRes
   const highest = Math.max(...titles.map((t) => LEVELS.indexOf(seniorityOf(t))));
   const wanted = LEVELS.indexOf(seniorityOf(jobTitle));
   if (wanted > highest && wanted >= LEVELS.indexOf('lead')) {
-    // Don't claim Staff/Principal/Lead when the candidate hasn't held it: use the role without the level.
     return { title: coreTitle(jobTitle), source: 'job' };
   }
   return { title: jobTitle, source: 'job' };
 }
 
-/** Classify every job keyword against the master resume. Only 'supported' keywords may be used. */
 export function classifyKeywords(keywords: AtsKeyword[], master: MasterResume, profile?: CareerProfile): SupportedKeyword[] {
   const parts = evidenceParts(master, profile);
   const titles = parts.filter((p) => p.where === 'title' || p.where === 'headline').map((p) => p.text);
@@ -112,7 +98,6 @@ export function classifyKeywords(keywords: AtsKeyword[], master: MasterResume, p
     }
     let forms = k.forms;
     if (k.kind === 'soft') forms = [k.term, ...(SOFT_SKILLS.find((s) => s.name === k.term)?.aliases ?? [])];
-    // The same rule the validator uses, so a placed keyword is never reverted afterwards.
     const hits =
       k.kind === 'soft'
         ? parts.filter((p) => forms.some((f) => hasStem(p.text, f)))
@@ -125,23 +110,17 @@ export function classifyKeywords(keywords: AtsKeyword[], master: MasterResume, p
       ];
       return { ...k, support: 'supported' as const, evidence: hits.slice(0, 4).map((p) => ({ sourceId: p.sourceId, where: p.where, text: p.text })), placements };
     }
-    // Nearby experience is reported, never used as if it were the keyword itself.
     const canon = canonicalSkill(k.term);
     const def = SKILL_BY_NAME.get(canon.toLowerCase());
     const candidates = [...relatedSkills(canon), ...(def && canon.toLowerCase() !== k.term.toLowerCase() ? [canon] : [])];
     const near = candidates.find((r) => parts.some((p) => mentionsSkill(p.text, r)));
     return { ...k, support: near ? ('related' as const) : ('missing' as const), evidence: [], placements: [], ...(near ? { relatedTo: near } : {}) };
   });
-  // The strongest supported keywords also belong in the summary.
   const top = out.filter((k) => k.support === 'supported' && (k.kind === 'hard' || k.kind === 'domain')).sort((a, b) => b.weight - a.weight).slice(0, 8);
   for (const k of top) if (!k.placements.includes('summary')) k.placements.push('summary');
   return out.sort((a, b) => supportedRank(a) - supportedRank(b) || b.weight - a.weight);
 }
 
-/**
- * Bullets per job: recent and relevant jobs get more, very old ones fewer, every job keeps at
- * least two (or all it has). A page target caps the total.
- */
 export function bulletBudget(master: MasterResume, profile: CareerProfile | undefined, keywords: SupportedKeyword[], pageTarget: AtsPlan['pageTarget'], now = new Date()): Record<string, number> {
   const a = allowedResume(master, profile);
   const relevance = new Map<string, number>();
@@ -163,7 +142,6 @@ export function bulletBudget(master: MasterResume, profile: CareerProfile | unde
     const available = e.bullets.length;
     out[e.id] = Math.max(Math.min(2, available), Math.min(n, available, pageTarget === 'flexible' ? 99 : 7));
   });
-  // Fill the page target with the most relevant remaining material (never past 7 per job).
   const target = pageTarget === 'one_page' ? 12 : pageTarget === 'two_pages' ? 22 : 30;
   let total = Object.values(out).reduce((x, y) => x + y, 0);
   while (total < target) {
@@ -201,7 +179,6 @@ export function buildAtsPlan(
   };
 }
 
-/** The keywords Claude and the validator must treat as off-limits. */
 export function forbiddenTerms(plan: AtsPlan): string[] {
   return plan.keywords.filter((k) => k.support !== 'supported' && (k.kind === 'hard' || k.kind === 'domain' || k.kind === 'certification')).map((k) => k.term);
 }

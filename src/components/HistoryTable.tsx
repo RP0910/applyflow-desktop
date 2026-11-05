@@ -312,7 +312,6 @@ export function HistoryTable({ h, focusId, onCreateResume }: { h: HistoryControl
   );
 }
 
-/** Compact list for the narrow side panel. */
 export function HistoryList({ h, onOpenDashboard }: { h: HistoryController; onOpenDashboard: () => void }) {
   const [q, setQ] = useState('');
   const [stage, setStage] = useState<ApplicationStage | ''>('');

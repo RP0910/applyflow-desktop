@@ -1,8 +1,3 @@
-/**
- * Resume form → master resume. For people who'd rather type their real history once than
- * upload a file: each job, school and skill is entered by the user, and becomes the facts
- * ApplyFlow writes every job-targeted resume from. Nothing here is generated or guessed.
- */
 import type { BuilderEducation, BuilderForm, BuilderJob, CareerProfile, MasterResume, ParsedResume } from '@/types';
 import { newId } from '@/utils/id';
 import { nowIso } from '@/utils/dates';
@@ -22,13 +17,11 @@ export function emptyBuilder(): BuilderForm {
   return { headline: '', summary: '', skills: '', certifications: '', languages: '', jobs: [emptyJob()], education: [emptyEducation()] };
 }
 
-/** "2023-02" → "02/2023"; already formatted dates pass through. */
 export function monthToResume(v: string): string {
   const m = v.trim().match(/^(\d{4})-(\d{2})$/);
   return m ? `${m[2]}/${m[1]}` : v.trim();
 }
 
-/** "02/2023" or "Feb 2023" → "2023-02" for the month input. */
 export function resumeToMonth(v: string): string {
   const t = v.trim();
   const mm = t.match(/^(\d{1,2})[/.-](\d{4})$/);
@@ -50,7 +43,6 @@ const lines = (s: string) =>
 
 const list = (s: string) => uniqCaseInsensitive(parseSkills(s.split(/\n/)));
 
-/** Jobs newest first; a current job comes before ended ones. */
 export function sortJobs(jobs: BuilderJob[]): BuilderJob[] {
   const key = (j: BuilderJob) => (j.current ? '9999-99' : j.end || j.start || '0000-00');
   return [...jobs].sort((a, b) => key(b).localeCompare(key(a)) || (b.start || '').localeCompare(a.start || ''));
@@ -101,7 +93,6 @@ export function builderToParsed(form: BuilderForm, profile?: CareerProfile): Par
   };
 }
 
-/** Things to fix before the form can be used; empty when it's ready. */
 export function builderProblems(form: BuilderForm): string[] {
   const out: string[] = [];
   const jobs = form.jobs.filter((j) => !isBlankJob(j));
@@ -125,7 +116,6 @@ export function builderProblems(form: BuilderForm): string[] {
   return out;
 }
 
-/** Turn an imported resume into the form, so it can be edited field by field. */
 export function builderFromParsed(p: ParsedResume): BuilderForm {
   return {
     headline: p.headline,
@@ -148,7 +138,6 @@ export function builderFromParsed(p: ParsedResume): BuilderForm {
       : [emptyJob()],
     education: p.education.length
       ? p.education.map((e) => {
-          // "Master of Science in Electrical Engineering" → degree + field (split at the first " in ").
           const at = e.degree.search(/\s+in\s+/);
           const deg = at >= 0 ? e.degree.slice(0, at) : e.degree;
           const field = at >= 0 ? e.degree.slice(at).replace(/^\s+in\s+/, '') : '';
@@ -168,7 +157,6 @@ export function buildMasterFromForm(form: BuilderForm, profile: CareerProfile | 
     isDefault: existing?.isDefault ?? false,
     rawText: parsedToText(parsed),
     parsed,
-    // Everything in the form was typed by the user, so it starts confirmed (statuses they set later are kept).
     facts: deriveFacts(parsed, existing?.facts ?? []),
     sourceFileName: null,
     sourceFormat: 'form',

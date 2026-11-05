@@ -15,8 +15,6 @@ const groups = { type: 'array', items: object({ category: str, items: strings })
 export const CV_SCHEMA = object({ company_name: str, role_title: str, subtitle: str, summary: str, cover_letter: str, skill_groups: groups, additional_categories: groups,
   experience: { type: 'array', items: object({ company: str, role_title: str, location: str, dates: str, role_description: str, bullets: strings }) } });
 
-// The supplied file repeats the full prompt after the first JD divider. Keep the original
-// file untouched, but send one complete copy instead of paying for duplicate instructions.
 export const CV_CORE = source.split('JOB DESCRIPTION (ONLY RUNTIME INPUT REQUIRED; paste the target JD below this line)')[0]!.trim();
 export function cvSystem(facts: CompactFacts) {
   return [{ text: CV_CORE, cache: true }, { text: `APPLYFLOW INTEGRATION CONTRACT (overrides conflicting baseline/count instructions above):

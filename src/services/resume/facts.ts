@@ -1,7 +1,3 @@
-/**
- * Verified Facts: every claim the AI may use is a fact with a status.
- * Only `confirmed` facts are ever sent to Claude or used by the local tailor.
- */
 import type { CareerProfile, MasterResume, ParsedResume, VerifiedFact, FactStatus } from '@/types';
 import { newId } from '@/utils/id';
 import { nowIso } from '@/utils/dates';
@@ -11,7 +7,6 @@ function key(kind: string, text: string): string {
   return `${kind}:${text.toLowerCase().replace(/\s+/g, ' ').trim()}`;
 }
 
-/** Derive facts from a parsed resume, keeping statuses the user already set for the same text. */
 export function deriveFacts(parsed: ParsedResume, previous: VerifiedFact[] = []): VerifiedFact[] {
   const prev = new Map(previous.map((f) => [key(f.kind, f.text), f]));
   const out: VerifiedFact[] = [];
@@ -22,7 +17,6 @@ export function deriveFacts(parsed: ParsedResume, previous: VerifiedFact[] = [])
     out.push(existing ? { ...existing } : { id: newId('fact'), kind, text: t, status: 'confirmed', source: 'resume' });
   };
   parsed.skills.forEach((s) => add('skill', s));
-  // Technologies listed under a job are skill facts too (one per name), so "Do not use" works on them.
   const listed = new Set(parsed.skills.map((s) => s.toLowerCase()));
   for (const t of parsed.experience.flatMap((e) => e.technologies ?? [])) {
     if (listed.has(t.toLowerCase())) continue;
@@ -36,18 +30,12 @@ export function deriveFacts(parsed: ParsedResume, previous: VerifiedFact[] = [])
   });
   parsed.education.forEach((e) => add('education', [e.degree, e.institution, e.date].filter(Boolean).join(', ')));
   parsed.certifications.forEach((c) => add('certification', c));
-  // Keep user-added facts that aren't in the resume text.
   for (const f of previous) if (f.source !== 'resume' && !out.some((o) => o.id === f.id)) out.push(f);
   return out;
 }
 
-/**
- * Bump when the reader changes in a way that can fix earlier imports.
- * 2 = jobs no longer merged; 3 = two-column layouts and per-job "Technologies" lists.
- */
 export const PARSER_VERSION = 3;
 
-/** Identifies the master-resume content a set of tailored documents was written from. */
 export function masterStamp(r: MasterResume): string {
   const confirmed = r.facts.filter((f) => f.status === 'confirmed').length;
   return `${r.id}|v${r.parserVersion ?? 1}|${r.parsed.experience.length}|${confirmed}/${r.facts.length}`;
@@ -84,10 +72,6 @@ function statusOf(resume: MasterResume, kind: VerifiedFact['kind'], text: string
   return f?.status ?? 'confirmed';
 }
 
-/**
- * The resume with every non-confirmed fact removed. Roles themselves are kept
- * (with their dates) even if all bullets are restricted — hiding employment is not allowed.
- */
 export function allowedResume(resume: MasterResume, profile?: CareerProfile): ParsedResume {
   const p = resume.parsed;
   const ok = (kind: VerifiedFact['kind'], text: string) => statusOf(resume, kind, text) === 'confirmed';
@@ -110,12 +94,10 @@ export function allowedResume(resume: MasterResume, profile?: CareerProfile): Pa
   };
 }
 
-/** Facts the user said not to use, or hasn't reviewed — used to flag tailored text that mentions them. */
 export function restrictedFacts(resume: MasterResume): VerifiedFact[] {
   return resume.facts.filter((f) => f.status !== 'confirmed');
 }
 
-/** Full allowed text corpus — the source of truth for evidence and metric checks. */
 export function allowedCorpus(resume: MasterResume, profile?: CareerProfile): string {
   const a = allowedResume(resume, profile);
   return [
@@ -132,10 +114,6 @@ export function allowedCorpus(resume: MasterResume, profile?: CareerProfile): st
     .join('\n');
 }
 
-/**
- * What Claude is allowed to see. Email, phone and links are deliberately excluded —
- * they are re-attached locally. Work authorization and salary are never sent.
- */
 export function candidateFactsForPrompt(resume: MasterResume, profile?: CareerProfile) {
   const a = allowedResume(resume, profile);
   return {

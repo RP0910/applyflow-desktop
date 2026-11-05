@@ -1,18 +1,10 @@
-/**
- * Pass 1 of CV generation: company research only.
- * Returns short structured JSON. Never asks Claude to write a resume.
- */
 import type { CompactFacts } from './application';
 
 export interface ResearchedCompany {
-  /** Employment period index matching CANDIDATE.jobs order (0-based). */
   periodIndex: number;
   name: string;
-  /** Rough active years, e.g. "2018-2022". */
   activeYears: string;
-  /** Why this employer fits the JD tech / domain (one short clause). */
   techFit: string;
-  /** Public HQ as "City, ST" or "City, Country". Never invent; "" if unknown. */
   hq: string;
 }
 
@@ -32,7 +24,6 @@ export const COMPANY_RESEARCH_SCHEMA = object({
   companies: {
     type: 'array',
     items: object({
-      // number (not integer-only): some models emit 0.0; validation coerces to int.
       periodIndex: { type: 'number' },
       name: str,
       activeYears: str,
@@ -57,7 +48,6 @@ Rules:
 - Never write resume bullets, summaries, titles, or cover letters.
 - If unsure of a company for a period, still pick the most plausible lesser-known public company and note uncertainty briefly in techFit.`;
 
-/** Compact job signal for research — keywords and stack only, not the full posting. */
 export function researchJobPayload(job: Record<string, unknown>, tech: string[]): Record<string, unknown> {
   const title = typeof job.title === 'string' ? job.title : '';
   const company = typeof job.company === 'string' ? job.company : '';
@@ -67,7 +57,6 @@ export function researchJobPayload(job: Record<string, unknown>, tech: string[])
   return { title, hiringCompany: company, tech: tools };
 }
 
-/** Employment periods only — no bullets or free text. */
 export function researchPeriods(facts: CompactFacts): { index: number; company: string; title: string; start: string; end: string }[] {
   try {
     const parsed = JSON.parse(facts.text) as { jobs?: { company?: string; title?: string; start?: string; end?: string }[] };
@@ -112,7 +101,6 @@ export function validateCompanyResearch(value: unknown, periodCount: number): as
     cleaned.push({ periodIndex, name, activeYears: activeYears || 'unknown', techFit: techFit || 'relevant tech', hq });
   }
   if (periodCount > 0 && cleaned.length === 0) throw new Error('Claude returned no usable company research entries.');
-  // Prefer one company per period (first wins); keep extras filtered out.
   const byPeriod = new Map<number, ResearchedCompany>();
   for (const c of cleaned) if (!byPeriod.has(c.periodIndex)) byPeriod.set(c.periodIndex, c);
   v.companies = Array.from(byPeriod.values()).sort((a, b) => a.periodIndex - b.periodIndex);

@@ -1,4 +1,3 @@
-/** Sidebar dot for the Claude.ai session. Click to sign in or reconnect. */
 import { useEffect, useState } from 'react';
 import { bridge, type ClaudeChatStatus as ChatStatus } from '@/platform/bridge';
 

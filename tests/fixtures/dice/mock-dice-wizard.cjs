@@ -1,22 +1,3 @@
-/*
- * A mock of Dice's "Easy Apply" wizard, modeled on the real one (screenshots, Oct 2026):
- *   - a site header — either the search-bar header of job pages, or the application page's slim
- *     header (logo + icon buttons) — which must never be mistaken for the application
- *   - illustration, "You're Applying for", the job title, "@ Company in City", a progress bar and "Step N of M"
- *   - Step 1 "Resume & Cover Letter":
- *       Resume *  — the profile resume as a file card; an unlabeled "…" button opens a menu that is
- *                   rendered at the end of <body> (a portal, outside the wizard), with Download / Replace.
- *                   Replace creates a detached <input type=file> and calls input.click().
- *       Cover Letter — a drop area inside its own <form data-testid="wizard-cover-letter-upload">,
- *                   with a hidden file input and an "Upload" button. (Older ApplyFlow versions took
- *                   this form for the whole application and so missed the Resume card and Next.)
- *   - optional "Employer Questions" step: required radios, a required text answer, an optional select
- *   - last step "Review your application": a card per item with a round edit button, and Submit.
- *     The Resume card's edit button goes back to step 1.
- *   - wizard Back/Next live in a <footer> inside the wizard; Next's text sits in a <span> next to an icon
- * Plain browser JavaScript so the same file drives the jsdom tests (require) and the Chromium
- * end-to-end run (served as a script).
- */
 (function (root) {
   'use strict';
 
@@ -44,10 +25,6 @@
     });
   }
 
-  /**
-   * Mount the wizard into `doc`. Returns a small controller for assertions.
-   * opts: { title, company, location, profileResume, steps: 2|3, header: 'search'|'slim', onSubmit }
-   */
   function mountDiceWizard(doc, opts) {
     opts = opts || {};
     var total = opts.steps === 2 ? 2 : 3;
@@ -110,7 +87,6 @@
       var kebab = content.querySelector('.icon-button');
       kebab.addEventListener('click', function () {
         if (doc.querySelector('.portal-menu')) return closeMenu();
-        // Like React menus: rendered at the end of <body>, outside the wizard.
         var r = kebab.getBoundingClientRect ? kebab.getBoundingClientRect() : { bottom: 0, right: 0 };
         var menu = doc.createElement('div');
         menu.className = 'portal-menu';
@@ -121,7 +97,6 @@
         doc.body.appendChild(menu);
         menu.querySelectorAll('[role=menuitem]')[1].addEventListener('click', function () {
           closeMenu();
-          // Like Dice: a fresh, detached input whose click() opens the operating system's chooser.
           var input = doc.createElement('input');
           input.type = 'file';
           input.accept = '.pdf,.doc,.docx';

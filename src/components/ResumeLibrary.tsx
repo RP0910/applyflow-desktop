@@ -258,7 +258,6 @@ export function VerifiedFacts({ r, lib }: { r: MasterResume; lib: LibraryControl
   );
 }
 
-/** Two ways to give ApplyFlow your history: type it in the form, or upload a resume file. */
 export function ResumeStart({ lib, onOpenForm }: { lib: LibraryController; compact?: boolean; onOpenForm?: () => void }) {
   return onOpenForm ? <div className="card stack-sm"><strong>Set up your candidate details</strong><p>Enter your contact details, employer names and employment dates. Claude writes the resume content.</p><button className="btn btn-primary" onClick={onOpenForm}>Open candidate setup</button></div> : <CandidateSetup lib={lib} />;
 }

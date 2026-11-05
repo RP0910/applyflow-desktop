@@ -1,5 +1,3 @@
-// Generates docs/examples/example-master-resume.{docx,pdf} from the .txt version,
-// so the resume importer can be demonstrated and tested with real DOCX and PDF files.
 import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -11,7 +9,6 @@ const src = resolve(root, 'docs/examples/example-master-resume.txt');
 const lines = readFileSync(src, 'utf8').replace(/\r/g, '').split('\n');
 const isHeading = (l) => /^[A-Z][A-Z &]{3,}$/.test(l.trim());
 
-// ---- DOCX (headings as bold paragraphs, bullets as real Word list items)
 const children = lines.map((l, i) => {
   const t = l.trim();
   if (!t) return new Paragraph({ children: [] });
@@ -26,7 +23,6 @@ const doc = new Document({
 });
 writeFileSync(resolve(root, 'docs/examples/example-master-resume.docx'), await Packer.toBuffer(doc));
 
-// ---- PDF (selectable text, wrapped)
 const pdf = await PDFDocument.create();
 const font = await pdf.embedFont(StandardFonts.Helvetica);
 const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
@@ -66,10 +62,6 @@ for (const [i, raw] of lines.entries()) {
 writeFileSync(resolve(root, 'docs/examples/example-master-resume.pdf'), await pdf.save());
 console.log('wrote docs/examples/example-master-resume.docx and .pdf');
 
-// ---- PDF in the style of FlowCV and similar builders: Title-Case headings, "Title, Company"
-// in bold with the dates right-aligned at the margin, location under the dates, bullets drawn
-// as small circles (not text), bullet text wrapping to the margin. Older ApplyFlow versions
-// read this layout as a single job.
 {
   const out = await PDFDocument.create();
   const reg = await out.embedFont(StandardFonts.Helvetica);
@@ -118,7 +110,6 @@ console.log('wrote docs/examples/example-master-resume.docx and .pdf');
       continue;
     }
     if (section === 'EXPERIENCE' && t.includes('|') && /\d{4}/.test(t)) {
-      // "Title | Company | Place | Dates" → bold "Title, Company" + right-aligned dates, place below.
       const [title, company, place, dates] = t.split('|').map((s) => s.trim());
       need(40);
       yy -= 4;
@@ -149,9 +140,6 @@ console.log('wrote docs/examples/example-master-resume.docx and .pdf');
 }
 console.log('FlowCV-style example PDF written');
 
-// A two-column FlowCV layout like real exports: dates and city in a narrow left column, company
-// and title on the right, a "Technologies" list under every job, ALL-CAPS centered headings, and
-// a three-column skills grid with category labels. v1.2 read only the first job of this layout.
 {
   const out = await PDFDocument.create();
   const reg = await out.embedFont(StandardFonts.Helvetica);
@@ -255,7 +243,6 @@ console.log('FlowCV-style example PDF written');
     for (const b of j.bullets) {
       const body = wrapTo(b, reg, 10, R - C - 12);
       need(13 * body.length + 4);
-      // FlowCV draws the bullet glyph a little below the text baseline.
       pg.drawText('•', { x: C + 2, y: yy - 2.5, size: 10, font: reg });
       for (const ln of body) {
         text(ln, C + 12, reg, 10);

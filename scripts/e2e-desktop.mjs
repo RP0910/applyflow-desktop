@@ -1,13 +1,3 @@
-// End-to-end run of ApplyFlow Desktop against MOCK Dice pages (nothing reaches dice.com).
-//
-// Launches the built app with Playwright's Electron driver, a throw-away data folder and
-// APPLYFLOW_MOCK_DICE (the main process serves tests/fixtures/dice for https://www.dice.com/*).
-// Then: import a master resume → open a job in the built-in browser (score appears) →
-// Tailor & Apply → answer the questions ApplyFlow won't guess → Submit → find the application
-// by the recruiter's phone number → preview the resume that was sent → render it in PDF Studio.
-//
-// Usage: npm run build && xvfb-run -a node scripts/e2e-desktop.mjs
-// Output: docs/screenshots/*.png and docs/screenshots/e2e-log.txt
 import { createRequire } from 'node:module';
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -49,14 +39,12 @@ const waitFor = async (fn, what, timeout = 30000) => {
       const v = await fn();
       if (v) return v;
     } catch {
-      /* retry */
     }
     await new Promise((r) => setTimeout(r, 250));
   }
   throw new Error(`Timed out waiting for ${what}`);
 };
 
-// Mock fixtures: the JSON-LD job page with a recruiter's phone and email in the posting.
 const fixtures = mkdtempSync(join(tmpdir(), 'af-fixtures-'));
 cpSync(join(root, 'tests/fixtures/dice'), fixtures, { recursive: true });
 const contact = `Questions? Call Dana Whitfield, Technical Recruiter, at ${PHONE} or email dana.whitfield@meridian-example.com.`;
@@ -81,19 +69,16 @@ try {
   win.on('console', (m) => m.type() === 'error' && errors.push(`window: ${m.text()}`));
   await win.waitForSelector('.rail');
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1500, 950));
-  // Save documents into a temp folder for this run.
   await win.evaluate((dir) => window.applyflow.invoke('kv.set', 'applyflow.settings.v1', { saveLocation: dir, schema: 3 }), docsDir);
   await win.reload();
   await win.waitForSelector('.rail');
   log('app started');
 
-  // The built-in browser is a WebContentsView; reach it through the main process.
   const diceEval = (js) =>
     app.evaluate(async ({ webContents }, code) => {
       const wc = webContents.getAllWebContents().find((w) => /dice\.com/.test(w.getURL()));
       return wc ? wc.executeJavaScript(code) : null;
     }, js);
-  // Window screenshot with the built-in browser drawn into its area (it is a separate native view).
   const shotApply = async (name) => {
     const winPng = (await win.screenshot()).toString('base64');
     const box = await win.locator('.browser-host').boundingBox();
@@ -123,7 +108,6 @@ try {
   };
   const diceUrl = () => app.evaluate(({ webContents }) => webContents.getAllWebContents().map((w) => w.getURL()).find((u) => /dice\.com/.test(u)) ?? '');
 
-  // ------------------------------------------------ 1. master resume (once)
   await win.getByRole('button', { name: 'Work history' }).click();
   await win.getByRole('button', { name: 'Upload a file' }).click();
   await win.setInputFiles("input[type=file][aria-label='Choose a resume file']", join(root, 'docs/examples/example-master-resume-flowcv-style.pdf'));
@@ -131,7 +115,6 @@ try {
   log('master resume imported: ' + (await win.locator('.banner').first().innerText()).replace(/\n/g, ' '));
   await win.screenshot({ path: join(SHOTS, '02-work-history.png') });
 
-  // ------------------------------------------------ 2. open a job in the built-in browser
   await win.getByRole('button', { name: 'Apply', exact: true }).click();
   await win.fill('.address-input', JOB_URL);
   await win.press('.address-input', 'Enter');
@@ -142,7 +125,6 @@ try {
   log('scored automatically: ' + (await win.getByRole('button', { name: /Estimated match/ }).first().getAttribute('aria-label')));
   await shotApply('01-apply-job-scored.png');
 
-  // ------------------------------------------------ 3. Tailor & Apply
   const t0 = Date.now();
   await win.locator('.action-bar').getByRole('button', { name: 'Tailor & Apply' }).click();
   await waitFor(async () => (await win.getByRole('heading', { name: /questions for you/i }).count()) > 0, 'questions', 90000);
@@ -171,7 +153,6 @@ try {
   assert(/Resume\.pdf/.test(review), 'tailored resume replaced the profile resume');
   await shotApply('04-apply-review.png');
 
-  // ------------------------------------------------ 4. Submit
   await win.getByRole('button', { name: 'Submit application' }).click();
   await waitFor(async () => (await win.getByRole('heading', { name: /Applied to/ }).count()) > 0, 'applied', 60000);
   log('submitted: ' + (await win.locator('.done-hero').innerText()).replace(/\n/g, ' '));
@@ -181,13 +162,11 @@ try {
   log('files on disk: ' + saved.filter((f) => /\.(pdf|docx|json|txt)$/.test(f)).join(', '));
   assert(saved.some((f) => f.endsWith('resume_tailored.pdf')), 'resume PDF saved');
   assert(saved.some((f) => f.endsWith('resume.json')), 'resume JSON saved');
-  // Keep this run's documents as the repository's example output.
   const GEN = join(root, 'docs/examples/generated-application');
   rmSync(GEN, { recursive: true, force: true });
   mkdirSync(GEN, { recursive: true });
   for (const f of saved.filter((x) => /\.(pdf|docx|json|txt)$/.test(x))) cpSync(join(docsDir, f), join(GEN, f.split(/[\\/]/).pop()));
 
-  // ------------------------------------------------ 5. a recruiter calls
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.send('app:navigate', { view: 'applications', search: true }));
   await win.waitForSelector('.apps-search-input');
   await win.fill('.apps-search-input', '555 0147');
@@ -208,7 +187,6 @@ try {
     log(`search "${q}" → ${await win.locator('.apps-item').count()} result(s)`);
   }
 
-  // ------------------------------------------------ 6. PDF Studio (no AI)
   await win.locator('.doc-row').first().getByRole('button', { name: 'PDF Studio' }).click();
   await win.waitForSelector('.studio .pdf-page', { timeout: 20000 });
   await win.selectOption('.studio-controls select >> nth=0', 'modern');
@@ -231,7 +209,6 @@ try {
     const w = await app.firstWindow();
     await w.screenshot({ path: join(SHOTS, 'zz-failure.png') });
   } catch {
-    /* ignore */
   }
   process.exitCode = 1;
 } finally {

@@ -1,4 +1,3 @@
-/** Plain-text and Markdown renderers for the tailored resume and cover letter. */
 import type { ResumeFormat, TailoredResume } from '@/types';
 import { DEFAULT_RESUME_FORMAT } from '@/types';
 import type { ResumeView } from '@/services/matching/score';

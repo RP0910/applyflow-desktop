@@ -64,7 +64,7 @@ describe('verified facts', () => {
     const a = allowedResume(r);
     expect(a.skills).not.toContain('Bash');
     expect(a.experience[0]!.bullets.some((b) => b.startsWith('Mentored'))).toBe(false);
-    expect(a.experience).toHaveLength(3); // roles are never hidden
+    expect(a.experience).toHaveLength(3);
     const facts = candidateFactsForPrompt(r, { workAuthorizationNote: 'H-1B', salaryPreference: '$200k' } as never);
     const json = JSON.stringify(facts);
     expect(json).not.toMatch(/jordan\.rivera@example\.com|555-0148|linkedin|H-1B|\$200k|Bash"/);
@@ -124,7 +124,6 @@ describe('resume file readers', () => {
 });
 
 describe('resumes with several jobs (FlowCV-style PDFs)', () => {
-  // Bold header with the dates right-aligned at the margin, regular bullets that wrap to the margin.
   const B = 'Bold', R = 'Regular';
   const it_ = (str: string, x: number, y: number, width: number, fontName = R, height = 10) => ({ str, transform: [height, 0, 0, height, x, y], width, height, fontName });
   const items = [
@@ -157,7 +156,6 @@ describe('resumes with several jobs (FlowCV-style PDFs)', () => {
     expect(lines).toContain('Software Engineer, Peacock  2015 – 2018');
     expect(lines).toContain('Education');
     expect(lines.some((l) => l.includes('partners Staff'))).toBe(false);
-    // Real wraps are still joined.
     expect(lines).toContain('• Architected and deployed LLM-based AI agents and agentic workflows that orchestrate tools, internal APIs and telemetry queries.');
   });
 

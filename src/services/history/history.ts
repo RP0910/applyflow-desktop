@@ -1,4 +1,3 @@
-/** Application history: records, filters, duplicate detection and CSV/JSON export. Pure functions. */
 import { APPLICATION_STAGES, type ApplicationRecord, type ApplicationStage, type HistoryFilters, type JobSession } from '@/types';
 import { newId } from '@/utils/id';
 import { nowIso, todayLocal } from '@/utils/dates';
@@ -101,7 +100,6 @@ export interface DuplicateCheck {
   similar: ApplicationRecord[];
 }
 
-/** Same job key or URL = exact. Same company + very similar title within 60 days = similar. */
 export function findDuplicates(records: ApplicationRecord[], jobKey: string, url: string, company: string, title: string, now = new Date()): DuplicateCheck {
   const nUrl = normalizeJobUrl(url);
   const exact = records.find((r) => r.jobKey === jobKey || normalizeJobUrl(r.jobUrl) === nUrl) ?? null;
@@ -164,7 +162,6 @@ export function sortApplications(records: ApplicationRecord[], key: SortKey, dir
   return dir === 'desc' ? sorted.reverse() : sorted;
 }
 
-/** CSV-escape a cell, neutralizing spreadsheet formula injection. */
 export function csvCell(v: unknown): string {
   let s = v === null || v === undefined ? '' : Array.isArray(v) ? v.join('; ') : String(v);
   if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`;

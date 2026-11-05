@@ -1,8 +1,3 @@
-/**
- * Key/value storage for settings. In the desktop app values live in the SQLite `kv` table
- * (through the bridge); elsewhere (tests, design previews) an in-memory map is used.
- * The file keeps its old name so existing imports and tests stay stable.
- */
 import { bridge } from '@/platform/bridge';
 
 const memory = new Map<string, unknown>();
@@ -35,7 +30,6 @@ export function onStorageChange(cb: (changes: Record<string, unknown>) => void):
   return () => listeners.delete(cb);
 }
 
-/** Test helper. */
 export function __resetMemoryStorage(): void {
   memory.clear();
 }

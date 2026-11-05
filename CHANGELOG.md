@@ -1,3 +1,7 @@
+# 2.2.8
+
+Changed: the built-in browser is Google Chrome embedded in the ApplyFlow window, so site security checks can finish. Sign-in for Jobright and Dice is kept in that Chrome profile. ApplyFlow still does not complete those checks. Older installers in `release` are removed when a new Windows build starts. See RELEASE-2.2.8.md.
+
 # 2.2.7
 
 Changed: ApplyFlow opens Jobright recommendations (`https://jobright.ai/jobs/recommend`) when it starts. The Dice button still opens Dice. Claude.ai Chat now presents the signed-in session the way Chrome does (user agent and client hints) and leaves Cloudflare's security check for the user to finish. See RELEASE-2.2.7.md.

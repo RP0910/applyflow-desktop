@@ -9,10 +9,7 @@ import { storageGet, storageSet } from './chromeStorage';
 
 const SITE_CREDS_KEY = 'applyflow.siteCredentials.v1';
 
-// In the desktop app every call goes to SQLite through the bridge (`b`); IndexedDB is the
-// fallback for unit tests and design previews.
 
-// ---------- Master resumes ----------
 
 export async function listResumes(): Promise<MasterResume[]> {
   const b = bridge();
@@ -85,7 +82,6 @@ export async function deleteResume(id: string): Promise<void> {
   emitChange('resumes');
 }
 
-// ---------- Career profile ----------
 
 export const EMPTY_PROFILE: CareerProfile = {
   fullName: '',
@@ -135,7 +131,6 @@ export async function saveProfile(profile: CareerProfile): Promise<CareerProfile
   return next;
 }
 
-// ---------- Job-site login credentials ----------
 
 function hostOf(urlOrHost: string): string {
   try {
@@ -178,10 +173,6 @@ export async function deleteSiteCredential(host: string): Promise<void> {
   await storageSet(SITE_CREDS_KEY, (await listSiteCredentials()).filter((c) => c.host !== h));
 }
 
-/**
- * Return the stored login for this job site, creating one from the profile email and the
- * default password when none exists yet.
- */
 export async function ensureSiteCredential(url: string, email: string): Promise<SiteCredential | null> {
   const trimmed = email.trim();
   if (!trimmed) return null;
@@ -189,7 +180,6 @@ export async function ensureSiteCredential(url: string, email: string): Promise<
   if (!host) return null;
   const existing = await getSiteCredential(host);
   if (existing) {
-    // Keep email in sync with the profile when the stored email was empty or still the default.
     if (existing.email.trim().toLowerCase() !== trimmed.toLowerCase()) {
       return saveSiteCredential({ ...existing, email: trimmed, url: existing.url || url });
     }
@@ -204,7 +194,6 @@ export async function ensureSiteCredential(url: string, email: string): Promise<
   return saveSiteCredential({ host, url: origin, email: trimmed, password: DEFAULT_SITE_PASSWORD, updatedAt: '' });
 }
 
-// ---------- Job sessions (in-progress work per job) ----------
 
 export async function getSession(jobKey: string): Promise<JobSession | undefined> {
   const b = bridge();
@@ -225,7 +214,6 @@ export async function saveSession(session: JobSession): Promise<JobSession> {
   return next;
 }
 
-/** The most recently updated session (used when Dice's application URL doesn't carry the job ID). */
 export async function latestSession(withinMs = 3 * 60 * 60 * 1000): Promise<JobSession | undefined> {
   const b = bridge();
   if (b) return (await b.invoke('sessions.latest', withinMs)) ?? undefined;
@@ -245,7 +233,6 @@ export async function deleteSession(jobKey: string): Promise<void> {
   emitChange('sessions');
 }
 
-// ---------- Application history ----------
 
 export async function listApplications(): Promise<ApplicationRecord[]> {
   const b = bridge();

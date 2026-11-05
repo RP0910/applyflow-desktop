@@ -1,8 +1,3 @@
-/**
- * The ATS report: how a keyword-based applicant tracking system would read this resume against
- * the job — score, matched and missing keywords, structure checks and the parse test — and the
- * one action that can raise it truthfully: confirming skills you really have.
- */
 import { useMemo, useState } from 'react';
 import type { AtsCheck, AtsReport, KeywordResult } from '@/types';
 import { Icon } from './Icon';
@@ -41,12 +36,9 @@ function Chips({ items, tone, title }: { items: KeywordResult[]; tone: 'green' |
 
 export interface AtsReportCardProps {
   report: AtsReport;
-  /** The master resume's score, to show the improvement. */
   before?: AtsReport | null;
-  /** Start expanded (Documents view). */
   expanded?: boolean;
   busy?: boolean;
-  /** "I have these" → added to verified skills, then the resume is rewritten. */
   onConfirmSkills?: (terms: string[]) => void;
 }
 

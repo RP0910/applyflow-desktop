@@ -1,10 +1,5 @@
 import { ClaudeProvider } from '@/services/claude/provider';
 import { cvFixture } from '../cvFixture';
-/**
- * Integration: the real side panel, wired to the real content-script controller running
- * against a mock Dice job page and the mock Dice application wizard. Covers the one-click
- * flow, questions, the final confirmation, downloads and history record creation.
- */
 import { describe, expect, it, vi } from 'vitest';
 import { render, screen, within, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -19,10 +14,8 @@ import { exampleResume, fixture, JOB_URL, APPLY_URL } from '../helpers';
 import { installFileChooserInterceptor } from '@/content/fileChooserInterceptor';
 import { mountDiceWizard, testUploadDeps } from '../wizardHelpers';
 
-// What the page-world script does on dice.com.
 installFileChooserInterceptor(HTMLInputElement.prototype);
 
-/** A simulated Dice tab: a job page whose Apply button "navigates" to the mock Dice wizard. */
 function makeDiceTab() {
   const doc = document.implementation.createHTMLDocument('dice');
   let url = JOB_URL;
@@ -107,24 +100,20 @@ describe('Tailor & Apply on a mock Dice job', () => {
     const user = userEvent.setup();
     render(<PanelApp deps={{ messenger: tab.messenger, downloads, pinnedTabId: 7, pollMs: 5 }} />);
 
-    // Job detected and scored with no click.
     expect(await screen.findByRole('heading', { name: 'Senior Architect AI Engineering and Platforms', level: 1 })).toBeInTheDocument();
     expect(await screen.findByRole('button', { name: /Estimated match \d+ out of 100/ })).toBeInTheDocument();
     expect(tab.calls.some((c) => c.type === 'AF_OPEN_APPLICATION')).toBe(false);
 
-    // Click 1: everything up to the questions only the user can answer.
     await user.click(screen.getByRole('button', { name: 'Tailor & Apply' }));
     expect(await screen.findByRole('heading', { name: '3 questions for you' }, { timeout: 15000 })).toBeInTheDocument();
     const wiz = tab.wizard();
-    expect(wiz.resume).toMatch(/^Jordan-Rivera-.*-Resume-v1-\d+\.pdf$/); // profile resume replaced via the “…” menu
+    expect(wiz.resume).toMatch(/^Jordan-Rivera-.*-Resume-v1-\d+\.pdf$/);
     expect(wiz.coverLetter).toMatch(/^Jordan-Rivera-.*-Cover-Letter-v1-\d+\.pdf$/);
     expect(wiz.nativePickerOpened).toBe(0);
     expect(wiz.step).toBe(2);
-    expect(wiz.answers).toMatchObject({ q_auth: '', q_spon: '', q_years: '' }); // nothing guessed
-    // The site's search bar was never touched.
+    expect(wiz.answers).toMatchObject({ q_auth: '', q_spon: '', q_years: '' });
     expect((tab.doc.querySelector('input[name=q]') as HTMLInputElement).value).toBe('');
 
-    // One tap per answer; the last one continues automatically to Dice's review step.
     const card = (label: RegExp) => screen.getByText(label).closest('.q-card') as HTMLElement;
     await user.click(within(card(/legally authorized/)).getByRole('button', { name: 'Yes' }));
     await user.click(within(card(/visa sponsorship/)).getByRole('button', { name: 'No' }));
@@ -134,7 +123,6 @@ describe('Tailor & Apply on a mock Dice job', () => {
     expect(wiz.step).toBe(3);
     expect(wiz.answers).toMatchObject({ q_auth: 'yes', q_spon: 'no', q_years: '8' });
     const summary = screen.getByRole('heading', { name: /Ready to submit to/ }).closest('section')!;
-    // Dice-style review cards: both documents tailored and attached.
     expect(within(summary).getAllByText('Tailored for this job')).toHaveLength(2);
     expect(within(summary).getByText(wiz.resume)).toBeInTheDocument();
     expect(within(summary).getByText(/1 optional question left blank/)).toBeInTheDocument();
@@ -143,20 +131,17 @@ describe('Tailor & Apply on a mock Dice job', () => {
     expect(tab.calls.some((c) => c.type === 'AF_SUBMIT')).toBe(false);
     expect(wiz.submitClicks).toBe(0);
 
-    // The tailored documents were saved to Downloads as soon as they were written — before submitting.
     const early = downloads.download.mock.calls.map((c) => (c[0] as { filename: string }).filename.split('/').pop());
     expect(early).toEqual(expect.arrayContaining(['resume_tailored.pdf', 'resume_tailored.docx', 'cover_letter.pdf', 'job_description.txt']));
     expect(early).not.toContain('application_metadata.json');
     const savedBeforeSubmit = early.length;
 
-    // Answers were remembered for next time.
     expect((await getProfile()).approvedAnswers.map((a) => [a.category, a.answer])).toEqual([
       ['work_authorization', 'Yes'],
       ['sponsorship', 'No'],
       ['years_experience', '8'],
     ]);
 
-    // Final click: the user's explicit confirmation. One token, one click on Dice's Submit.
     await user.click(screen.getByRole('button', { name: 'Submit application' }));
     expect(await screen.findByRole('heading', { name: 'Applied to Meridian Credit Analytics LLC' })).toBeInTheDocument();
     const arm = tab.calls.filter((c) => c.type === 'AF_ARM_SUBMIT') as Extract<PanelToContent, { type: 'AF_ARM_SUBMIT' }>[];
@@ -166,14 +151,12 @@ describe('Tailor & Apply on a mock Dice job', () => {
     expect(sub[0]!.token).toBe(arm[0]!.token);
     expect(wiz.submitClicks).toBe(1);
 
-    // Files saved into the documented folder structure; submitting adds only what was missing (no duplicates).
     await waitFor(() => expect(downloads.download.mock.calls.length).toBe(savedBeforeSubmit + 2));
     const names = downloads.download.mock.calls.map((c) => (c[0] as { filename: string }).filename);
     expect(names.slice(savedBeforeSubmit).map((n) => n.split('/').pop())).toEqual(['application_metadata.json', 'job_url.txt']);
     expect(names.every((n) => n.startsWith('ApplyFlow/Meridian-Credit-Analytics-LLC/'))).toBe(true);
     expect(names.map((n) => n.split('/').pop())).toEqual(expect.arrayContaining(['resume_tailored.pdf', 'resume_tailored.docx', 'cover_letter.pdf', 'job_description.txt', 'application_metadata.json', 'job_url.txt']));
 
-    // History record created with stage, scores, files and follow-up.
     await waitFor(async () => expect((await listApplications())[0]?.files.length).toBeGreaterThan(0));
     const [rec] = await listApplications();
     expect(rec).toMatchObject({ stage: 'Applied', company: 'Meridian Credit Analytics LLC', resumeVersion: 1, coverLetterVersion: 1 });

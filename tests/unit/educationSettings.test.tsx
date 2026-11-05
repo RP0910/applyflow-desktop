@@ -1,4 +1,3 @@
-/** Profile & answers → Education: editing the university / school on the candidate setup. */
 import { describe, expect, it, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';

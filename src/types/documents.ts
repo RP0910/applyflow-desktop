@@ -1,7 +1,6 @@
 import type { ContactInfo, EducationEntry } from './resume';
 
 export interface TailoredExperience {
-  /** Matches ExperienceEntry.id in the master resume — tailoring can't create roles. */
   sourceId: string;
   title: string;
   company: string;
@@ -9,7 +8,6 @@ export interface TailoredExperience {
   startDate: string;
   endDate: string;
   bullets: string[];
-  /** Technologies used in this job, taken only from the master resume (most job-relevant first). */
   technologies?: string[];
 }
 
@@ -52,7 +50,6 @@ export interface ValidationIssue {
     | 'years_claim'
     | 'moved_skill';
   message: string;
-  /** The offending text, when there is one. */
   excerpt?: string;
   autoFixable: boolean;
 }
@@ -65,7 +62,6 @@ export interface TailoredResume {
   headline: string;
   summary: string;
   skills: string[];
-  /** Skills grouped by category for the Skills section ("Languages: …"). `skills` stays the flat list. */
   skillGroups?: SkillGroup[];
   experience: TailoredExperience[];
   projects: TailoredProject[];

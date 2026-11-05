@@ -39,7 +39,6 @@ export function primaryAction(wf: Workflow, hasResume: boolean): Primary {
   if (!hasResume) return { label: 'Tailor & Apply', disabled: true, hint: 'Add your resume above to begin.' };
   if (!s) return { label: 'Tailor & Apply', disabled: true, hint: wf.busy ? 'Reading the job…' : 'Open a job on dice.com to begin.' };
   if (s.submittedAt) {
-    // Desktop: the next step after applying is the next job — straight back to your search results.
     return isDesktop()
       ? { label: 'Back to search results', run: () => void backToDiceSearch(), hint: 'Applied and saved in Applications. Pick your next job.' }
       : { label: 'Applied', disabled: true, hint: 'Saved in Applications.' };
@@ -78,7 +77,6 @@ export interface PanelDeps {
   pollMs?: number;
 }
 
-/** In the desktop app History and Settings live in the main navigation. */
 const DESKTOP_NAV = NAV.filter((n) => n.id === 'home' || n.id === 'documents');
 
 function DocumentsView({ wf, lib, settings }: { wf: Workflow; lib: ReturnType<typeof useLibrary>; settings: ReturnType<typeof useSettings>['settings'] }) {

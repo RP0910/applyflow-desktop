@@ -40,14 +40,12 @@ describe('ATS report card', () => {
   it('adds skills only after the user taps the ones they have', async () => {
     const onConfirm = vi.fn();
     render(<AtsReportCard report={report()} onConfirmSkills={onConfirm} />);
-    // Skills the resume can't back are offered, never added silently.
     const micro = screen.getByRole('button', { name: 'Microservices' });
     expect(screen.queryByRole('button', { name: /add to my skills/ })).not.toBeInTheDocument();
     await userEvent.click(micro);
     expect(micro).toHaveAttribute('aria-pressed', 'true');
     await userEvent.click(screen.getByRole('button', { name: /I have it — add to my skills and rewrite/ }));
     expect(onConfirm).toHaveBeenCalledWith(['Microservices']);
-    // A supported keyword is not offered as "not on your resume".
     expect(screen.queryByRole('button', { name: 'Kubernetes' })).not.toBeInTheDocument();
   });
 

@@ -2,7 +2,6 @@ import { useState } from 'react';
 import type { JobPosting } from '@/types';
 import { splitDescription, detectSignals, classifyJobSkills, detectRemoteStatus } from '@/services/extraction/sections';
 
-/** Lets the user correct or paste job details when extraction is incomplete. */
 export function JobDetailsEditor({ job, onSave, onCancel }: { job: JobPosting; onSave: (j: JobPosting) => void; onCancel: () => void }) {
   const [d, setD] = useState({
     title: job.title,

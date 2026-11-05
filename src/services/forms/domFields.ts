@@ -1,7 +1,3 @@
-/**
- * DOM side of form assistance (runs in the content script).
- * Scans visible controls, labels them, and fills only what the panel explicitly sends.
- */
 import type { FieldControl, FillInstruction, FillResult, FormFieldDescriptor } from '@/types';
 import { classifyFieldSensitivity } from './sensitive';
 import { isPageChrome, isVisible } from '@/services/platforms/dom';
@@ -11,26 +7,22 @@ let counter = 0;
 
 type Control = HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement;
 
-// File inputs are handled by the upload engine (forms/upload.ts), not as form fields.
 const SKIP_TYPES = new Set(['hidden', 'submit', 'button', 'image', 'reset', 'password', 'search', 'file']);
 
 function textOf(el: Element | null | undefined): string {
   return (el?.textContent ?? '').replace(/\s+/g, ' ').trim();
 }
 
-/** A text box that is really a dropdown (react-select on Greenhouse, Ashby's pickers, autocompletes). */
 export function isCombobox(el: Element): boolean {
   if (!(el instanceof HTMLInputElement)) return false;
   return el.getAttribute('role') === 'combobox' || /^(list|both)$/.test(el.getAttribute('aria-autocomplete') ?? '') || /(^|\s)select__input|react-select/.test(`${el.className} ${el.id}`);
 }
 
-/** The control box around a combobox input (react-select's "control", or a few levels up). */
 function comboboxBox(el: Element): Element {
   const up = el.parentElement;
   return up?.closest('[class*="control" i]') ?? up?.closest('[class*="select" i], [role="group"]') ?? up?.parentElement ?? el;
 }
 
-/** What a combobox shows as chosen (react-select keeps it next to the input, not in it). */
 export function comboboxValue(el: HTMLInputElement): string {
   const box = comboboxBox(el);
   const chosen = Array.from(box.querySelectorAll('[class*="single-value" i], [class*="singleValue" i], [class*="multi-value__label" i], [class*="multiValue" i] [class*="label" i]'))
@@ -50,7 +42,6 @@ function controlType(el: Control): FieldControl {
   return 'other';
 }
 
-/** Custom radio/checkbox widgets hide the real input but show a styled control next to it. */
 function isStyledChoice(el: Control): boolean {
   const t = (el as HTMLInputElement).type;
   return (t === 'radio' || t === 'checkbox') && Boolean(el.closest('label') ?? el.parentElement) && isVisible(el.closest('label') ?? el.parentElement!);
@@ -74,18 +65,13 @@ export function labelFor(el: Control, root?: Element): { label: string; context:
   const fieldset = el.closest('fieldset');
   const legend = textOf(fieldset?.querySelector('legend'));
   if ((el.type === 'radio' || el.type === 'checkbox') && legend) {
-    // For choice inputs, the question is the legend; the label is the option text.
     label = legend;
   }
-  // Nearby text: the closest preceding heading/paragraph within the field's container.
   let context = legend;
-  // The text closest above the control (for a radio group: the question itself).
   let nearest = legend;
   let node: Element | null = el.parentElement;
-  // Choice groups sit deeper (Lever: label › li › ul › field, with the question beside the field).
   const maxDepth = el.type === 'radio' || el.type === 'checkbox' ? 5 : 3;
   for (let depth = 0; node && depth < maxDepth && context.length < 200; depth++, node = node.parentElement) {
-    // Never borrow text from outside the application (e.g. the site's navigation bar).
     if (root && !root.contains(node)) break;
     const prev = node.previousElementSibling;
     if (prev && !prev.querySelector('input,select,textarea') && !isPageChrome(prev) && prev.getAttribute('role') !== 'alert') {
@@ -96,7 +82,6 @@ export function labelFor(el: Control, root?: Element): { label: string; context:
   }
   if (!label && context) label = context.slice(0, 120);
   if (!label) label = (el.getAttribute('name') ?? '').replace(/[_\-[\]]+/g, ' ').trim();
-  // "*" and Lever's "✱" mark required fields.
   const starred = /[*✱]\s*$/.test(label) || /[*✱]\s*$/.test(legend);
   return { label: label.replace(/\s*[*✱]\s*$/, '').replace(/\s+/g, ' ').trim(), context: context.slice(0, 300), starred, nearest: nearest.slice(0, 300) };
 }
@@ -105,7 +90,6 @@ function isRequired(el: Control, label: string, starred: boolean): boolean {
   return starred || el.required || el.getAttribute('aria-required') === 'true' || /\(required\)/i.test(label);
 }
 
-/** The question a radio group asks: its legend, or the text above the group when the label is just an option ("Yes"). */
 function questionText(label: string, nearest: string, options: string[]): { question: string; starred: boolean } {
   if (!options.includes(label) || !nearest) return { question: label, starred: false };
   const lead = nearest.replace(new RegExp(`\\b(${options.map((o) => o.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})\\b`, 'g'), ' ').replace(/\s+/g, ' ').trim();
@@ -186,9 +170,7 @@ export function scanFields(root: ParentNode): FormFieldDescriptor[] {
   return out;
 }
 
-// ---------------------------------------------------------------- Yes/No buttons and ARIA radio groups
 
-/** Answers a button group can offer (Ashby's Yes/No questions). Anything else is not a question. */
 const ANSWER_WORDS = /^(yes|no|maybe|true|false|n\/a|not applicable|prefer not to (say|answer|disclose)|decline to (state|answer|self-identify)|i don['’]t know)$/i;
 
 function choiceOptions(group: Element): HTMLElement[] {
@@ -200,7 +182,6 @@ function isChosen(el: Element): boolean {
   return el.getAttribute('aria-pressed') === 'true' || el.getAttribute('aria-checked') === 'true' || el.getAttribute('data-state') === 'on' || /(^|[\s_-])(selected|active|checked|isSelected|pressed)([\s_-]|$)/i.test(typeof el.className === 'string' ? el.className : '');
 }
 
-/** The question above a button group: its label, legend, or the nearest text before it. */
 function groupQuestion(group: Element, root: Element): { label: string; starred: boolean } {
   const doc = group.ownerDocument;
   const by = group.getAttribute('aria-labelledby');
@@ -226,7 +207,7 @@ function scanChoiceGroups(root: ParentNode): FormFieldDescriptor[] {
     const group = c.getAttribute('role') === 'radiogroup' ? c : c.parentElement;
     if (!group || seen.has(group) || isPageChrome(group)) continue;
     seen.add(group);
-    if (group.querySelector('input[type="radio"], input[type="file"]')) continue; // native radios are scanned already
+    if (group.querySelector('input[type="radio"], input[type="file"]')) continue;
     const opts = choiceOptions(group);
     if (opts.length < 2 || opts.length > 6 || !isVisible(group)) continue;
     const labels = opts.map((o) => textOf(o));
@@ -261,7 +242,6 @@ function labelOfOption(r: HTMLInputElement): string {
   return r.value;
 }
 
-/** Set a value the way a user would, so React/Vue-controlled inputs register it. */
 function setNativeValue(el: HTMLInputElement | HTMLTextAreaElement, value: string): void {
   const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
   const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
@@ -332,15 +312,10 @@ export function highlightField(doc: Document, fieldId: string): boolean {
   return true;
 }
 
-/**
- * Apply an answer the user chose or saved (radio, select, checkbox or text). Only called for
- * answers that came from the user, never for guesses.
- */
 export function answerField(doc: Document, fieldId: string, value: string): FillResult {
   const el = doc.querySelector<Control>(`[${FIELD_ATTR}="${CSS.escape(fieldId)}"]`);
   if (!el) return { fieldId, ok: false, error: 'This question is no longer on the page.' };
   const want = value.trim().toLowerCase();
-  // A Yes/No button group or an ARIA radio group.
   if (!(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement)) {
     const opts = choiceOptions(el);
     const match = opts.find((o) => textOf(o).toLowerCase() === want) ?? opts.find((o) => textOf(o).toLowerCase().startsWith(want));
@@ -385,7 +360,6 @@ export function answerField(doc: Document, fieldId: string, value: string): Fill
   }
 }
 
-// ---------------------------------------------------------------- dropdowns that are text boxes (async)
 
 type Sleep = (ms: number) => Promise<void>;
 
@@ -395,7 +369,6 @@ function fire(el: Element, type: string, init: KeyboardEventInit & MouseEventIni
   else el.dispatchEvent(new (view?.MouseEvent ?? MouseEvent)(type, { bubbles: true, cancelable: true, button: 0, ...init }));
 }
 
-/** The visible list a combobox opened (its aria-controls/aria-owns list, else any open listbox). */
 function openList(el: HTMLInputElement): HTMLElement[] {
   const doc = el.ownerDocument;
   const ids = `${el.getAttribute('aria-controls') ?? ''} ${el.getAttribute('aria-owns') ?? ''}`.split(/\s+/).filter(Boolean);
@@ -405,7 +378,6 @@ function openList(el: HTMLInputElement): HTMLElement[] {
   const NOTICE = /notice|no-?options|loading|empty|message/i;
   for (const s of scopes) {
     const byRole = Array.from(s.querySelectorAll<HTMLElement>('[role="option"]'));
-    // Without ARIA roles, fall back to "option" classes — never the list's own notices ("Loading…", "No options").
     const pool = byRole.length ? byRole : Array.from(s.querySelectorAll<HTMLElement>('[class*="option" i]')).filter((o) => !NOTICE.test(typeof o.className === 'string' ? o.className : ''));
     out.push(...pool.filter((o) => isVisible(o) && textOf(o) && !o.querySelector('[role="option"]') && !/^(loading|no options|no results|start typing|type to search)/i.test(textOf(o))));
   }
@@ -418,7 +390,6 @@ function closeList(el: HTMLInputElement): void {
   el.dispatchEvent(new Event('blur', { bubbles: true }));
 }
 
-/** Open a combobox (click its box, press ArrowDown) and wait for its options. */
 async function openCombobox(el: HTMLInputElement, sleep: Sleep, ms = 1500): Promise<HTMLElement[]> {
   const box = comboboxBox(el);
   el.focus();
@@ -432,10 +403,6 @@ async function openCombobox(el: HTMLInputElement, sleep: Sleep, ms = 1500): Prom
   return [];
 }
 
-/**
- * Read the choices of each closed dropdown once (opening it briefly), so the panel can offer them
- * as one-tap answers. Lists that only appear after typing (location search) stay empty.
- */
 export async function probeComboboxes(root: ParentNode, sleep: Sleep, limit = 25): Promise<void> {
   const boxes = Array.from(root.querySelectorAll<HTMLInputElement>('input')).filter((el) => isCombobox(el) && !el.hasAttribute(OPTIONS_ATTR) && !el.disabled && !isPageChrome(el)).slice(0, limit);
   for (const el of boxes) {
@@ -450,7 +417,6 @@ const US_STATES: Record<string, string> = {
   al: 'alabama', ak: 'alaska', az: 'arizona', ar: 'arkansas', ca: 'california', co: 'colorado', ct: 'connecticut', de: 'delaware', fl: 'florida', ga: 'georgia', hi: 'hawaii', id: 'idaho', il: 'illinois', in: 'indiana', ia: 'iowa', ks: 'kansas', ky: 'kentucky', la: 'louisiana', me: 'maine', md: 'maryland', ma: 'massachusetts', mi: 'michigan', mn: 'minnesota', ms: 'mississippi', mo: 'missouri', mt: 'montana', ne: 'nebraska', nv: 'nevada', nh: 'new hampshire', nj: 'new jersey', nm: 'new mexico', ny: 'new york', nc: 'north carolina', nd: 'north dakota', oh: 'ohio', ok: 'oklahoma', or: 'oregon', pa: 'pennsylvania', ri: 'rhode island', sc: 'south carolina', sd: 'south dakota', tn: 'tennessee', tx: 'texas', ut: 'utah', vt: 'vermont', va: 'virginia', wa: 'washington', wv: 'west virginia', wi: 'wisconsin', wy: 'wyoming', dc: 'district of columbia',
 };
 
-/** Words of a place, with US state abbreviations and "US/USA" spelled out ("St. Petersburg, FL, US"). */
 function placeWords(s: string): Set<string> {
   const out = new Set<string>();
   for (const raw of s.toLowerCase().split(/[,()]+/)) {
@@ -462,11 +428,6 @@ function placeWords(s: string): Set<string> {
   return out;
 }
 
-/**
- * The option matching `value`: exact, then starting with it, then containing it. For places
- * (`place`), the suggestion that shares the most words with your location — and only one that
- * names your city — so "St. Petersburg, FL" never becomes "St. Petersburg, Russia".
- */
 function bestOption(opts: HTMLElement[], value: string, place: boolean): HTMLElement | null {
   const v = value.trim().toLowerCase();
   const t = (o: HTMLElement) => textOf(o).toLowerCase();
@@ -491,13 +452,11 @@ function choose(opt: HTMLElement): void {
   opt.click();
 }
 
-/** Type into a combobox and pick the option that matches `value` (`place`: the best-matching location suggestion). */
 async function setCombobox(el: HTMLInputElement, value: string, sleep: Sleep, place = false): Promise<FillResult & { fieldId: string }> {
   const fieldId = el.getAttribute(FIELD_ATTR) ?? '';
   let opts = await openCombobox(el, sleep, 500);
   let pick = bestOption(opts, value, false);
   if (!pick) {
-    // Searchable lists: type to filter (locations, schools).
     setNativeValueQuiet(el, value.split(',')[0]!.trim());
     for (let t = 0; t < 2500 && !pick; t += 150) {
       await sleep(150);
@@ -512,7 +471,6 @@ async function setCombobox(el: HTMLInputElement, value: string, sleep: Sleep, pl
   const text = textOf(pick);
   choose(pick);
   await sleep(150);
-  // Chosen when the box shows the option (react-select) or the input now holds it (plain autocompletes).
   const shown = comboboxValue(el);
   const box = comboboxBox(el);
   const displayed = Array.from(box.querySelectorAll('[class*="single-value" i], [class*="singleValue" i], [class*="multi-value" i]')).some((n) => textOf(n) === text);
@@ -521,7 +479,6 @@ async function setCombobox(el: HTMLInputElement, value: string, sleep: Sleep, pl
   return ok ? { fieldId, ok: true, finalValue: shown || text } : { fieldId, ok: false, error: `The list didn’t take “${text}”. Choose it on the page.` };
 }
 
-/** Set a text value without the blur that would close an autocomplete list. */
 function setNativeValueQuiet(el: HTMLInputElement, value: string): void {
   const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
   el.focus();
@@ -532,7 +489,6 @@ function setNativeValueQuiet(el: HTMLInputElement, value: string): void {
   fire(el, 'keyup', { key: value.slice(-1) || 'a' });
 }
 
-/** After typing a location into a plain text box, pick the site's matching suggestion (Lever, Google Places). */
 async function pickSuggestion(el: HTMLInputElement, value: string, sleep: Sleep): Promise<string | null> {
   const doc = el.ownerDocument;
   const near = el.closest('.application-question, .field, [class*="field" i], li, fieldset, div') ?? doc.body;
@@ -552,7 +508,6 @@ async function pickSuggestion(el: HTMLInputElement, value: string, sleep: Sleep)
   return null;
 }
 
-/** fillFields, plus dropdowns that are text boxes and location suggestions. */
 export async function fillFieldsAsync(doc: Document, instructions: FillInstruction[], sleep: Sleep): Promise<FillResult[]> {
   const out: FillResult[] = [];
   for (const ins of instructions) {
@@ -575,7 +530,6 @@ export async function fillFieldsAsync(doc: Document, instructions: FillInstructi
   return out;
 }
 
-/** answerField, plus dropdowns that are text boxes. */
 export async function answerFieldAsync(doc: Document, fieldId: string, value: string, sleep: Sleep): Promise<FillResult> {
   const el = doc.querySelector<HTMLElement>(`[${FIELD_ATTR}="${CSS.escape(fieldId)}"]`);
   if (el instanceof HTMLInputElement && isCombobox(el)) return setCombobox(el, value, sleep);

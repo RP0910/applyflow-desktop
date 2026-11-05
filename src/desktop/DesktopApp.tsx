@@ -1,8 +1,3 @@
-/**
- * ApplyFlow desktop shell: navigation rail + views. The Apply view (built-in Dice browser and
- * the ApplyFlow panel) stays mounted while you look at other views, so a running application
- * is never interrupted.
- */
 import { useCallback, useEffect, useState } from 'react';
 import { bridge, type DesktopView, type UsageSummary } from '@/platform/bridge';
 import { PanelApp } from '@/sidepanel/PanelApp';
@@ -103,7 +98,6 @@ export function DesktopApp() {
         </div>
       </nav>
 
-      {/* Apply: always mounted; hidden (not unmounted) on other views. */}
       <div className="apply-view" hidden={view !== 'apply'}>
         <BrowserPane visible={view === 'apply'} />
         <aside className="apply-panel" aria-label="ApplyFlow panel">

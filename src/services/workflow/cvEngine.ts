@@ -4,7 +4,6 @@ import { validateCv } from '@/prompts/cvGenerate';
 import { compactFacts } from '@/prompts/application';
 import type { CompanyResearchReply } from '@/prompts/companyResearch';
 
-/** Placeholder / synthetic employer names (used by tests and UI helpers). */
 export const PLACEHOLDER_COMPANY = /^(company[_\s-]?\d+|employer[_\s-]?\d+|org(anization)?[_\s-]?\d+|acme(\s+(inc|corp|corporation|co\.?))?|placeholder|tbd|n\/?a|none|untitled|your company|company name|example (systems|corp|inc)|test company|new company)$/i;
 
 export function isPlaceholderCompany(name: string | null | undefined): boolean {
@@ -12,11 +11,6 @@ export function isPlaceholderCompany(name: string | null | undefined): boolean {
   return !t || PLACEHOLDER_COMPANY.test(t);
 }
 
-/**
- * Apply researched company names + public HQ onto the working master used for CV generate.
- * Dates and titles stay from Profile; employer names and locations become researched values
- * so the assembled resume shows each firm's real HQ city (not the profile period city).
- */
 export function applyCompanyResearch(master: MasterResume, research: CompanyResearchReply | null | undefined): {
   master: MasterResume;
   replaced: { from: string; to: string; periodIndex: number; location?: string }[];
@@ -47,7 +41,6 @@ export function applyCompanyResearch(master: MasterResume, research: CompanyRese
   return { master: { ...master, parsed: { ...master.parsed, experience }, updatedAt: new Date().toISOString() }, replaced };
 }
 
-/** Employers/dates/contact data are assembled locally, never entrusted to model output. */
 export function assembleCv(r: CvReply, master: MasterResume, profile: CareerProfile | undefined, session: Pick<JobSession, 'resume'>, model: string): TailoredResume {
   const ids = Object.values(compactFacts(master, profile).jobIds);
   const jobs = ids.map(id => master.parsed.experience.find(e => e.id === id)!);
@@ -66,7 +59,6 @@ export function assembleCv(r: CvReply, master: MasterResume, profile: CareerProf
     engine:'claude',model,generatedAt:new Date().toISOString(),editedByUser:false,
   };
 }
-/** Transient document corpus for measuring draft coverage; never saved as verified candidate facts. */
 export function draftCorpus(t: TailoredResume, master: MasterResume): MasterResume {
   return {...master, facts:[], parsed:{...master.parsed,contact:t.contact,headline:t.headline,summary:t.summary,skills:t.skills,experience:t.experience.map(e=>({...e,id:e.sourceId}))}};
 }

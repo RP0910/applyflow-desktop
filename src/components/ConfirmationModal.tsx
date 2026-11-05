@@ -1,6 +1,5 @@
 import { useEffect, useId, useRef, type ReactNode } from 'react';
 
-/** Accessible modal: focus moves in, Tab is trapped, Escape cancels, focus returns on close. */
 export function ConfirmationModal({
   open,
   title,

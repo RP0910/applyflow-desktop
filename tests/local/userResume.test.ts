@@ -1,8 +1,4 @@
 // @vitest-environment node
-/**
- * Optional check against a real resume file on your machine (never committed):
- *   USER_PDF=/path/to/resume.pdf USER_OUT=/tmp/out npx vitest run tests/local
- */
 import { it } from 'vitest';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { readPdf } from '@/services/resume/fileReaders';

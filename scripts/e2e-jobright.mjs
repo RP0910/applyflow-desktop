@@ -1,14 +1,3 @@
-// End-to-end: ApplyFlow Desktop applying to Jobright jobs on mock pages (nothing reaches jobright.ai,
-// the employers' sites or Anthropic — Claude's replies are stubbed).
-//
-// Launches the built app with a throw-away data folder and APPLYFLOW_MOCK_DICE (the main process
-// serves tests/fixtures/{dice,jobright} for those sites). Sets up a candidate, opens Jobright's job
-// list in the built-in browser, then for each job: open it → Tailor & Apply → answer the panel's
-// questions → Submit application → check what the employer's mock form received → Back to search
-// results. Also checks the stops: Workday sign-in, closed job.
-//
-// Usage: npm run build && xvfb-run -a node scripts/e2e-jobright.mjs
-// Output: docs/screenshots/jobright-*.png and docs/screenshots/jobright-e2e-log.txt
 import { createRequire } from 'node:module';
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -48,7 +37,6 @@ const waitFor = async (fn, what, timeout = 30000) => {
   throw new Error(`Timed out waiting for ${what}${last instanceof Error ? ` (${last.message})` : ''}`);
 };
 
-// What Claude would return for the CV Generate prompt (one employer in the candidate setup).
 const CV = {
   company_name: 'Employer',
   role_title: 'Electronics Technician',
@@ -93,7 +81,6 @@ try {
     }, js);
   const url = async () => (await invoke('dice.state')).url;
 
-  // Claude: stubbed replies (the CV Generate JSON).
   let claudeCalls = 0;
   await win.route('https://api.anthropic.com/**', async (route) => {
     claudeCalls++;
@@ -101,7 +88,6 @@ try {
     await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body), headers: { 'access-control-allow-origin': '*' } });
   });
 
-  // ---- setup: Claude on, documents to a temp folder, profile, employer, education
   const current = (await invoke('kv.get', 'applyflow.settings.v1')) ?? {};
   await invoke('kv.set', 'applyflow.settings.v1', { ...current, engine: 'claude', saveLocation: docsDir, schema: current.schema ?? 3 });
   await invoke('secret.set', 'sk-ant-test-key');
@@ -164,7 +150,6 @@ try {
     const card = win.locator('.q-card').filter({ hasText: labelRe });
     await card.getByRole('button', { name: option, exact: true }).click();
   };
-  /** Answer whatever the panel still asks (answers saved earlier are already applied), until Ready. */
   const finish = async (company, answers) => {
     await waitFor(async () => (await heading(/question for you|questions for you|Ready to submit/).count()) > 0, `${company}: questions or review`, 90000);
     const asked = await win.locator('.q-card .q-label').allInnerTexts().catch(() => []);
@@ -179,7 +164,6 @@ try {
   const tailorAndApply = async () => win.locator('.action-bar').getByRole('button', { name: 'Tailor & Apply' }).click();
   const heading = (re) => win.getByRole('heading', { name: re });
 
-  // ================================================================ Lever
   await openJob('lever-1', 'PCB Layout Technician');
   await shot('jobright-01-job.png');
   check((await win.getByText('Jobright job').count()) > 0, 'panel labels it a Jobright job');
@@ -205,7 +189,6 @@ try {
   await win.locator('.action-bar').getByRole('button', { name: 'Back to search results' }).click();
   check(/jobright\.ai\/jobs\/recommend/.test(await waitFor(async () => { const u = await url(); return /jobright\.ai\/jobs\/recommend/.test(u) ? u : null; }, 'back on Jobright list')), '“Back to search results” returned to the Jobright list');
 
-  // ================================================================ Greenhouse classic via careers page frame
   await openJob('gh-1', 'Hardware Test Engineer');
   t0 = Date.now();
   await tailorAndApply();
@@ -226,7 +209,6 @@ try {
   await shot('jobright-06-greenhouse-applied.png');
   await win.locator('.action-bar').getByRole('button', { name: 'Back to search results' }).click();
 
-  // ================================================================ Ashby
   await openJob('ashby-1', 'Test Engineering Technician');
   t0 = Date.now();
   await tailorAndApply();
@@ -242,7 +224,6 @@ try {
   await shot('jobright-07-ashby-applied.png');
   await win.locator('.action-bar').getByRole('button', { name: 'Back to search results' }).click();
 
-  // ================================================================ Greenhouse redesigned (comboboxes) — saved answers now apply
   await openJob('ghnew-1', 'Electronics Technician');
   t0 = Date.now();
   await tailorAndApply();
@@ -257,7 +238,6 @@ try {
   await waitFor(async () => (await heading(/Applied to Acme Robotics/).count()) > 0, 'Greenhouse (new) applied', 60000);
   await win.locator('.action-bar').getByRole('button', { name: 'Back to search results' }).click();
 
-  // ================================================================ stops
   await openJob('workday-1', 'Engineering Technician III');
   await tailorAndApply();
   await waitFor(async () => (await win.getByText(/Workday wants you to sign in/).count()) > 0, 'Workday sign-in stop', 90000);

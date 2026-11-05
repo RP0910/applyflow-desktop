@@ -85,7 +85,6 @@ export function useHistory() {
   }, [reload]);
 
   const openJob = useCallback((r: ApplicationRecord) => {
-    // Desktop: window.open is routed to the built-in Dice browser.
     if (bridge()) window.open(r.jobUrl, '_blank', 'noopener');
     else if (typeof chrome !== 'undefined' && chrome.tabs) void chrome.tabs.create({ url: r.jobUrl });
     else window.open(r.jobUrl, '_blank', 'noopener');

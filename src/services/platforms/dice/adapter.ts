@@ -1,11 +1,3 @@
-/**
- * Dice.com adapter. Extraction order:
- *   1. JSON-LD JobPosting (structured data)        → high confidence
- *   2. Known Dice selectors (selectors.ts)         → high/medium confidence
- *   3. Generic heuristics (h1, document.title, largest description-like block) → low confidence
- * When the key fields can't be found the adapter fails safely with a clear reason —
- * it never guesses at controls.
- */
 import type { ExtractionResult, FieldConfidence, JobPosting, PageType } from '@/types';
 import { diceJobIdFromUrl, jobKeyFor, normalizeJobUrl } from '@/utils/jobKey';
 import { uniqCaseInsensitive } from '@/utils/text';
@@ -54,7 +46,6 @@ function readJsonLd(doc: Document): JsonLdJob | null {
         if (t === 'JobPosting' || (Array.isArray(t) && t.includes('JobPosting'))) return c as JsonLdJob;
       }
     } catch {
-      /* malformed JSON-LD — ignore and fall back */
     }
   }
   return null;
@@ -88,7 +79,6 @@ function locationFromLd(ld: JsonLdJob): string {
   return uniqCaseInsensitive(parts).join(' / ');
 }
 
-/** "Senior Architect AI Engineering - Trans Union LLC - Chicago, IL - Dice.com" */
 function parseDocumentTitle(title: string): { title?: string; company?: string; location?: string } {
   const parts = title.split(/\s+[-|–]\s+/).map((p) => p.trim());
   if (parts.length >= 3 && /dice/i.test(parts[parts.length - 1]!)) {
@@ -104,7 +94,6 @@ function largestDescriptionBlock(doc: Document): Element | null {
     const text = el.textContent ?? '';
     if (text.length < 400 || text.length > 30000) return;
     const hits = (text.match(/responsibilit|requirement|qualification|experience|you will|skills/gi) ?? []).length;
-    // Prefer the smallest element that still contains most of the signal.
     const score = hits * 1000 - text.length / 10;
     if (hits >= 2 && score > bestScore) {
       best = el;
@@ -123,7 +112,6 @@ function chipTexts(doc: Document): string[] {
         if (t && t.length < 80) out.push(t);
       });
     } catch {
-      /* ignore */
     }
   }
   return uniqCaseInsensitive(out);
@@ -136,7 +124,6 @@ export function extractDiceJob(doc: Document, url: string): ExtractionResult {
   const ld = readJsonLd(doc);
   const titleMeta = parseDocumentTitle(doc.title || '');
 
-  // ---- title
   let title = '';
   if (ld?.title) {
     title = ld.title.trim();
@@ -155,7 +142,6 @@ export function extractDiceJob(doc: Document, url: string): ExtractionResult {
     } else confidence.title = 'missing';
   }
 
-  // ---- company
   let company = '';
   const org = ld?.hiringOrganization;
   if (org && (typeof org === 'string' ? org : org.name)) {
@@ -174,7 +160,6 @@ export function extractDiceJob(doc: Document, url: string): ExtractionResult {
     } else confidence.company = 'missing';
   }
 
-  // ---- location
   let location = ld ? locationFromLd(ld) : '';
   if (location) confidence.location = 'high';
   else {
@@ -188,7 +173,6 @@ export function extractDiceJob(doc: Document, url: string): ExtractionResult {
     } else confidence.location = 'missing';
   }
 
-  // ---- description
   let description = '';
   if (ld?.description) {
     description = htmlToText(ld.description);
@@ -197,7 +181,6 @@ export function extractDiceJob(doc: Document, url: string): ExtractionResult {
   const descEl = firstMatch(doc, DICE_SELECTORS.description as unknown as string[]);
   if (descEl) {
     const t = elementToText(descEl.el);
-    // Visible page text wins if it's richer than structured data (some boards truncate JSON-LD).
     if (t.length > description.length * 1.1) {
       description = t;
       confidence.description = 'high';
@@ -214,7 +197,6 @@ export function extractDiceJob(doc: Document, url: string): ExtractionResult {
     } else confidence.description = 'missing';
   }
 
-  // ---- chips: employment type, remote status, salary, posted date
   const chips = chipTexts(doc);
   const chipText = chips.join(' | ');
   let employmentType = formatEmployment(ld?.employmentType);
@@ -241,7 +223,6 @@ export function extractDiceJob(doc: Document, url: string): ExtractionResult {
     datePosted = m ? cleanText(m.el) : null;
   }
 
-  // ---- skills, sections, signals
   const platformSkills: string[] = [];
   for (const sel of DICE_SELECTORS.skills) {
     try {
@@ -250,7 +231,6 @@ export function extractDiceJob(doc: Document, url: string): ExtractionResult {
         if (t && t.length < 60) platformSkills.push(t);
       });
     } catch {
-      /* ignore */
     }
     if (platformSkills.length) break;
   }
@@ -344,23 +324,18 @@ function findApplyControl(doc: Document): (ControlMatch & { external: boolean })
     try {
       candidates.push(...deepQueryAll<HTMLElement>(doc, sel, 10));
     } catch {
-      /* ignore */
     }
   }
-  // Generic fallback: buttons/links whose visible label is exactly an apply label.
   deepQueryAll<HTMLElement>(doc, 'button, a[href], [role="button"]', 400).forEach((el) => {
     const label = controlLabel(el);
     if (APPLY_LABEL.test(label) || EXTERNAL_APPLY_LABEL.test(label)) candidates.push(el);
   });
   const visible = Array.from(new Set(candidates)).filter((el) => isVisible(el) && !isPageChrome(el));
   if (!visible.length) return null;
-  // Prefer the header button (first in document order).
   const el = visible[0]!;
-  // Web component host: use its inner clickable element when exposed.
   const inner = (el.shadowRoot?.querySelector('button, a[href]') as HTMLElement | null) ?? null;
   const target = inner ?? el;
   const label = controlLabel(target) || controlLabel(el) || 'Apply';
-  // Use the raw attribute: relative links ("/job-applications/…") are always on Dice.
   const href = target.getAttribute('href') ?? '';
   let external = EXTERNAL_APPLY_LABEL.test(label);
   if (!external && /^https?:\/\//i.test(href)) {

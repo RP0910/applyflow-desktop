@@ -3,13 +3,11 @@ import type { UploadDeps } from '@/services/forms/upload';
 
 const require = createRequire(import.meta.url);
 
-/** The mock Dice wizard (plain browser JS shared with the Chromium end-to-end run). */
 export const { mountDiceWizard } = require('./fixtures/dice/mock-dice-wizard.cjs') as {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   mountDiceWizard: (doc: Document, opts?: Record<string, unknown>) => { state: Record<string, any> };
 };
 
-/** jsdom has no DataTransfer: attach a File the way Chrome's input.files would expose it. */
 export const testUploadDeps: UploadDeps = {
   sleep: () => new Promise((r) => setTimeout(r, 0)),
   setFiles: (input, file) => {

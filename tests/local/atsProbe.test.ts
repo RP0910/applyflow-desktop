@@ -1,5 +1,4 @@
 // @vitest-environment node
-/** Prints the ATS keywords, plan and master scan for a resume PDF (USER_PDF) against the video playback fixture. */
 import { it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { readPdf } from '@/services/resume/fileReaders';

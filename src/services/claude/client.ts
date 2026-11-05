@@ -1,10 +1,3 @@
-/**
- * Minimal Anthropic Messages API client.
- *  - The key is passed in per call (desktop: decrypted from the OS keychain) and never logged.
- *  - Requests go directly to api.anthropic.com — never through a developer server.
- *  - Prompt caching: system blocks marked `cache` are cached by the API, so the rules and the
- *    candidate's facts — identical for every job — are billed at the cached rate after the first job.
- */
 import type { ApiVersion, ModelOption } from '@/types';
 import { ClaudeError, errorFromResponse } from './errors';
 
@@ -20,7 +13,6 @@ export interface ClientConfig {
   isOnline?: () => boolean;
 }
 
-/** A system prompt block. `cache: true` puts a cache breakpoint after it. */
 export interface SystemBlock {
   text: string;
   cache?: boolean;
@@ -29,14 +21,11 @@ export interface SystemBlock {
 export interface MessageRequest {
   model: string;
   system: string | SystemBlock[];
-  /** Prompt-cache lifetime for cached system blocks. */
   cacheTtl?: '5m' | '1h' | 'off';
   user: string;
   maxTokens: number;
-  /** JSON Schema for structured output. Falls back to prompt-only JSON if the model rejects it. */
   jsonSchema?: Record<string, unknown>;
   temperature?: number;
-  /** output_config.effort — dropped automatically if the model doesn't support it. */
   effort?: 'low' | 'medium' | 'high';
   signal?: AbortSignal;
 }
@@ -50,7 +39,6 @@ export interface MessageResult {
 }
 
 export interface Usage {
-  /** Uncached input tokens. */
   inputTokens: number;
   outputTokens: number;
   cacheReadTokens: number;
@@ -84,7 +72,6 @@ export class AnthropicClient {
     const h: Record<string, string> = {
       'content-type': 'application/json',
       'anthropic-version': this.cfg.apiVersion,
-      // Required by the API for requests that originate from a browser context.
       'anthropic-dangerous-direct-browser-access': 'true',
     };
     if (this.cfg.apiVersion === '2023-06-01') h['x-api-key'] = this.cfg.apiKey;
@@ -151,7 +138,6 @@ export class AnthropicClient {
     let useCache = req.cacheTtl !== 'off';
     let maxTokens = req.maxTokens;
     let truncatedOnce = false;
-    // Tokens of an attempt that was cut off are billed too.
     const spent = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
 
     const build = (): Record<string, unknown> => {
@@ -161,17 +147,14 @@ export class AnthropicClient {
         system: systemFor(req.system, useCache ? req.cacheTtl ?? '5m' : 'off'),
         messages: [{ role: 'user', content: req.user }],
       };
-      // temperature was removed in API version 2026-10-21; only send it on the legacy version.
       if (req.temperature !== undefined && this.cfg.apiVersion === '2023-06-01') body.temperature = req.temperature;
       const oc: Record<string, unknown> = {};
       if (useSchema) oc.format = { type: 'json_schema', schema: req.jsonSchema };
-      // Thinking tokens count toward max_tokens; lower effort keeps short writing tasks fast and un-truncated.
       if (useEffort) oc.effort = req.effort;
       if (Object.keys(oc).length) body.output_config = oc;
       return body;
     };
 
-    // Up to 4 attempts: drop an unsupported option, or retry once with a larger budget after truncation.
     for (let attempt = 0; attempt < 5; attempt++) {
       let raw: { json: unknown; requestId: string | null };
       try {
@@ -226,7 +209,6 @@ export class AnthropicClient {
     throw new ClaudeError('bad_request', { detail: 'Request options could not be negotiated with this model.' });
   }
 
-  /** GET /v1/models — newest first. Paginates up to 5 pages. */
   async listModels(): Promise<ModelOption[]> {
     const out: ModelOption[] = [];
     let after: string | null = null;
@@ -251,7 +233,6 @@ export class AnthropicClient {
   }
 }
 
-/** System prompt in the API's shape: a plain string, or text blocks with cache breakpoints. */
 export function systemFor(system: string | SystemBlock[], ttl: '5m' | '1h' | 'off'): string | Record<string, unknown>[] {
   if (typeof system === 'string') return system;
   return system.map((b) => {
@@ -261,7 +242,6 @@ export function systemFor(system: string | SystemBlock[], ttl: '5m' | '1h' | 'of
   });
 }
 
-/** Parse JSON from a model reply, tolerating code fences or leading prose. */
 export function parseJsonReply<T>(text: string): T {
   const trimmed = text.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
   try {
@@ -273,7 +253,6 @@ export function parseJsonReply<T>(text: string): T {
       try {
         return JSON.parse(trimmed.slice(start, end + 1)) as T;
       } catch {
-        /* fall through */
       }
     }
     throw new ClaudeError('parse', { detail: text.slice(0, 200) });

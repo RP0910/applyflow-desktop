@@ -1,8 +1,3 @@
-/**
- * Deterministic ATS optimization that runs after every draft (Claude or local). It only moves
- * the resume toward facts the candidate has: supported keywords in the job's spelling,
- * the aligned headline title, the true years figure, every job with its technologies.
- */
 import type { AtsPlan, AtsReport, CareerProfile, MasterResume, SkillGroup, TailoredResume } from '@/types';
 import type { PromptPlan } from '@/prompts/tailorResume';
 import { allowedResume } from '@/services/resume/facts';
@@ -11,7 +6,6 @@ import { CATEGORY_LABELS } from '@/services/skills/taxonomy';
 import { hasForm, sameKeyword, termKey } from '@/services/ats/terms';
 import { uniqCaseInsensitive, wordCount } from '@/utils/text';
 
-/** Every skill name the resume may list: master skills, job technologies, confirmed and supported keywords. */
 export function allowedSkillNames(master: MasterResume, profile: CareerProfile | undefined, plan: AtsPlan | null): string[] {
   const a = allowedResume(master, profile);
   const user = master.facts.filter((f) => f.kind === 'skill' && f.source !== 'resume' && f.status === 'confirmed').map((f) => f.text);
@@ -29,7 +23,6 @@ function keywordWeight(name: string, plan: AtsPlan | null): number {
   return k ? k.weight : 0;
 }
 
-/** Most job-relevant technologies first. */
 export function rankTechnologies(techs: string[], plan: AtsPlan | null, cap = 12): string[] {
   return uniqCaseInsensitive(techs)
     .map((t, i) => ({ t, i, w: keywordWeight(t, plan) }))
@@ -38,19 +31,12 @@ export function rankTechnologies(techs: string[], plan: AtsPlan | null, cap = 12
     .map((x) => x.t);
 }
 
-/**
- * Group skills into "Category: a, b, c" lines. Job keywords lead, in the job's spelling;
- * groups holding the most important keywords come first.
- */
-/** "player SDK" → "Player SDK" for display; product spellings ("webOS", "iOS") are kept. */
 export function displaySkill(s: string): string {
   return /^[a-z]/.test(s) && !/^(?:i|web|tv|mac)[A-Z]/.test(s) ? s.replace(/\b[a-z]/g, (c) => c.toUpperCase()) : s;
 }
 
 export function groupSkills(pool: string[], plan: AtsPlan | null, cap: number, core: string[] = []): SkillGroup[] {
   const items = uniqCaseInsensitive(pool.map(displaySkill)).filter((s, i, arr) => arr.findIndex((x) => sameKeyword(x, s)) === i);
-  // Job keywords first; then the candidate's own core skills (their recent jobs' tools, languages);
-  // then the rest in their resume's order. Every supported job keyword always fits.
   const isCore = (s: string) => core.some((c) => termKey(c) === termKey(s) || sameKeyword(c, s));
   const scored = items.map((s, i) => ({ s, i, w: keywordWeight(s, plan) + (isCore(s) ? 0.1 : 0) }));
   const jobKeywords = scored.filter((x) => x.w >= 1).sort((a, b) => b.w - a.w || a.i - b.i);
@@ -66,7 +52,6 @@ export function groupSkills(pool: string[], plan: AtsPlan | null, cap: number, c
     g.top = Math.max(g.top, it.w);
     groups.set(name, g);
   }
-  // Fold single-item groups into "Additional Skills" when there are too many groups to scan.
   let list = Array.from(groups.values());
   if (list.length > 8) {
     const singles = list.filter((g) => g.items.length === 1 && g.name !== 'Additional Skills');
@@ -90,7 +75,6 @@ export function groupSkills(pool: string[], plan: AtsPlan | null, cap: number, c
 
 const YEARS_RE = /\b(\d{1,2})\s*\+?\s*(?:years|yrs)\b/gi;
 
-/** Replace "N+ years" claims larger than the dates support. */
 export function fixYearsClaims(text: string, years: number): string {
   if (!years) return text;
   return text.replace(YEARS_RE, (m, n: string) => (Number(n) > years ? m.replace(n, String(years)) : m));
@@ -102,14 +86,12 @@ export interface OptimizeContext {
   profile?: CareerProfile;
 }
 
-/** The candidate's own core skills: their recent jobs' technologies and listed languages. */
 export function coreSkills(master: MasterResume, profile?: CareerProfile): string[] {
   const a = allowedResume(master, profile);
   return uniqCaseInsensitive([...a.experience.slice(0, 2).flatMap((e) => e.technologies ?? []), ...a.skills.filter((s) => skillCategory(s) === 'language')]);
 }
 
 export const SKILLS_CAP = { one_page: 26, two_pages: 46, flexible: 60 } as const;
-/** Technologies per job: about what fits on one PDF line. */
 export const TECH_CAP = 8;
 
 export function optimizeForAts(input: TailoredResume, ctx: OptimizeContext): TailoredResume {
@@ -119,7 +101,6 @@ export function optimizeForAts(input: TailoredResume, ctx: OptimizeContext): Tai
   const allowed = allowedSkillNames(ctx.master, ctx.profile, plan);
   const cap = SKILLS_CAP[plan.pageTarget];
 
-  // Every job, newest first, with its technologies.
   const masterById = new Map(a.experience.map((e) => [e.id, e]));
   for (const e of t.experience) {
     const m = masterById.get(e.sourceId);
@@ -129,7 +110,6 @@ export function optimizeForAts(input: TailoredResume, ctx: OptimizeContext): Tai
     e.technologies = rankTechnologies(kept.length ? [...kept, ...own] : own, plan, TECH_CAP);
   }
 
-  // Skills: only allowed names, grouped; every supported job keyword present in the job's spelling.
   let groups: SkillGroup[] = (t.skillGroups ?? [])
     .map((g) => ({ name: g.name.trim() || 'Skills', skills: uniqCaseInsensitive(g.skills.map((s) => s.trim()).filter((s) => s && isAllowedSkill(s, allowed))) }))
     .filter((g) => g.skills.length);
@@ -137,10 +117,8 @@ export function optimizeForAts(input: TailoredResume, ctx: OptimizeContext): Tai
   const listed = () => groups.flatMap((g) => g.skills);
   for (const k of plan.keywords) {
     if (k.support !== 'supported' || (k.kind !== 'hard' && k.kind !== 'certification')) continue;
-    // Already listed in the job's spelling ("Samsung Tizen" also covers "Tizen").
     if (hasForm(listed().join(', '), k.term)) continue;
     const display = /^[a-z]/.test(k.term) ? k.term.replace(/\b[a-z]/g, (c) => c.toUpperCase()) : k.term;
-    // Replace a synonym spelling with the job's own spelling, or add the keyword to its category.
     const syn = groups.find((g) => g.skills.some((s) => sameKeyword(s, k.term)));
     if (syn) {
       syn.skills = syn.skills.map((s) => (sameKeyword(s, k.term) ? display : s));
@@ -155,18 +133,15 @@ export function optimizeForAts(input: TailoredResume, ctx: OptimizeContext): Tai
   t.skillGroups = groups.map((g) => ({ name: g.name, skills: uniqCaseInsensitive(g.skills) }));
   t.skills = uniqCaseInsensitive(listed());
 
-  // Headline carries the target title when the candidate's titles support it.
   if (plan.titleSource === 'job' && !hasForm(t.headline, plan.targetTitle)) {
     const tail = t.headline.includes('|') ? t.headline.slice(t.headline.indexOf('|') + 1).trim() : topKeywords(plan, 3).join(', ');
     t.headline = tail ? `${plan.targetTitle} | ${tail}` : plan.targetTitle;
   }
   if (!t.headline.trim()) t.headline = [plan.targetTitle, topKeywords(plan, 3).join(', ')].filter(Boolean).join(' | ');
 
-  // Years claims never exceed what the job dates show.
   t.summary = fixYearsClaims(t.summary, plan.years);
   t.headline = fixYearsClaims(t.headline, plan.years);
 
-  // "Additional information" must not repeat education or certifications (whole-line comparison).
   const dupOf = [...t.education.map((e) => `${e.degree} ${e.institution}`), ...t.certifications].map(termKey).filter((d) => d.length >= 6);
   t.additional = t.additional.filter((x) => {
     const k = termKey(x);
@@ -175,7 +150,6 @@ export function optimizeForAts(input: TailoredResume, ctx: OptimizeContext): Tai
   return t;
 }
 
-/** The strongest supported hard skills, skipping words already in the target title. */
 export function topKeywords(plan: AtsPlan, n: number): string[] {
   return plan.keywords
     .filter((k) => k.support === 'supported' && k.kind === 'hard' && !hasForm(plan.targetTitle, k.term))
@@ -184,7 +158,6 @@ export function topKeywords(plan: AtsPlan, n: number): string[] {
     .map((k) => k.term);
 }
 
-/** The plan as Claude sees it: supported keywords only, with where to use them and the proof. */
 export function promptPlan(plan: AtsPlan, master: MasterResume): PromptPlan {
   const jobs = new Map(master.parsed.experience.map((e) => [e.id, e]));
   return {
@@ -207,7 +180,6 @@ export function promptPlan(plan: AtsPlan, master: MasterResume): PromptPlan {
   };
 }
 
-/** Specific, fixable findings from the ATS scan for the refine pass. Empty when nothing is worth a second call. */
 export function refineFindings(t: TailoredResume, report: AtsReport, plan: AtsPlan): string[] {
   const out: string[] = [];
   const planned = new Map(plan.keywords.map((k) => [k.term, k]));

@@ -1,13 +1,3 @@
-/**
- * Content-script logic, independent of chrome.* APIs so it can be tested directly.
- *  - Reads the job page and the application wizard; never receives the API key.
- *  - Fills only the fields the side panel sends (safe profile facts or answers the user gave).
- *  - Attaches the tailored resume / cover letter on Dice's wizard (upload.ts).
- *  - Clicks Dice's Next button between steps, and Submit only with a one-time token issued
- *    after the user confirmed in the panel, and only if exactly one Submit control exists.
- *  - Never touches CAPTCHAs or MFA. Job-site email/password sign-in uses credentials the user
- *    stored in ApplyFlow (AF_SIGN_IN).
- */
 import type { PageState } from '@/types';
 import type {
   ContentResponseMap,
@@ -34,17 +24,13 @@ export interface ControllerEnv {
   url: () => string;
   version: string;
   now?: () => number;
-  /** How long to watch for Dice's confirmation after clicking Submit. */
   successTimeoutMs?: number;
-  /** How long to wait for Dice to move to the next step after clicking Next. */
   stepTimeoutMs?: number;
   uploadDeps?: UploadDeps;
   sleep?: (ms: number) => Promise<void>;
-  /** Open an address in this tab (the employer's form). Injectable for tests. */
   navigate?: (url: string) => void;
 }
 
-/** Dice's wizard logic, used for any part of form handling an adapter doesn't override. */
 const DICE_FORMS: FormSupport = {
   findNextControl,
   uploadTargets,
@@ -116,7 +102,6 @@ export function createContentController(env: ControllerEnv) {
     if (!adapter) return { ...base, ok: false, fields: [], formFound: false, error: 'This page is not supported.' };
     const root = adapter.findApplicationRoot(doc);
     if (!root) {
-      // On Dice's application URL with nothing recognizable, the layout changed: fail safely.
       const onApplication = adapter.classifyPage(doc, env.url()) === 'application';
       return onApplication
         ? { ...base, ok: false, fields: [], formFound: false, error: `${siteName(env.url())} changed this page layout, so I could not safely identify the application fields.` }
@@ -140,14 +125,12 @@ export function createContentController(env: ControllerEnv) {
       step: forms.step(doc),
       pageErrors: forms.pageErrors(root),
     };
-    // A step with nothing ApplyFlow recognizes — no inputs, uploads, Next or Submit — means the layout changed.
     if (!fields.length && !submit.el && !next.el && !hasUpload) {
       return { ...out, ok: false, error: submit.reason && !/no submit button (yet|was found)/i.test(submit.reason) ? submit.reason : `${siteName(env.url())} changed this page layout, so I could not safely identify the application fields.` };
     }
     return out;
   }
 
-  /** scan(), after reading the choices of the form's dropdowns (they only list them when opened). */
   async function scanAsync(): Promise<ScanResponse> {
     const adapter = adapterForUrl(env.url());
     const root = adapter?.findApplicationRoot(env.doc);
@@ -155,7 +138,6 @@ export function createContentController(env: ControllerEnv) {
     return scan();
   }
 
-  /** A fingerprint of the current step, used to tell whether Next actually moved on. */
   function stepSignature(): string {
     const doc = env.doc;
     const adapter = adapterForUrl(env.url());
@@ -216,11 +198,9 @@ export function createContentController(env: ControllerEnv) {
     return patterns.some((p) => p.test(text));
   }
 
-  /** This page shows an application confirmation (this site's own wording, or the usual employer-site wording). */
   function successHere(): boolean {
     const adapter = adapterForUrl(env.url());
     if (!adapter || adapter.kind === 'board' && adapter.id !== 'dice') return false;
-    // Never on a page that still shows the form.
     if (adapter.kind === 'ats' && adapter.findApplicationRoot(env.doc)) return false;
     return successNow([...adapter.successPatterns, ...(adapter.kind === 'ats' ? ATS_SUCCESS_PATTERNS : [])]);
   }
@@ -228,8 +208,6 @@ export function createContentController(env: ControllerEnv) {
   function waitForSuccess(patterns: RegExp[], timeoutMs: number, formGone?: () => boolean): Promise<boolean> {
     const doc = env.doc;
     const startUrl = env.url();
-    // Employer forms: the job description on the same page may say "thank you for applying",
-    // so the confirmation only counts once the form is gone (or the page changed).
     const confirmed = () => successNow(patterns) && (!formGone || formGone() || env.url() !== startUrl);
     return new Promise((resolve) => {
       if (confirmed()) return resolve(true);
@@ -250,7 +228,7 @@ export function createContentController(env: ControllerEnv) {
 
   async function submit(token: string, expectKey?: string | null): Promise<SubmitResponse> {
     const valid = armed !== null && armed.token === token && now() < armed.expires;
-    armed = null; // single use, whatever happens
+    armed = null;
     if (!valid) return { ok: false, outcome: 'refused', successDetected: false, message: 'Submission was not confirmed in ApplyFlow. Nothing was submitted.' };
     if (expectKey && formKeyFor(env.url()) !== expectKey) {
       return { ok: false, outcome: 'refused', successDetected: false, message: 'This page is a different application from the one you reviewed. Nothing was submitted.' };
@@ -271,15 +249,12 @@ export function createContentController(env: ControllerEnv) {
       adapter.kind === 'ats' ? () => !adapter.findApplicationRoot(doc) : undefined,
     );
     if (!successDetected && adapter.kind === 'ats') {
-      // Lever and others show a CAPTCHA challenge only after Submit: the person completes it.
       if (captchaOn(adapter, doc)) {
         return { ok: true, outcome: 'clicked', successDetected: false, needsUser: true, message: `${name} is showing a CAPTCHA after Submit. Complete it on the page — ApplyFlow records the application when ${name} confirms it.` };
       }
-      // The form is still there with errors: nothing was submitted.
       const still = adapter.findApplicationRoot(doc);
       const errors = still ? formsOf(adapter).pageErrors(still) : [];
       if (still && errors.length) return { ok: false, outcome: 'clicked', successDetected: false, message: `${name} didn’t accept the form: ${errors.join(' · ')}` };
-      // No confirmation and the form is still there: don't call it applied.
       if (still) return { ok: true, outcome: 'clicked', successDetected: false, needsUser: true, message: `Submit was pressed, but ${name} hasn’t confirmed the application yet. Check the page — ApplyFlow records it when the confirmation appears (or press “Record it as applied”).` };
     }
     return {
@@ -299,7 +274,6 @@ export function createContentController(env: ControllerEnv) {
     el.dispatchEvent(new Event('change', { bubbles: true }));
   }
 
-  /** Fill email + password on a job-site sign-in page and press Sign In. */
   function signIn(email: string, password: string): SignInResponse {
     const doc = env.doc;
     const name = siteName(env.url());
@@ -332,12 +306,6 @@ export function createContentController(env: ControllerEnv) {
     return { ok: true, submitted: true, message: `Signed in to ${name} with your saved credentials.` };
   }
 
-  /**
-   * Open the application. On Dice: its Apply button. On Jobright: its Apply button (or, with
-   * `direct`, the employer's posting from the page data). On an employer's site: the form itself —
-   * its own address when the page only links to it or embeds it in a frame, else its Apply button.
-   */
-  /** Press Jobright’s “Yes, I applied!” only after a verified employer submission. */
   function confirmJobrightApplied(): ContentResponseMap['AF_CONFIRM_JOBRIGHT_APPLIED'] {
     const adapter = adapterForUrl(env.url());
     if (adapter?.id !== 'jobright') {
@@ -358,8 +326,6 @@ export function createContentController(env: ControllerEnv) {
     const name = siteName(env.url());
     const blocker = adapter.blocker?.(doc, env.url()) ?? null;
     if (blocker) return { ok: false, external: blocker.kind === 'unsupported' || blocker.kind === 'referral', blocker, message: blocker.message };
-    // Jobright sometimes shows “Did you apply?” while the employer form is still opening — dismiss it
-    // (No) so ApplyFlow can continue; “Yes” is only pressed after a verified submission.
     if (adapter.id === 'jobright') {
       const prompt = appliedConfirmDialog(doc);
       if (prompt?.no) {
@@ -388,12 +354,10 @@ export function createContentController(env: ControllerEnv) {
       const href = (ctl.element as HTMLAnchorElement).href || null;
       return { ok: false, external: true, externalUrl: href, message: 'This job applies on the employer’s website. Your documents are ready — apply there.' };
     }
-    // Jobright's Apply is a link to the employer: open it in this tab rather than a new window.
     if (adapter.id === 'jobright' && ctl.href) {
       navigate(ctl.href);
       return { ok: true, external: false, navigating: true, message: `Opening the employer’s application (${siteName(ctl.href)})…` };
     }
-    // A real click where available: Jobright opens the employer in a new tab, which needs a genuine user action.
     const trusted = adapter.id === 'jobright' ? env.uploadDeps?.trusted : undefined;
     let real = false;
     if (trusted && ctl.element.isConnected) real = await trusted.clickElement(ctl.element).catch(() => false);
@@ -401,7 +365,6 @@ export function createContentController(env: ControllerEnv) {
     return { ok: true, external: false, message: adapter.id === 'dice' ? 'Opened Dice’s application.' : `Pressed “${ctl.label}” on ${name}.` };
   }
 
-  /** Handle one panel message. Returns a value or a promise of one. */
   function handle<K extends PanelToContent['type']>(msg: Extract<PanelToContent, { type: K }>): ContentResponseMap[K] | Promise<ContentResponseMap[K]> {
     const m = msg as PanelToContent;
     switch (m.type) {

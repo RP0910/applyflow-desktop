@@ -12,7 +12,6 @@ export function fixture(name: string): string {
   return readFileSync(resolve(ROOT, 'tests/fixtures/dice', name), 'utf8');
 }
 
-/** Parse a fixture into a standalone Document (scripts don't run). */
 export function fixtureDoc(name: string): Document {
   const doc = new DOMParser().parseFromString(fixture(name), 'text/html');
   return doc;

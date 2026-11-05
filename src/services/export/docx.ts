@@ -1,7 +1,3 @@
-/**
- * ATS-friendly DOCX: one column, real text, standard headings, no tables, text boxes, images
- * or icons, contact details in the body. Dates are right-aligned with a tab stop (not a table).
- */
 import { AlignmentType, BorderStyle, Document, LevelFormat, Packer, Paragraph, TabStopType, TextRun } from 'docx';
 import type { ResumeFormat, TailoredResume } from '@/types';
 import { DEFAULT_RESUME_FORMAT } from '@/types';

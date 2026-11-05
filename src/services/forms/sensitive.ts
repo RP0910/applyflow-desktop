@@ -1,7 +1,3 @@
-/**
- * Sensitive-question detection. Anything matched here is NEVER filled automatically.
- * Order matters: more specific categories are checked first.
- */
 import type { SensitiveCategory } from '@/types';
 
 export const SENSITIVE_RULES: { category: SensitiveCategory; re: RegExp }[] = [
@@ -40,7 +36,6 @@ export function detectSensitive(label: string, context = ''): SensitiveCategory 
   return null;
 }
 
-/** The label alone decides most cases; context is only consulted when the label is vague ("Yes/No", "Answer"). */
 export function classifyFieldSensitivity(label: string, context: string): SensitiveCategory | null {
   const fromLabel = detectSensitive(label);
   if (fromLabel) return fromLabel;

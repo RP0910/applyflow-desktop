@@ -2,11 +2,6 @@ import { useLibrary } from '@/hooks/useLibrary';
 import { assembleCv } from '@/services/workflow/cvEngine';
 import { toResumeDocument } from '@/resume-renderer';
 import type { CvReply } from '@/prompts/cvGenerate';
-/**
- * PDF Studio — ApplyFlow's non-AI resume renderer with a live preview.
- * Paste or open resume JSON (applyflow.resume/1 or JSON Resume), pick a template and font,
- * and save PDF/DOCX. Nothing here calls Claude.
- */
 import { useEffect, useMemo, useState } from 'react';
 import type { ResumeFormat } from '@/types';
 import { bridge, type StoredDocument } from '@/platform/bridge';
@@ -92,7 +87,6 @@ export function PdfStudio({ initial }: { initial: { json: string; title: string 
     return readResumeDocument(json);
   }, [json, lib.resumes, lib.profile]);
 
-  // Live preview, re-rendered shortly after typing stops.
   useEffect(() => {
     if (!read.doc) { setPdf(null); setBusy(false); return; }
     let live = true;

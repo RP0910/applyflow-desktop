@@ -17,7 +17,6 @@ const analysis = analyzeJobLocally(job, master);
 const evidence = classifySkills(analysis.requiredSkills, analysis.preferredSkills, master);
 const t = tailorLocally({ master, job, analysis, evidence, length: 'two_pages', version: 1 });
 
-/** jsdom's Blob isn't readable by Node's Response, so read it the browser way. */
 function blobBytes(b: Blob): Promise<Uint8Array> {
   return new Promise((resolve, reject) => {
     const r = new FileReader();
@@ -43,7 +42,7 @@ describe('document output', () => {
     expect(raw).toContain('/Helvetica');
     expect(raw).not.toContain('/Image');
     const letter = await coverLetterToPdf('Dear Hiring Team,\n\nHello → there ≥ 5 ★.\n\nSincerely,\nJordan', t);
-    expect(letter.length).toBeGreaterThan(500); // unencodable characters were replaced, not crashed on
+    expect(letter.length).toBeGreaterThan(500);
   });
 
   it('creates a single-column DOCX without tables or images', async () => {

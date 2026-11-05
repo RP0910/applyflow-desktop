@@ -1,8 +1,3 @@
-/**
- * Jobvite (jobs.jobvite.com) — multi-step apply forms with a custom "SELECT" control for resumes.
- * The file input is often hidden until SELECT is pressed, so ApplyFlow must treat the resume
- * section as a dropzone/card even when no <input type=file> is visible yet.
- */
 import type { JobSiteAdapter } from '../types';
 import { controlLabel, deepQueryAll, visibleText } from '../dom';
 import { ATS_SUCCESS_PATTERNS, atsDocumentLocator, atsForms, atsPageErrors, attachedName, findApplyButton, findAtsSubmit, findForm, fieldContainer, hostOf, statusBlocker, visibleCaptcha } from './common';
@@ -64,7 +59,6 @@ function jobviteUploadTargets(root: Element): { resume: UploadTarget; coverLette
     const fromInput = input?.files?.[0]?.name ?? null;
     const shown = fromInput ?? attachedName(card);
     if (input) return { method: 'input', currentFileName: shown };
-    // Jobvite's SELECT control: treat as dropzone so the runner will attempt upload.
     if (card) return { method: 'dropzone', currentFileName: shown };
     return { method: null, currentFileName: null };
   };
@@ -106,7 +100,6 @@ export const jobviteAdapter: JobSiteAdapter = {
   captchaVisible: visibleCaptcha,
 };
 
-/** True when this host is Jobvite (used by generic naming). */
 export function isJobviteHost(url: string): boolean {
   return /(^|\.)jobvite\.com$/i.test(hostOf(url));
 }

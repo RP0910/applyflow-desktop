@@ -1,10 +1,3 @@
-/**
- * Stable job identity for duplicate detection.
- * Dice URLs seen in the wild:
- *   https://www.dice.com/job-detail/7f3c2a1e-…            (current)
- *   https://www.dice.com/jobs/detail/<slug>/<company>/<jobId>  (legacy)
- *   https://www.dice.com/job-applications/<jobId>/wizard   (application flow)
- */
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
 
 export function diceJobIdFromUrl(rawUrl: string): string | null {
@@ -26,7 +19,6 @@ export function diceJobIdFromUrl(rawUrl: string): string | null {
   return uuid ? uuid[0].toLowerCase() : null;
 }
 
-/** Remove tracking params and fragments so the same job always normalizes the same way. */
 export function normalizeJobUrl(rawUrl: string): string {
   try {
     const url = new URL(rawUrl);

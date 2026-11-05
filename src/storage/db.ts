@@ -39,7 +39,6 @@ export function getDb(): Promise<IDBPDatabase<ApplyFlowDB>> {
   return dbPromise;
 }
 
-/** Test helper: drop the cached connection so a fresh fake-indexeddb can be used. */
 export async function __resetDb(): Promise<void> {
   if (dbPromise) {
     const db = await dbPromise;

@@ -1,8 +1,4 @@
 // @vitest-environment node
-/**
- * Runs the whole ATS resume engine (local engine) on a resume PDF at USER_PDF against the
- * video playback job fixture and writes the tailored PDF/DOCX/TXT to USER_OUT.*
- */
 import { it } from 'vitest';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';

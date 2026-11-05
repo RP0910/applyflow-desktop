@@ -1,11 +1,3 @@
-// End-to-end check of "Replace your resume" in the REAL built-in browser (Electron/Chromium),
-// against MOCK Dice pages (tests/fixtures/dice/wizard-realistic.html — nothing reaches dice.com).
-//
-// For each behaviour variant of Dice's resume card it opens the application step, asks the page
-// helper to attach a tailored resume (exactly what Tailor & Apply sends), and checks that the mock
-// page received the new file through its own file input and shows the new name.
-//
-// Usage: npm run build && xvfb-run -a node scripts/e2e-replace.mjs
 import { createRequire } from 'node:module';
 import { cpSync, mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -55,7 +47,6 @@ const waitFor = async (fn, what, timeout = 20000) => {
       const v = await fn();
       if (v) return v;
     } catch {
-      /* retry */
     }
     await sleep(150);
   }
@@ -76,7 +67,6 @@ try {
     }, js);
 
   for (const v of runs) {
-    // "legacy-mock": the original mock wizard (tests/fixtures/dice/mock-dice-wizard.cjs) in real Chromium.
     const legacy = v === 'legacy-mock';
     const url = legacy
       ? 'https://www.dice.com/job-applications/c5b4804d-9bfc-4873-928b-5185b557f0b6/wizard'
@@ -97,14 +87,12 @@ try {
     const ms = Date.now() - t0;
     const mock = legacy ? { replaceClicks: 1, log: [] } : await diceEval('JSON.parse(JSON.stringify(window.__mock))');
     const shown = await diceEval(`document.querySelector('${legacy ? '.file-link' : '#resume-card .file-link'}')?.textContent ?? null`);
-    // Replace really clicked (not reached by luck), never Delete, and the new file shown.
     const pass = Boolean(res?.ok && res?.verified && shown === name && mock.replaceClicks === 1 && !mock.deleted);
     if (!pass) failed++;
     console.log(
       `${pass ? 'PASS' : 'FAIL'}  [${v || 'baseline'}]  ${ms}ms  ok=${res?.ok} verified=${res?.verified} method=${res?.method}  shown=${shown}  ` +
         `replaceClicks=${mock?.replaceClicks}  ${res?.message ?? ''}  log=${JSON.stringify(mock?.log ?? [])}`,
     );
-    // Cover letter on the same page (drop area with a hidden input inside a <label>).
     if (!v || v === 'bigdom') {
       const cname = `Grant-Howard-Cover-Letter-SAIC-v${Math.floor(Math.random() * 90 + 10)}.pdf`;
       const cres = await invoke('dice.send', { type: 'AF_UPLOAD_DOCUMENT', kind: 'cover_letter', file: { name: cname, mime: 'application/pdf', base64: coverPdf } });

@@ -1,12 +1,3 @@
-/**
- * ApplyFlow's SQLite database (Node's built-in `node:sqlite`, so there is no native module to
- * rebuild). One file in the app's data folder holds everything: work history, profile,
- * per-job sessions, applications, every generated document version (with the JSON it was
- * rendered from), contacts, Claude token usage and a full-text search index.
- *
- * Objects are stored as JSON in a `data` column; the columns next to it are copies used for
- * sorting, filtering and search.
- */
 import { DatabaseSync, type SQLInputValue } from 'node:sqlite';
 import type { ApplicationRecord, CareerProfile, JobSession, MasterResume, SiteCredential } from '../src/types';
 import type { Contact, SearchHit, StoredDocument, StoredDocumentInput, UsageInput, UsageSummary } from '../src/platform/bridge';
@@ -103,7 +94,6 @@ export class Store {
     }
   }
 
-  // ---------------- key/value ----------------
   kvGet(key: string): unknown {
     const r = this.one('SELECT value FROM kv WHERE key = ?', key);
     return r ? parse(r.value) : undefined;
@@ -116,7 +106,6 @@ export class Store {
     this.run('DELETE FROM kv WHERE key = ?', key);
   }
 
-  // ---------------- resumes ----------------
   private resumeFromRow(r: Row): MasterResume {
     const out = parse<MasterResume>(r.data);
     const blob = r.source_data as Uint8Array | null;
@@ -162,7 +151,6 @@ export class Store {
     });
   }
 
-  // ---------------- profile ----------------
   getProfile(): CareerProfile | null {
     const r = this.one("SELECT data FROM profile WHERE id = 'default'");
     return r ? parse<CareerProfile>(r.data) : null;
@@ -173,7 +161,6 @@ export class Store {
     return next;
   }
 
-  // ---------------- site credentials (job-site logins) ----------------
   listSiteCredentials(): SiteCredential[] {
     return this.all('SELECT host, url, email, password, updated_at FROM site_credentials ORDER BY host').map((r) => ({
       host: String(r.host),
@@ -202,7 +189,6 @@ export class Store {
     this.run('DELETE FROM site_credentials WHERE host = ?', host.toLowerCase());
   }
 
-  // ---------------- sessions ----------------
   getSession(jobKey: string): JobSession | null {
     const r = this.one('SELECT data FROM sessions WHERE job_key = ?', jobKey);
     return r ? parse<JobSession>(r.data) : null;
@@ -225,7 +211,6 @@ export class Store {
     this.run('DELETE FROM sessions WHERE job_key = ?', jobKey);
   }
 
-  // ---------------- applications ----------------
   listApplications(): ApplicationRecord[] {
     return this.all('SELECT data FROM applications ORDER BY COALESCE(date_applied, date_prepared) DESC').map((r) => parse<ApplicationRecord>(r.data));
   }
@@ -236,7 +221,6 @@ export class Store {
   applicationsByJobKey(jobKey: string): ApplicationRecord[] {
     return this.all('SELECT data FROM applications WHERE job_key = ?', jobKey).map((r) => parse<ApplicationRecord>(r.data));
   }
-  /** Records from older exports may lack fields; SQLite can't store `undefined`. */
   private normalize(r: ApplicationRecord): ApplicationRecord {
     const t = now();
     return {
@@ -309,7 +293,6 @@ export class Store {
     return records.length;
   }
 
-  /** Phone numbers and emails in the posting become contacts automatically (once — deleting one keeps it deleted). */
   private addPostingContacts(rec: ApplicationRecord): void {
     const marker = `contacts.fromPosting.${rec.id}`;
     if (this.kvGet(marker)) return;
@@ -329,7 +312,6 @@ export class Store {
     }
   }
 
-  // ---------------- contacts ----------------
   listContacts(applicationId: string): Contact[] {
     return this.all('SELECT * FROM contacts WHERE application_id = ? ORDER BY source DESC, created_at', applicationId).map((r) => ({
       id: String(r.id),
@@ -358,7 +340,6 @@ export class Store {
     if (r) this.reindex(String(r.application_id));
   }
 
-  // ---------------- documents ----------------
   private docFromRow(r: Row): StoredDocument {
     return {
       id: String(r.id),
@@ -376,13 +357,10 @@ export class Store {
       updatedAt: String(r.updated_at),
     };
   }
-  /** One row per job, kind and version. Saving the file later fills in its path. */
   upsertDocument(input: StoredDocumentInput): StoredDocument {
     let d = input;
     let id = `${d.jobKey}|${d.kind}|v${d.version}`;
     const t = now();
-    // A version that was sent is history: if new content arrives under the same number (the
-    // version restarts after switching resumes or editing the job), it becomes the next version.
     const prev = this.one('SELECT json, sent_at FROM documents WHERE id = ?', id);
     if (prev && prev.sent_at && String(prev.json) !== d.json) {
       const max = Number(this.one('SELECT MAX(version) AS v FROM documents WHERE job_key = ? AND kind = ?', d.jobKey, d.kind)?.v ?? d.version);
@@ -413,7 +391,6 @@ export class Store {
     if (filter.jobKey) return this.all('SELECT * FROM documents WHERE job_key = ? ORDER BY kind, version DESC', filter.jobKey).map((r) => this.docFromRow(r));
     return this.all('SELECT * FROM documents ORDER BY updated_at DESC LIMIT 200').map((r) => this.docFromRow(r));
   }
-  /** Marks exactly the versions that were attached to the submitted application. */
   markSent(applicationId: string, jobKey: string, versions: { resume?: number | null; cover_letter?: number | null } = {}): void {
     const t = now();
     for (const kind of ['resume', 'cover_letter'] as const) {
@@ -426,7 +403,6 @@ export class Store {
     }
   }
 
-  // ---------------- usage ----------------
   addUsage(u: UsageInput): void {
     this.run(
       'INSERT INTO usage(job_key, application_id, task, model, input_tokens, cache_read, cache_write, output_tokens, at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
@@ -452,14 +428,11 @@ export class Store {
     return { calls: Number(r.calls), inputTokens: Number(r.i), cacheReadTokens: Number(r.cr), cacheWriteTokens: Number(r.cw), outputTokens: Number(r.o) };
   }
 
-  /** Is this a file ApplyFlow saved (a document or an application file)? */
   isKnownFile(path: string): boolean {
     if (this.one('SELECT 1 AS x FROM documents WHERE file_path = ? LIMIT 1', path)) return true;
     return this.all('SELECT data FROM applications').some((r) => parse<ApplicationRecord>(r.data).files?.some((f) => f.absolutePath === path));
   }
 
-  // ---------------- search ----------------
-  /** Rebuild one application's row in the full-text index. */
   reindex(applicationId: string): void {
     const rec = this.getApplication(applicationId);
     this.run('DELETE FROM search WHERE application_id = ?', applicationId);
@@ -487,10 +460,6 @@ export class Store {
     });
   }
 
-  /**
-   * "Who is calling?" — company, recruiter name, phone (any format, any part), email, job title,
-   * skills or any word in the posting. Phone and exact company matches rank first.
-   */
   search(q: string, limit = 50): SearchHit[] {
     const query = q.trim();
     const hits = new Map<string, { score: number; matchedOn: Set<SearchHit['matchedOn'][number]>; snippet: string | null }>();
@@ -530,7 +499,6 @@ export class Store {
           fts, limit,
         )) add(String(r.application_id), Math.max(1, 20 - Number(r.rank)), 'text', String(r.snip ?? '') || null);
       } catch {
-        /* a query FTS can't parse — the LIKE matches above still apply */
       }
     }
     return [...hits.entries()]

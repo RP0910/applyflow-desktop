@@ -1,8 +1,3 @@
-/**
- * Plans every file for an application into the folder structure:
- *   ApplyFlow/<Company>/<YYYY-MM-DD>_<Job-Title>/resume_tailored.pdf …
- * Paths are relative to the browser's download directory (a Chrome limitation).
- */
 import type { ApplicationRecord, JobSession, OutputFormat, SavedFile, Settings } from '@/types';
 import { buildApplicationFolder, sanitizeRelativePath } from '@/utils/filename';
 import { todayLocal } from '@/utils/dates';
@@ -98,7 +93,6 @@ export function planApplicationFiles(record: ApplicationRecord, session: JobSess
       if (blob) out.push({ kind: 'cover_letter', format: fmt, relativePath: at(`cover_letter.${fmt}`), mime: MIME[fmt]!, data: blob });
     }
   }
-  // The resume as JSON (applyflow.resume/1): re-render it any time in PDF Studio — no AI, no tokens.
   if (session.resume) {
     const doc = toResumeDocument(session.resume, session.includeCoverLetter ? session.coverLetter : null, { jobTitle: session.job.title, company: session.job.company, jobUrl: session.job.url });
     out.push({ kind: 'resume_json', format: 'json', relativePath: at('resume.json'), mime: MIME.json!, data: new Blob([JSON.stringify(doc, null, 2)], { type: MIME.json }) });

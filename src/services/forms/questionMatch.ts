@@ -1,12 +1,7 @@
-/**
- * Conventional (non-AI) screening-question matching: normalize wording, expand synonyms,
- * score overlap, and map saved answers onto live form options.
- */
 import type { ApprovedAnswer, FormFieldDescriptor, ScreeningControl } from '@/types';
 import { similarity, tokens } from '@/utils/text';
 import { SCREENING_CATALOG } from './screeningCatalog';
 
-/** Phrase groups that mean the same thing across employer forms. First entry is canonical. */
 const SYNONYM_GROUPS: string[][] = [
   ['hear about', 'learn about', 'find out about', 'find about', 'come across', 'know about'],
   ['this job', 'this role', 'this position', 'this opportunity', 'this opening', 'us'],
@@ -35,7 +30,6 @@ const STOP = new Set([
   'does', 'did', 'be', 'been', 'being', 'at', 'by', 'from', 'as', 'if', 'we', 'they', 'their', 'about',
 ]);
 
-/** Collapse synonym phrases to a shared token, then light stem. */
 export function canonicalizeQuestion(text: string): string {
   let s = ` ${text
     .toLowerCase()
@@ -64,7 +58,6 @@ function lightStem(w: string): string {
   return w;
 }
 
-/** Keywords used for screening-question overlap (canonicalized). */
 export function questionWords(text: string): string[] {
   return Array.from(
     new Set(
@@ -76,7 +69,6 @@ export function questionWords(text: string): string[] {
   );
 }
 
-/** Jaccard on canonical tokens, plus token overlap ratio. */
 export function questionSimilarity(a: string, b: string): number {
   const wa = questionWords(a);
   const wb = questionWords(b);
@@ -91,7 +83,6 @@ export function questionSimilarity(a: string, b: string): number {
   return Math.max(jaccard, overlap * 0.95, raw);
 }
 
-/** Best score of a live field label/context against a saved pattern + aliases (+ catalog aliases). */
 export function scoreAgainstPatterns(fieldText: string, patterns: string[]): number {
   const text = fieldText.trim();
   if (!text) return 0;
@@ -133,8 +124,6 @@ export function matchOption(options: string[], value: string): string | null {
     return oL.includes(v) || v.includes(oL);
   });
   if (contains) return contains;
-  // Soft match: prefer options that contain the saved answer's keywords
-  // ("Not a Veteran" → "I am not a protected veteran").
   let best: { o: string; score: number } | null = null;
   const vt = new Set(tokens(value));
   for (const o of options) {
@@ -161,15 +150,13 @@ export function answerFitsField(
   return Boolean(matchOption(f.options, a.answer));
 }
 
-/** Minimum score to reuse a saved answer (after synonym expansion). */
 export const MATCH_THRESHOLD = 0.42;
 
 export function controlCompatible(saved?: ScreeningControl, live?: FormFieldDescriptor['control']): boolean {
   if (!saved || !live) return true;
   if (saved === live) return true;
-  // Dropdown-like controls are interchangeable for matching purposes.
   if (CHOICE.includes(saved) && (live === 'radio' || live === 'select' || live === 'combobox')) return true;
   if ((saved === 'text' || saved === 'textarea') && (live === 'text' || live === 'textarea' || live === 'email' || live === 'tel' || live === 'url' || live === 'number' || live === 'other')) return true;
   if (saved === 'checkbox' && live === 'checkbox') return true;
-  return true; // never block solely on control mismatch — options gate is enough
+  return true;
 }

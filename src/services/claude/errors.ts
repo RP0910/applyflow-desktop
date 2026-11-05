@@ -72,7 +72,6 @@ export function userMessageFor(code: ClaudeErrorCode): string {
   return USER_MESSAGES[code];
 }
 
-/** Map an HTTP error from the Anthropic API to a ClaudeError. */
 export function errorFromResponse(
   status: number,
   body: { error?: { type?: string; message?: string }; request_id?: string } | null,
@@ -93,14 +92,11 @@ export function errorFromResponse(
   }
   if (status === 413 || type === 'request_too_large') return new ClaudeError('too_large', base);
   if (status === 429 || type === 'rate_limit_error') {
-    // A spend-cap 429 has no retry-after and won't recover by retrying.
     return new ClaudeError('rate_limit', { ...base, retryable: retryAfterMs !== undefined, retryAfterMs });
   }
   if (status === 529 || type === 'overloaded_error') return new ClaudeError('overloaded', { ...base, retryable: true, retryAfterMs });
   if (status === 504 || type === 'timeout_error') return new ClaudeError('timeout', { ...base, retryable: true });
   if (status >= 500) return new ClaudeError('server', { ...base, retryable: true, retryAfterMs });
-  // Only treat a 400 as "bad model" when it is about the model ID itself — not, say,
-  // "output_config.format is not supported for this model", which needs a request fallback.
   const aboutModelId = /\b(?:invalid|unknown|unsupported)\s+model\b|\bmodel[:\s]+["'`]?[\w.\-@:]+["'`]?\s+(?:not found|does not exist|is not (?:available|supported))/i;
   if (status === 400 && aboutModelId.test(detail) && !/output_config|format|schema|parameter/i.test(detail)) {
     return new ClaudeError('model_not_found', base);

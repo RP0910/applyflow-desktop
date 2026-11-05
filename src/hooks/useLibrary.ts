@@ -24,12 +24,9 @@ export function useLibrary() {
 
   const reload = useCallback(async () => {
     let list = await listResumes();
-    // Re-read resumes imported by an older reader (keeps the user's fact decisions).
-    // Resumes entered in the form are never re-read from text.
     const stale = list.filter((r) => r.sourceFormat !== 'form' && (r.parserVersion ?? 1) < PARSER_VERSION && r.rawText.trim());
     if (stale.length) {
       for (const r of stale) {
-        // Re-read the original file when it was kept; otherwise re-parse the stored text.
         let text = r.rawText;
         if (r.sourceData) text = (await rereadSource(r.sourceData, r.sourceFormat).catch(() => null)) || r.rawText;
         const next = await saveResume(buildMasterResume(r.name, text, r.sourceFormat, r.sourceFileName, r));
@@ -89,7 +86,6 @@ export function useLibrary() {
   }, [reload]);
 
   const updateText = useCallback(async (r: MasterResume, name: string, text: string) => {
-    // Edited text no longer matches the original file, so stop re-reading that file.
     const next = await saveResume(buildMasterResume(name, text, r.sourceFormat, r.sourceFileName, r, text === r.rawText ? undefined : null));
     report(next, 'Updated');
     await reload();
@@ -124,7 +120,6 @@ export function useLibrary() {
     await reload();
   }, [reload]);
 
-  /** Save the resume form (new or existing). The first resume becomes the default. */
   const saveForm = useCallback(async (form: BuilderForm, name: string, existing?: MasterResume, profileNow?: CareerProfile): Promise<MasterResume | null> => {
     const problems = builderProblems(form);
     if (problems.length) {

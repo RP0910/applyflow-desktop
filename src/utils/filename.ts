@@ -1,11 +1,6 @@
-/**
- * Filename and folder helpers for chrome.downloads, which only accepts paths
- * relative to the user's default download directory.
- */
 
 const WINDOWS_RESERVED = /^(con|prn|aux|nul|com[0-9]|lpt[0-9])$/i;
 
-/** Make one path segment safe on Windows, macOS and Linux. */
 export function sanitizeFilename(input: string, fallback = 'untitled', maxLength = 80): string {
   let s = (input ?? '')
     .normalize('NFKD')
@@ -23,7 +18,6 @@ export function sanitizeFilename(input: string, fallback = 'untitled', maxLength
   return s;
 }
 
-/** Sanitize every segment of a relative path and drop traversal attempts. */
 export function sanitizeRelativePath(path: string): string {
   return path
     .split(/[\\/]+/)
@@ -49,12 +43,10 @@ export interface PathOptions {
   includeTitle: boolean;
 }
 
-/** Apply a template like "{date}_{title}" or "{company}_{title}_{date}". */
 export function formatTemplate(template: string, vars: Record<string, string>): string {
   return template.replace(/\{(\w+)\}/g, (_, k: string) => vars[k] ?? '');
 }
 
-/** Build e.g. "ApplyFlow/Meridian-Credit-Analytics-LLC/2026-10-30_Senior-Architect". */
 export function buildApplicationFolder(o: PathOptions): string {
   const parts: string[] = [sanitizeFilename(o.root || 'ApplyFlow', 'ApplyFlow')];
   if (o.includeCompany) parts.push(sanitizeFilename(o.company, 'Unknown-Company'));

@@ -1,7 +1,3 @@
-/**
- * Local cover-letter draft. Every sentence about the candidate is built from their
- * own resume bullets — the generator adds connective phrasing only.
- */
 import type { CareerProfile, CoverLetterAction, CoverLetterTone, JobPosting, MasterResume, SkillEvidence, TailoredResume } from '@/types';
 import { relevance } from '@/services/tailoring/localTailor';
 import { rankByJobEmphasis } from '@/services/matching/evidence';
@@ -17,7 +13,6 @@ export interface LocalLetterInput {
   evidence: SkillEvidence[];
   tone: CoverLetterTone;
   action?: CoverLetterAction;
-  /** Rotates which examples are used when regenerating. */
   variant?: number;
 }
 
@@ -27,7 +22,6 @@ function asFirstPerson(bullet: string): string {
   return `I ${b.charAt(0).toLowerCase()}${b.slice(1)}`;
 }
 
-/** Lowercase a leading common word ("Open-source …"), but never a technology or proper noun ("Python …"). */
 function softLower(s: string): string {
   const first = s.split(/\s+/)[0] ?? '';
   if (!first || findSkills(first).length || /^[A-Z]{2,}/.test(first)) return s;
@@ -68,7 +62,6 @@ export function generateLocalCoverLetter(i: LocalLetterInput): string {
   const ex4 = ranked.find((x) => !usedRoles.has(x.ei) && x.r > 0);
 
   const companyRef = job.company || 'your team';
-  // Prose names only recognized technologies — generic board tags (e.g. "Architecture") read oddly mid-sentence.
   const focus = rankByJobEmphasis(strong.filter((s) => req.includes(s) && isKnownSkill(s)), job.description).slice(0, 3);
 
   const opening: Record<CoverLetterTone, string> = {

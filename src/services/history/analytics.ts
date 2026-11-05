@@ -32,7 +32,6 @@ export interface NameCount {
 }
 
 export interface WeekBucket {
-  /** Monday YYYY-MM-DD of the week. */
   week: string;
   label: string;
   prepared: number;
@@ -82,7 +81,7 @@ function countBy<T>(items: T[], key: (t: T) => string, limit = 8): NameCount[] {
 
 function mondayOf(d: Date): Date {
   const x = new Date(d);
-  const day = (x.getDay() + 6) % 7; // Mon=0
+  const day = (x.getDay() + 6) % 7;
   x.setHours(0, 0, 0, 0);
   x.setDate(x.getDate() - day);
   return x;

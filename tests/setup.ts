@@ -9,13 +9,11 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { setFontLoader } from '@/services/export/fonts';
 
-// The extension fetches its bundled fonts; tests read the same files from disk.
 setFontLoader(async (file) => {
   const b = readFileSync(resolve(__dirname, '../public/fonts', file));
   return b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength) as ArrayBuffer;
 });
 
-// jsdom gaps that real Chrome fills.
 if (typeof (globalThis as { CSS?: unknown }).CSS === 'undefined' || !(globalThis as { CSS?: { escape?: unknown } }).CSS?.escape) {
   (globalThis as unknown as { CSS: { escape: (s: string) => string } }).CSS = { escape: (s: string) => s.replace(/[^a-zA-Z0-9_-]/g, (c) => `\\${c}`) };
 }

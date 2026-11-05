@@ -1,7 +1,3 @@
-/**
- * The resume form: type your real history once — no file needed. ApplyFlow writes a resume
- * targeted to each Dice job from what you enter here (and only from that).
- */
 import { useEffect, useMemo, useState } from 'react';
 import type { BuilderEducation, BuilderForm, BuilderJob, CareerProfile, MasterResume } from '@/types';
 import type { LibraryController } from '@/hooks/useLibrary';
@@ -115,9 +111,7 @@ function EducationFields({ ed, onChange, onRemove, canRemove }: { ed: BuilderEdu
 
 export interface ResumeBuilderProps {
   lib: LibraryController;
-  /** Edit this resume; omit to create a new one. */
   existing?: MasterResume;
-  /** Start from these values (e.g. converted from an imported resume). */
   initial?: BuilderForm;
   onDone?: (r: MasterResume) => void;
   onCancel?: () => void;
@@ -133,7 +127,6 @@ export function ResumeBuilder({ lib, existing, initial, onDone, onCancel }: Resu
     email: lib.profile.email,
     linkedinUrl: lib.profile.linkedinUrl,
   }));
-  // The profile loads after the page opens: fill the contact fields once it arrives.
   useEffect(() => {
     setContact((c) =>
       c.fullName || c.email || c.phone || c.location
@@ -146,7 +139,6 @@ export function ResumeBuilder({ lib, existing, initial, onDone, onCancel }: Resu
   const problems = builderProblems(form);
   const contactMissing = [!contact.fullName.trim() && 'name', !contact.email.trim() && 'email', !contact.phone.trim() && 'phone', !contact.location.trim() && 'city and state'].filter(Boolean) as string[];
 
-  // Total experience, from the dates entered (overlaps counted once).
   const years = useMemo(() => {
     const jobs = form.jobs.filter((j) => !isBlankJob(j) && j.start);
     return yearsOfExperience(jobs.map((j) => ({ startDate: monthToResume(j.start), endDate: j.current || !j.end ? 'Present' : monthToResume(j.end) })));

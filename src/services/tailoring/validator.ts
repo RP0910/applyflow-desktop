@@ -1,7 +1,3 @@
-/**
- * Truthfulness validator. Runs on every tailored resume and cover letter — whether
- * written by Claude, the local engine, or edited by the user — before anything is submitted.
- */
 import type { AtsPlan, CareerProfile, JobPosting, MasterResume, SkillEvidence, TailoredResume, ValidationIssue } from '@/types';
 import { allowedCorpus, allowedResume } from '@/services/resume/facts';
 import { findSkillMentions, findSkills, mentionsSkill } from '@/services/skills/extract';
@@ -32,7 +28,6 @@ export function tailoredText(t: Pick<TailoredResume, 'headline' | 'summary' | 's
   ].join('\n');
 }
 
-/** Metrics present in the master corpus, in canonical form. */
 function metricSet(text: string): Set<string> {
   return new Set(extractMetrics(text).map(canonicalMetric));
 }
@@ -46,7 +41,6 @@ export function findUnsupportedSkills(text: string, corpus: string, extraAllowed
   return findSkills(text).filter((s) => !isBacked(s, corpus) && !extraAllowed.some((a) => a.toLowerCase() === s.toLowerCase()));
 }
 
-/** 8-word sequences copied from the job description (and not already in the user's own resume). */
 export function findCopiedJobText(text: string, jobDescription: string, ownText: string): string[] {
   const jd = shingles(jobDescription, 8);
   const own = shingles(ownText, 8);
@@ -79,15 +73,9 @@ export interface ValidateContext {
   job: Pick<JobPosting, 'description'>;
   evidence: SkillEvidence[];
   length: 'one_page' | 'two_pages' | 'flexible';
-  /** ATS plan: job keywords the candidate does NOT have are blocked everywhere. */
   plan?: AtsPlan | null;
 }
 
-/**
- * Specific technical terms written in a line: product names, acronyms and taxonomy skills as
- * written ("Kubernetes", "LL-HLS", "server-side ad insertion"). Single plain lowercase words
- * ("monitoring", "playback") are wording, not claims, and are left to the other checks.
- */
 export function techTerms(line: string): { term: string; canonical: string | null }[] {
   const out: { term: string; canonical: string | null }[] = [];
   for (const m of findSkillMentions(line)) {
@@ -103,7 +91,6 @@ export function techTerms(line: string): { term: string; canonical: string | nul
   return out.filter((o, i) => out.findIndex((x) => x.term.toLowerCase() === o.term.toLowerCase()) === i);
 }
 
-/** "Picture-in-Picture (PiP)": an acronym spelled out right next to it is wording, not a new claim. */
 function explainedAcronym(term: string, line: string): boolean {
   const esc = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const m = line.match(new RegExp(`((?:[A-Za-z][\\w]*[\\s-]+){1,5}[A-Za-z][\\w]*)\\s*\\(${esc}\\)`)) ?? line.match(new RegExp(`${esc}\\s*\\(((?:[A-Za-z][\\w]*[\\s-]+){1,5}[A-Za-z][\\w]*)\\)`));
@@ -113,12 +100,10 @@ function explainedAcronym(term: string, line: string): boolean {
   return letters.length >= 2 && (initials.endsWith(letters) || initials.includes(letters));
 }
 
-/** Is the term backed by this text? The same rule the ATS plan uses (see services/ats/backing.ts). */
 export function grounded(term: string, _canonical: string | null, text: string, extraForms: string[] = []): boolean {
   return isBacked(term, text, extraForms);
 }
 
-/** Why a tailored bullet for one job isn't backed by that job's own facts (empty = fine). */
 export function bulletProblems(
   bullet: string,
   jobText: string,
@@ -140,7 +125,6 @@ export function bulletProblems(
 const NUMBER_WORDS: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12, fifteen: 15, twenty: 20 };
 const COUNT_RE = /\b(?:team of\s+)?(\d{1,3}|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|fifteen|twenty|dozens?|hundreds?)\+?\s+(?:[a-z-]+\s+)?(engineers?|developers?|people|members|direct reports|reports|teams?|squads?|countries|clients|customers|products|apps|applications|platforms|services|markets|regions|stakeholders)\b/gi;
 
-/** Counts of people, teams, clients… ("team of 6 engineers", "six developers") that the master resume doesn't state. */
 export function findInventedCounts(text: string, corpus: string): string[] {
   const norm = (n: string) => String(NUMBER_WORDS[n.toLowerCase()] ?? n.toLowerCase());
   const known = new Set(Array.from(corpus.matchAll(COUNT_RE)).map((m) => `${norm(m[1]!)}|${m[2]!.toLowerCase().replace(/s$/, '')}`));
@@ -152,12 +136,10 @@ export function findInventedCounts(text: string, corpus: string): string[] {
   return out;
 }
 
-/** The facts of one master job, as text: title, company, place, bullets and technologies. */
 export function jobFactsText(e: { title: string; company: string; location: string; bullets: string[]; technologies?: string[] }): string {
   return [e.title, e.company, e.location, ...e.bullets, (e.technologies ?? []).join(', ')].join('\n');
 }
 
-/** Accepted spellings of a job keyword the plan says the candidate has. */
 export function planForms(plan: AtsPlan | null | undefined): (term: string) => string[] {
   const kws = (plan?.keywords ?? []).filter((k) => k.support === 'supported');
   return (term: string) => kws.find((k) => k.forms.some((f) => sameKeyword(f, term)))?.forms ?? [];
@@ -167,7 +149,6 @@ export function forbiddenForms(plan: AtsPlan | null | undefined): string[][] {
   return (plan?.keywords ?? []).filter((k) => k.support !== 'supported' && (k.kind === 'hard' || k.kind === 'domain' || k.kind === 'certification')).map((k) => k.forms);
 }
 
-/** "8+ years" claims larger than the job dates show. */
 export function yearsClaims(text: string, maxYears: number): string[] {
   if (!maxYears) return [];
   return Array.from(text.matchAll(/\b(\d{1,2})\s*\+?\s*(?:years|yrs)\b/gi)).filter((m) => Number(m[1]) > maxYears).map((m) => m[0]);
@@ -179,7 +160,6 @@ export function validateTailoredResume(t: TailoredResume, ctx: ValidateContext):
   const corpus = allowedCorpus(ctx.master, ctx.profile);
   const masterById = new Map(allowed.experience.map((e) => [e.id, e]));
 
-  // Employers, titles, dates — must match the master role they claim to come from.
   for (const e of t.experience) {
     const m = masterById.get(e.sourceId);
     if (!m) {
@@ -192,7 +172,6 @@ export function validateTailoredResume(t: TailoredResume, ctx: ValidateContext):
       issues.push(issue('critical', 'changed_dates', `Dates for ${m.company} changed from ${m.startDate}–${m.endDate} to ${e.startDate}–${e.endDate}.`));
     }
   }
-  // Every role must remain, so no employment gap is hidden.
   const kept = new Set(t.experience.map((e) => e.sourceId));
   const omitted = allowed.experience.filter((e) => !kept.has(e.id));
   if (omitted.length) {
@@ -206,7 +185,6 @@ export function validateTailoredResume(t: TailoredResume, ctx: ValidateContext):
     );
   }
 
-  // Education and certifications must exist in the master.
   for (const ed of t.education) {
     if (!allowed.education.some((m) => norm(m.degree) === norm(ed.degree) && norm(m.institution) === norm(ed.institution))) {
       issues.push(issue('critical', 'invented_education', `Education entry “${ed.degree}, ${ed.institution}” is not in your master resume.`, ed.degree));
@@ -218,7 +196,6 @@ export function validateTailoredResume(t: TailoredResume, ctx: ValidateContext):
     }
   }
 
-  // Each job's bullets use only that job's own technologies; job keywords the candidate lacks never appear.
   const forbidden = forbiddenForms(ctx.plan);
   const formsOf = planForms(ctx.plan);
   for (const e of t.experience) {
@@ -249,11 +226,9 @@ export function validateTailoredResume(t: TailoredResume, ctx: ValidateContext):
     const hit = skillList.find((s) => forms.some((f) => sameKeyword(s, f) || hasForm(s, f)));
     if (hit) issues.push(issue('critical', 'unsupported_skill', `Skill “${hit}” isn’t backed by your resume.`, hit));
   }
-  // Team sizes and other counts must be stated in the master resume.
   for (const c of findInventedCounts([t.headline, t.summary, ...t.experience.flatMap((e) => e.bullets), ...t.projects.flatMap((p) => p.bullets)].join('\n'), corpus)) {
     issues.push(issue('critical', 'invented_metric', `“${c}” isn’t stated in your master resume.`, c));
   }
-  // Project bullets follow the same rule as job bullets: only that project's own facts.
   for (const p of t.projects) {
     const mp = allowed.projects.find((x) => x.name.trim().toLowerCase() === p.name.trim().toLowerCase());
     const ptext = mp ? [mp.name, mp.description, ...mp.bullets].join('\n') : '';
@@ -263,20 +238,17 @@ export function validateTailoredResume(t: TailoredResume, ctx: ValidateContext):
       }
     }
   }
-  // Years of experience never exceed what the job dates show.
   const maxYears = ctx.plan?.years ?? Math.floor(yearsOfExperience(allowed.experience));
   for (const y of yearsClaims(`${t.headline}\n${t.summary}`, maxYears)) {
     issues.push(issue('critical', 'years_claim', `“${y}” is more than the ${maxYears} years your job dates show.`, y));
   }
 
-  // Metrics must appear in the master.
   const text = tailoredText(t);
   for (const m of findInventedMetrics(text, corpus)) {
     const where = text.split('\n').find((l) => l.includes(m)) ?? m;
     issues.push(issue('critical', 'invented_metric', `The number “${m}” does not appear in your master resume.`, where));
   }
 
-  // Skills must be supported.
   const extra = supportedKeywords(ctx.evidence);
   for (const s of findUnsupportedSkills(text, corpus, [...extra, ...(ctx.profile?.verifiedSkills ?? [])])) {
     issues.push(issue('critical', 'unsupported_skill', `“${s}” isn’t supported by your master resume or confirmed skills.`, s));
@@ -288,7 +260,6 @@ export function validateTailoredResume(t: TailoredResume, ctx: ValidateContext):
     }
   }
 
-  // Facts the user restricted.
   const restricted = ctx.master.facts.filter((f) => f.status !== 'confirmed');
   for (const f of restricted) {
     const hit = f.kind === 'skill'
@@ -299,18 +270,15 @@ export function validateTailoredResume(t: TailoredResume, ctx: ValidateContext):
     }
   }
 
-  // Copied job-description text.
   for (const sh of findCopiedJobText(text, ctx.job.description, corpus)) {
     issues.push(issue('warning', 'copied_job_text', 'This phrase is copied word-for-word from the job description. Reword it in your own terms.', sh));
   }
 
-  // Location must not be changed.
   const trueLocation = ctx.profile?.location || ctx.master.parsed.contact.location;
   if (trueLocation && t.contact.location && norm(t.contact.location) !== norm(trueLocation)) {
     issues.push(issue('critical', 'location_mismatch', `Location changed from “${trueLocation}” to “${t.contact.location}”.`, t.contact.location));
   }
 
-  // Length and format.
   const wc = wordCount(text);
   if (ctx.length === 'one_page' && wc > 650) issues.push(issue('warning', 'length', `About ${wc} words — likely more than one page.`, undefined, false));
   if (ctx.length === 'two_pages' && wc > 1150) issues.push(issue('warning', 'length', `About ${wc} words — likely more than two pages.`, undefined, false));
@@ -337,7 +305,6 @@ export function validateCoverLetter(text: string, ctx: Omit<ValidateContext, 'le
   }
   const extra = supportedKeywords(ctx.evidence);
   for (const s of findUnsupportedSkills(text, corpus, [...extra, ...(ctx.profile?.verifiedSkills ?? [])])) {
-    // Naming the employer's technology in the context of "your team uses X" is common; flag for review rather than block.
     issues.push(issue('warning', 'unsupported_skill', `Mentions “${s}”, which your resume doesn’t support. Make sure it isn’t presented as your experience.`, s, false));
   }
   for (const c of findCliches(text)) issues.push(issue('warning', 'ai_cliche', 'Generic phrasing — rewrite in plain words.', c, false));

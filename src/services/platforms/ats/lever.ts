@@ -1,11 +1,3 @@
-/**
- * Lever — jobs.lever.co/<company>/<posting> (job page) and …/apply (the form).
- *   form#application-form: resume input[name=resume] ("ATTACH RESUME/CV"; Lever then reads it and fills
- *   name, email, phone and current company itself), name, email, phone, location (with suggestions),
- *   org, urls[LinkedIn]…, the employer's question cards, "Additional information" (comments), EEO
- *   selects, hCaptcha on submit, #btn-submit "Submit application". Required marks are "✱".
- * Success: …/thanks — "Application submitted!". Closed: "Sorry, we couldn't find anything here".
- */
 import type { JobSiteAdapter } from '../types';
 import { visibleText } from '../dom';
 import { ATS_SUCCESS_PATTERNS, atsDocumentLocator, atsForms, findApplyButton, findAtsSubmit, findForm, pathOf, statusBlocker, visibleCaptcha } from './common';
@@ -34,7 +26,6 @@ export const leverAdapter: JobSiteAdapter = {
   successPatterns: [...ATS_SUCCESS_PATTERNS, /application submitted!?/i],
   forms: atsForms(locator),
   blocker: (doc) => statusBlocker(doc, Boolean(findForm(doc, FORM))),
-  // The posting page links to the form at …/apply.
   applicationUrl: (doc, url) => {
     if (findForm(doc, FORM)) return null;
     try {
@@ -42,7 +33,6 @@ export const leverAdapter: JobSiteAdapter = {
       const m = u.pathname.match(/^\/([^/]+)\/([0-9a-f-]{36})\/?$/i);
       if (m) return `${u.origin}/${m[1]}/${m[2]}/apply${u.search}`;
     } catch {
-      /* not a URL */
     }
     return null;
   },

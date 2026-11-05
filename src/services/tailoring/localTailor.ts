@@ -1,7 +1,3 @@
-/**
- * Local (no-AI) tailoring. It only selects and reorders the user's own words —
- * it never rewrites a fact — so it is always safe, if less polished than Claude.
- */
 import type { AtsPlan, CareerProfile, ChangeNote, ContactInfo, JobAnalysis, JobPosting, MasterResume, SkillEvidence, TailoredExperience, TailoredResume } from '@/types';
 import { hasForm } from '@/services/ats/terms';
 import { SKILLS_CAP, TECH_CAP, coreSkills, groupSkills, rankTechnologies, topKeywords } from './atsTailor';
@@ -20,11 +16,9 @@ export interface TailorInput {
   evidence: SkillEvidence[];
   length: 'one_page' | 'two_pages' | 'flexible';
   version: number;
-  /** ATS plan: target title, years, bullets per job and supported keywords. */
   plan?: AtsPlan | null;
 }
 
-/** Weight of the supported job keywords a line carries. */
 function keywordScore(line: string, plan: AtsPlan | null | undefined): number {
   if (!plan) return 0;
   return plan.keywords.reduce((n, k) => n + (k.support === 'supported' && k.kind !== 'title' && k.forms.some((f) => hasForm(line, f)) ? k.weight : 0), 0);
@@ -47,7 +41,6 @@ export function contactFor(master: MasterResume, profile?: CareerProfile): Conta
   };
 }
 
-/** Relevance of one line to the job: weighted skill hits + similarity to responsibilities. */
 export function relevance(line: string, required: string[], preferred: string[], responsibilities: string[]): number {
   let s = 0;
   for (const k of required) if (mentionsSkill(line, k)) s += 2;
@@ -72,7 +65,6 @@ export function tailorLocally(i: TailorInput): TailoredResume {
   const resp = [...i.job.responsibilities, ...i.job.qualifications];
   const supported = i.evidence.filter((e) => e.status === 'strong' || e.status === 'partial');
 
-  // ---- skills: supported job skills first, then the rest of the user's skills by relevance
   const rank = (s: string) => {
     const ev = i.evidence.find((e) => e.skill.toLowerCase() === s.toLowerCase() || mentionsSkill(s, e.skill));
     if (!ev) return 0;
@@ -95,13 +87,10 @@ export function tailorLocally(i: TailorInput): TailoredResume {
     changes.push({ section: 'Skills', before: '', after: added.join(', '), reason: 'Named explicitly because your work bullets already show these (not added from the job description alone).' });
   }
 
-  // ---- experience: every role kept, bullets ordered by relevance
   const experience: TailoredExperience[] = a.experience.map((e, idx) => {
     const scored = e.bullets.map((b, bi) => ({ b, bi, s: relevance(b, req, pref, resp) + keywordScore(b, i.plan) * 0.6 }));
     const ordered = [...scored].sort((x, y) => y.s - x.s || x.bi - y.bi);
     const cap = Math.max(1, i.plan?.bulletBudget[e.id] ?? bulletCap(idx, i.length));
-    // Pick bullets that add job keywords not yet shown for this job (so DRM, VAST… all make it in),
-    // preferring accomplishments over introductory "Lead…/Working closely…" lines.
     const kwsIn = (b: string) => (i.plan?.keywords ?? []).filter((k) => k.support === 'supported' && k.kind !== 'title' && k.forms.some((f) => hasForm(b, f)));
     const intro = (b: string) => /^(?:lead|leading|working|responsible|started|focused|helping|supporting)\b/i.test(b) || /\b(?:my|I)\b/.test(b);
     const covered = new Set<string>();
@@ -135,18 +124,15 @@ export function tailorLocally(i: TailorInput): TailoredResume {
     };
   });
 
-  // ---- summary: the user's own sentences, most relevant first
   const years = Math.floor(yearsOfExperience(a.experience));
   const recent = a.experience[0];
   let summary: string;
   const sentences = splitIntoLines(a.summary || i.profile?.professionalSummary || '');
   if (sentences.length) {
-    // The sentence naming the target title or the years always leads; the rest by relevance.
     const leads = (x: string) => (i.plan && hasForm(x, i.plan.targetTitle)) || /\b\d{1,2}\+?\s*years\b/i.test(x);
     const ordered = sentences.map((s, idx) => ({ s, idx, r: relevance(s, req, pref, resp) + keywordScore(s, i.plan) * 0.3 + (leads(s) ? 1000 : 0) })).sort((x, y) => y.r - x.r || x.idx - y.idx);
     summary = ordered.map((o) => (/[.!?]$/.test(o.s) ? o.s : `${o.s}.`)).join(' ');
     if (ordered[0]!.idx !== 0) changes.push({ section: 'Summary', before: truncate(sentences[0]!, 120), after: truncate(ordered[0]!.s, 120), reason: 'Reordered so the most job-relevant sentence comes first.' });
-    // Lead with the target title and the years the dates show, when the summary doesn't already.
     const plan = i.plan;
     if (plan && plan.titleSource === 'job' && !hasForm(summary, plan.targetTitle)) {
       const top = topKeywords(plan, 3);
@@ -160,7 +146,6 @@ export function tailorLocally(i: TailorInput): TailoredResume {
     changes.push({ section: 'Summary', before: '(none)', after: summary, reason: 'Built only from your titles, dates and evidenced skills because the master resume has no summary.' });
   }
 
-  // ---- headline: real title + the strongest evidenced job skills
   const topStrong = rankByJobEmphasis(
     i.evidence.filter((e) => e.importance === 'required' && e.status === 'strong' && isKnownSkill(e.skill)).map((e) => e.skill),
     i.job.description,
@@ -169,7 +154,6 @@ export function tailorLocally(i: TailorInput): TailoredResume {
   const headKeys = i.plan ? topKeywords(i.plan, 3) : topStrong;
   const headline = headKeys.length ? `${baseTitle} | ${headKeys.join(', ')}` : baseTitle;
 
-  // ---- projects and certifications: relevant first
   const projects = a.projects
     .map((p) => ({ p, r: relevance(`${p.name} ${p.description} ${p.bullets.join(' ')}`, req, pref, resp) }))
     .filter((x, _, arr) => x.r > 0 || arr.length <= 2)

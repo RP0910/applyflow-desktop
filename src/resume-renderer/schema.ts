@@ -1,11 +1,3 @@
-/**
- * The resume JSON format — "applyflow.resume/1".
- *
- * Every tailored resume is stored as this JSON (in the database and as resume.json next to the
- * PDF). ApplyFlow's renderer turns it into a PDF/DOCX without any AI, so a resume can be
- * re-rendered in another template or font at no token cost, edited by hand, or produced by any
- * other tool. JSON Resume (jsonresume.org) files are accepted too.
- */
 
 export const RESUME_FORMAT_ID = 'applyflow.resume/1';
 
@@ -13,11 +5,9 @@ export interface ResumeDocument {
   $schema?: string;
   basics: {
     name: string;
-    /** "Senior Video Playback Engineer | HLS, DRM, Player SDKs" */
     headline: string;
     email: string;
     phone: string;
-    /** "Denver, CO" */
     location: string;
     links: string[];
   };
@@ -27,9 +17,7 @@ export interface ResumeDocument {
     title: string;
     company: string;
     location: string;
-    /** "02/2023", "Feb 2023" or "2023" */
     start: string;
-    /** "Present" for a current job */
     end: string;
     bullets: string[];
     technologies: string[];
@@ -38,9 +26,7 @@ export interface ResumeDocument {
   education: { degree: string; institution: string; location: string; date: string; details: string[] }[];
   certifications: string[];
   additional: string[];
-  /** Optional cover letter, one paragraph per entry (greeting first, sign-off last). */
   coverLetter?: { paragraphs: string[] } | null;
-  /** Where it came from — not printed. */
   meta?: {
     contentSource?: "cv-generate";
     sourceJson?: string;
@@ -54,7 +40,6 @@ export interface ResumeDocument {
   };
 }
 
-/** JSON Schema (draft 2020-12) for editors and other tools. */
 export const RESUME_JSON_SCHEMA = {
   $schema: 'https://json-schema.org/draft/2020-12/schema',
   $id: RESUME_FORMAT_ID,
@@ -104,23 +89,18 @@ export const RESUME_JSON_SCHEMA = {
   },
 } as const;
 
-// ---------------------------------------------------------------- lenient reading
 
 type Obj = Record<string, unknown>;
 const isObj = (v: unknown): v is Obj => typeof v === 'object' && v !== null && !Array.isArray(v);
 const text = (v: unknown): string => (typeof v === 'string' ? v.trim() : typeof v === 'number' ? String(v) : '');
-/** A list of strings from an array, or from a newline/semicolon separated string. */
 const list = (v: unknown, sep = /\n/): string[] =>
   (Array.isArray(v) ? v.map(text) : typeof v === 'string' ? v.split(sep).map((s) => s.trim()) : []).map((s) => s.replace(/^[•\-*]\s*/, '')).filter(Boolean);
 const arr = (v: unknown): Obj[] => (Array.isArray(v) ? v.filter(isObj) : []);
 
 export interface ReadResult {
   doc: ResumeDocument | null;
-  /** Problems that stop rendering. */
   errors: string[];
-  /** Things worth knowing that don't stop rendering. */
   warnings: string[];
-  /** 'applyflow' or 'jsonresume' */
   source: 'applyflow' | 'jsonresume' | null;
 }
 
@@ -164,7 +144,6 @@ function fromJsonResume(j: Obj, warnings: string[]): ResumeDocument {
   };
 }
 
-/** Read any resume JSON leniently: missing fields become empty, strings become lists. */
 export function readResumeDocument(input: unknown): ReadResult {
   const errors: string[] = [];
   const warnings: string[] = [];

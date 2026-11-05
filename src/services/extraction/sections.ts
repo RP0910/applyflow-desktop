@@ -1,6 +1,3 @@
-/**
- * Platform-agnostic job-description analysis: section splitting and hard-requirement signals.
- */
 import { findSkills, canonicalSkill } from '@/services/skills/extract';
 import { uniqCaseInsensitive } from '@/utils/text';
 
@@ -79,13 +76,11 @@ const YEARS_RE = /(\d{1,2})\s*(?:\+|plus)?\s*(?:(?:-|to|–)\s*\d{1,2}\s*)?(?:\+
 const DURATION_RE = /\b(?:duration|length|contract(?: length| term)?)\s*[:\-]?\s*(\d{1,2}\s*\+?\s*(?:months?|mos?\.?|weeks?|years?))|\b(\d{1,2}\s*\+?\s*(?:months?|mos?\.?))\s*(?:contract|assignment|engagement|project)\b/i;
 
 export function detectSignals(text: string): RequirementSignals {
-  // Sentence-level, so a warning quotes "Not eligible for visa sponsorship." rather than a whole paragraph.
   const lines = text
     .split('\n')
     .flatMap((l) => l.replace(/^•\s*/, '').split(/(?<=[.!?])\s+(?=[A-Z])/))
     .map((l) => l.trim())
     .filter(Boolean)
-    // Equal-opportunity statements mention citizenship, disability etc. but are not requirements.
     .filter((l) => !EEO_RE.test(l));
   const pick = (re: RegExp) => uniqCaseInsensitive(lines.filter((l) => re.test(l))).slice(0, 5);
   let requiredYears: number | null = null;
@@ -107,7 +102,6 @@ export function detectSignals(text: string): RequirementSignals {
   };
 }
 
-/** Required = platform skill tags + skills named in requirement lines; preferred = skills only in preferred lines. */
 export function classifyJobSkills(sections: DescriptionSections, fullText: string, platformSkills: string[]): { required: string[]; preferred: string[] } {
   const reqText = [...sections.requirements, ...sections.responsibilities].join('\n');
   const prefText = sections.preferred.join('\n');
@@ -116,7 +110,6 @@ export function classifyJobSkills(sections: DescriptionSections, fullText: strin
   let preferred = findSkills(prefText).filter((s) => !required.some((r) => r.toLowerCase() === s.toLowerCase()));
   if (!required.length && !preferred.length) required = findSkills(fullText);
   else {
-    // Skills mentioned elsewhere (overview text) count as preferred context.
     const elsewhere = findSkills(fullText).filter((s) => !required.includes(s) && !preferred.includes(s));
     preferred = [...preferred, ...elsewhere];
   }

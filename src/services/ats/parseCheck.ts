@@ -1,7 +1,3 @@
-/**
- * Parse test: read the exported resume PDF back with a text extractor and resume parser —
- * what an ATS does on upload — and confirm the name, contact details and every job survive.
- */
 import type { ParseCheck, TailoredResume } from '@/types';
 import { readPdf } from '@/services/resume/fileReaders';
 import { parseResumeText } from '@/services/resume/parser';
@@ -30,7 +26,6 @@ export function checkParsedText(text: string, t: TailoredResume): ParseCheck {
   }
   const sections = [p.summary && 'Summary', p.skills.length && 'Skills', p.experience.length && 'Experience', p.education.length && 'Education'].filter(Boolean) as string[];
   if (t.education.length && !p.education.length) problems.push('The Education section was not recognized.');
-  // Every word must come out intact — a broken glyph map turns "platforms" into "pla orms".
   const words = (s: string) => s.toLowerCase().normalize('NFKC').match(/[a-z0-9][a-z0-9+#.-]*[a-z0-9+#]|[a-z0-9]/g) ?? [];
   const got = new Set(words(text));
   const expected = Array.from(new Set(words([t.headline, t.summary, ...t.skills, ...t.experience.flatMap((e) => [e.title, e.company, ...e.bullets])].join(' ')).filter((w) => w.length >= 3)));

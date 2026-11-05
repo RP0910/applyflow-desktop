@@ -1,9 +1,3 @@
-/**
- * Builds Windows app icons from brand/app-icon-source.jpg (or .png).
- * Uses Windows System.Drawing via PowerShell (no Playwright required).
- * Also syncs brand/logo-header.png into public/ and build/.
- * Run: npm run icons
- */
 import { spawnSync } from 'node:child_process';
 import { mkdirSync, writeFileSync, copyFileSync, existsSync, readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
@@ -77,7 +71,6 @@ if (resize.status !== 0) {
   process.exit(resize.status ?? 1);
 }
 
-// Multi-size .ico with PNG-compressed entries (Windows Vista+).
 const icoSizes = [16, 24, 32, 48, 64, 128, 256];
 const pngs = icoSizes.map((s) => readFileSync(resolve(out, 'icons', `${s}x${s}.png`)));
 const header = Buffer.alloc(6 + 16 * icoSizes.length);

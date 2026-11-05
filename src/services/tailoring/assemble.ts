@@ -1,8 +1,3 @@
-/**
- * Assemble a TailoredResume from Claude's reply. Employer, title, dates, location,
- * education and certification text always come from the master resume, and every job
- * stays on the resume even if Claude leaves one out.
- */
 import type { AtsPlan, CareerProfile, MasterResume, SkillGroup, TailoredResume } from '@/types';
 import type { TailorResumeReply } from '@/prompts/tailorResume';
 import { allowedResume } from '@/services/resume/facts';
@@ -16,7 +11,6 @@ export function keywordWeightOf(text: string, plan: AtsPlan | null): number {
   return (plan?.keywords ?? []).filter((k) => k.support === 'supported' && k.kind !== 'title').reduce((n, k) => n + (k.forms.some((f) => hasForm(text, f)) ? k.weight : 0), 0);
 }
 
-/** Master bullets ordered by how many supported job keywords they carry. */
 export function rankBullets(bullets: string[], plan: AtsPlan | null): string[] {
   const kws = (plan?.keywords ?? []).filter((k) => k.support === 'supported' && k.kind !== 'title');
   return bullets
@@ -46,7 +40,6 @@ export function assembleFromClaude(
       return { ...base, bullets: rankBullets(m.bullets, plan).slice(0, Math.max(2, want)) };
     }
     let bullets = r.bullets.map((b) => b.replace(/^[•\-*]\s*/, '').trim()).filter(Boolean);
-    // Too few bullets for this job: top up with its own best original bullets.
     const floor = Math.min(m.bullets.length, Math.max(2, want - 1));
     if (bullets.length < floor) {
       const extra = rankBullets(m.bullets, plan).filter((o) => !bullets.some((b) => similarity(b, o) >= 0.45));
@@ -62,7 +55,6 @@ export function assembleFromClaude(
       return m ? { name: m.name, description: m.description, bullets: rp.bullets.length ? rp.bullets : m.bullets } : null;
     })
     .filter((p): p is NonNullable<typeof p> => p !== null);
-  // No projects returned at all: keep the most relevant ones rather than silently losing them.
   if (!projects.length && a.projects.length) {
     projects = a.projects
       .map((p) => ({ p, w: keywordWeightOf(`${p.name} ${p.description} ${p.bullets.join(' ')}`, plan) }))
@@ -73,7 +65,6 @@ export function assembleFromClaude(
   const certIdx = reply.certificationIndexes.filter((n) => Number.isInteger(n) && n >= 0 && n < a.certifications.length);
   const certifications = certIdx.length ? Array.from(new Set(certIdx)).map((n) => a.certifications[n]!) : a.certifications;
 
-  // Skills: Claude's groups, keeping only names the candidate has.
   const allowed = allowedSkillNames(master, profile, plan);
   let skillGroups: SkillGroup[] = (reply.skillGroups ?? [])
     .map((g) => ({ name: g.name.trim(), skills: g.skills.map((s) => s.trim()).filter((s) => s && isAllowedSkill(s, allowed)) }))
@@ -93,7 +84,6 @@ export function assembleFromClaude(
     projects,
     education: a.education,
     certifications,
-    // Only what the master resume states (languages, publications) — never model-written lines.
     additional: [...(a.languages.length ? [`Languages: ${a.languages.join(', ')}`] : []), ...a.publications.slice(0, 4)],
     changes,
     issues: [],

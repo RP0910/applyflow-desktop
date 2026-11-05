@@ -7,7 +7,6 @@ export function spansOf(entries: Pick<ExperienceEntry, 'startDate' | 'endDate'>[
     .filter((s): s is DateSpan => s.start !== null && s.end !== null);
 }
 
-/** Years of experience implied by the resume's own dates (overlaps counted once). */
 export function yearsOfExperience(entries: Pick<ExperienceEntry, 'startDate' | 'endDate'>[], now = new Date()): number {
   return Math.round((totalMonths(spansOf(entries, now)) / 12) * 10) / 10;
 }

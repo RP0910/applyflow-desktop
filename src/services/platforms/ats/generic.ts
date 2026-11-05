@@ -1,9 +1,3 @@
-/**
- * Best effort on other employer sites (Workday, iCIMS, SmartRecruiters, company sites…).
- * ApplyFlow fills the contact fields it can match, attaches your resume and cover letter, and can
- * move through "Next / Save and continue" steps — but you submit. Sign-in pages stop the run.
- * Some sites are never filled: LinkedIn and Indeed applications are for you to do yourself.
- */
 import type { JobSiteAdapter } from '../types';
 import { visibleText } from '../dom';
 import { findNextControl, findWizardRoot } from '../dice/wizard';
@@ -12,7 +6,6 @@ import { notAJobPage } from './shared';
 
 const locator = atsDocumentLocator({ resume: /(^|[\s_-])(resume|cv)([\s_-]|$)/i, cover_letter: /cover/i });
 
-/** Sites whose application flows ApplyFlow leaves to you. */
 const HANDS_OFF: { host: RegExp; name: string }[] = [
   { host: /(^|\.)linkedin\.com$/i, name: 'LinkedIn' },
   { host: /(^|\.)indeed\.com$/i, name: 'Indeed' },
@@ -20,7 +13,6 @@ const HANDS_OFF: { host: RegExp; name: string }[] = [
   { host: /(^|\.)ziprecruiter\.com$/i, name: 'ZipRecruiter' },
 ];
 
-/** Friendly names for well-known application systems (shown in the panel). */
 const KNOWN: { host: RegExp; name: string }[] = [
   { host: /myworkdayjobs\.com$|myworkdaysite\.com$|workday\.com$/i, name: 'Workday' },
   { host: /icims\.com$/i, name: 'iCIMS' },
@@ -43,7 +35,6 @@ export function siteNameFor(url: string): string {
 }
 
 function root(doc: Document): Element | null {
-  // A multi-step flow with a stepper (e.g. Workday) counts too, when it holds fields.
   return guessApplicationForm(doc) ?? findWizardRoot(doc);
 }
 
@@ -59,7 +50,6 @@ export const genericAdapter: JobSiteAdapter = {
   extractJob: notAJobPage('the employer site'),
   jobKeyForUrl: () => null,
   findApplyControl: (doc) => {
-    // Prefer Workday-style "Autofill with Resume" when the Start Your Application dialog offers it.
     const autofill = findApplyButton(doc, /^(autofill with resume|auto-?fill with resume|apply with resume)$/i);
     const el =
       autofill ??

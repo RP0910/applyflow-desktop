@@ -165,7 +165,6 @@ function SiteLoginsSection({ defaultEmail }: { defaultEmail: string }) {
             try {
               host = new URL(host.includes('://') ? host : `https://${host}`).hostname;
             } catch {
-              /* keep as typed */
             }
             void saveSiteCredential({
               host,

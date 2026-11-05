@@ -1,7 +1,3 @@
-/**
- * Activity dashboard: applications pipeline, weekly volume, companies and follow-ups —
- * all from the local SQLite / IndexedDB records (nothing leaves this computer).
- */
 import { useEffect, useMemo, useState } from 'react';
 import type { ApplicationRecord, ApplicationStage } from '@/types';
 import { bridge, type UsageSummary } from '@/platform/bridge';

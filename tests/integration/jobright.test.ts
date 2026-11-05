@@ -1,9 +1,3 @@
-/**
- * Jobright → employer site, through the real content controller and the Quick Apply runner, on mock
- * pages modelled on Jobright, Greenhouse (classic in a careers-page frame, and redesigned), Lever,
- * Ashby, Workday and LinkedIn. Covers reading the job, the hops to the form, attaching, filling,
- * questions only you can answer, and every stop (sign-in, closed, referral, hands-off sites, CAPTCHA).
- */
 import { beforeAll, describe, expect, it } from 'vitest';
 import { installFileChooserInterceptor } from '@/content/fileChooserInterceptor';
 import { ensureApplicationOpen, INITIAL_RUN, runSteps, type ApplyRunState, type RunnerIO } from '@/services/workflow/applyRunner';
@@ -27,8 +21,6 @@ const PROFILE: CareerProfile = {
   email: 'grant.howard@example.com',
   phone: '(727) 555-0148',
   location: 'St. Petersburg, FL 33702, US',
-  // Structured address used for Workday-style street/city/state/ZIP fields; location line stays
-  // the short city/region form expected by Lever/Greenhouse/Ashby location pickers.
   streetAddress: '7109 MEADOWLAWN DR N',
   city: 'St. Petersburg',
   state: 'FL',
@@ -98,7 +90,7 @@ describe('reading a Jobright job', () => {
     });
     expect(ex.job!.responsibilities[0]).toMatch(/^Build, test and troubleshoot/);
     expect(ex.job!.qualifications.join(' ')).toMatch(/Altium Designer/);
-    expect(ex.job!.description).not.toMatch(/Funding|Series C/); // company sections aren't the job
+    expect(ex.job!.description).not.toMatch(/Funding|Series C/);
     expect(ex.job!.requiredSkills.length).toBeGreaterThan(3);
   });
 
@@ -118,17 +110,16 @@ describe('Jobright → Lever', () => {
     expect(await runSteps(h.io)).toBe('stopped');
     const form = document.getElementById('application-form') as HTMLFormElement;
     const val = (n: string) => (form.querySelector(`[name="${n}"]`) as HTMLInputElement).value;
-    expect(h.b.page.__parsed).toBe(true); // Lever read the resume first…
-    expect(val('name')).toBe('Grant Howard'); // …and ApplyFlow corrected what it read
+    expect(h.b.page.__parsed).toBe(true);
+    expect(val('name')).toBe('Grant Howard');
     expect(val('email')).toBe('grant.howard@example.com');
     expect(val('phone')).toBe('(727) 555-0148');
-    expect(val('org')).toBe('Raytheon'); // not in your profile: left as Lever read it
-    expect(val('location')).toBe('St. Petersburg, FL, USA'); // Lever's own suggestion was picked
+    expect(val('org')).toBe('Raytheon');
+    expect(val('location')).toBe('St. Petersburg, FL, USA');
     expect((document.getElementById('selected-location') as HTMLInputElement).value).toMatch(/St\. Petersburg, FL/);
     expect(val('urls[LinkedIn]')).toBe('https://www.linkedin.com/in/granthoward');
     expect(val('comments')).toMatch(/^Dear Hiring Team/);
     expect(h.state().attachments.resume).toMatchObject({ state: 'done', fileName: RESUME });
-    // Only the questions you must answer; EEO stays optional and unanswered.
     expect(h.state().status).toBe('questions');
     expect(h.state().questions.map((x) => x.label)).toEqual(['Are you legally authorized to work in the United States?', 'Will you now or in the future require visa sponsorship?']);
     expect(h.state().questions[0]!.options).toEqual(['Yes', 'No']);
@@ -139,7 +130,6 @@ describe('Jobright → Lever', () => {
     expect(await runSteps(h.io)).toBe('ready');
     expect(h.state()).toMatchObject({ status: 'ready', label: 'Ready to submit' });
 
-    // Submit only with the one-time token from the panel's confirmation.
     expect(await h.b.send({ type: 'AF_SUBMIT', token: 'nope' })).toMatchObject({ ok: false, outcome: 'refused' });
     expect(h.b.page.__submitted).toBeUndefined();
     await h.b.send({ type: 'AF_ARM_SUBMIT', token: 't1' });
@@ -149,7 +139,7 @@ describe('Jobright → Lever', () => {
     await sent;
     await new Promise((r) => setTimeout(r, 700));
     expect(h.b.url).toMatch(/\/thanks$/);
-    expect(h.b.ctl.successHere()).toBe(true); // the page helper reports this confirmation page
+    expect(h.b.ctl.successHere()).toBe(true);
   });
 
   it('a CAPTCHA challenge after Submit: not recorded as applied, the person completes it', async () => {
@@ -162,7 +152,7 @@ describe('Jobright → Lever', () => {
       if (field) await h.b.send({ type: 'AF_ANSWER_FIELD', fieldId: field.fieldId, value: v });
     }
     expect(await runSteps(h.io)).toBe('ready');
-    expect(visibleCaptcha(document)).toBe(false); // the invisible hCaptcha doesn't count
+    expect(visibleCaptcha(document)).toBe(false);
     await h.b.send({ type: 'AF_ARM_SUBMIT', token: 't2' });
     const res = await h.b.send({ type: 'AF_SUBMIT', token: 't2' });
     expect(res).toMatchObject({ ok: true, outcome: 'clicked', successDetected: false, needsUser: true });
@@ -190,7 +180,7 @@ describe('Jobright → careers page → Greenhouse (classic, in a frame)', () =>
     ]);
     expect(h.state().optional.map((x) => x.label)).toEqual(expect.arrayContaining(['Gender', 'Veteran Status', 'Disability Status', 'How did you hear about this job?']));
     expect((document.getElementById('job_application_gender') as HTMLSelectElement).value).toBe('');
-    expect((document.getElementById('privacy_ack') as HTMLInputElement).checked).toBe(false); // never ticked for you
+    expect((document.getElementById('privacy_ack') as HTMLInputElement).checked).toBe(false);
 
     await h.b.send({ type: 'AF_ANSWER_FIELD', fieldId: q(h, /authorized/)!.fieldId, value: 'Yes' });
     await h.b.send({ type: 'AF_ANSWER_FIELD', fieldId: q(h, /sponsorship/)!.fieldId, value: 'No' });
@@ -284,7 +274,6 @@ describe('stops that need you', () => {
 
   it('Workday: presses Apply → Autofill with Resume, then signs in with stored credentials', async () => {
     const h = await start('https://jobright.ai/jobs/info/workday-1');
-    // Mock stays on the sign-in page after submit — runner stops after filling credentials once.
     expect(await ensureApplicationOpen(h.io)).toBe('stopped');
     expect(document.querySelector('[data-automation-id="signInContent"]')).not.toBeNull();
     expect((document.getElementById('em') as HTMLInputElement).value).toBe(PROFILE.email);
@@ -306,7 +295,6 @@ describe('safety (independent review findings)', () => {
     expect(await ensureApplicationOpen(h.io)).toBe('open');
     await runSteps(h.io);
     expect(h.state().formKey).toBe('lever:7c1f2e9a-5b3d-4c8e-9a10-2f6b8e0a5c71');
-    // The person wanders to a different job's form while ApplyFlow waits for answers.
     h.b.load('https://boards.greenhouse.io/embed/job_app?for=acmerobotics&token=4012345');
     expect(await ensureApplicationOpen(h.io)).toBe('stopped');
     expect(h.state().label).toBe('Different application');
@@ -321,7 +309,7 @@ describe('safety (independent review findings)', () => {
     document.getElementById('content')!.insertAdjacentHTML('beforeend', '<p>Thank you for applying! We review every application received.</p>');
     expect(b.ctl.successHere()).toBe(false);
     await b.send({ type: 'AF_ARM_SUBMIT', token: 'y' });
-    const res = await b.send({ type: 'AF_SUBMIT', token: 'y' }); // required fields empty: the form shows errors
+    const res = await b.send({ type: 'AF_SUBMIT', token: 'y' });
     expect(res).toMatchObject({ ok: false, successDetected: false });
     expect((res as { message: string }).message).toMatch(/didn’t accept the form/);
   });
@@ -349,7 +337,7 @@ describe('Jobright as it really behaves (2.2.1)', () => {
     const h = await start('https://jobright.ai/jobs/info/lever-1?nolink=1', { cover: true });
     expect(await ensureApplicationOpen(h.io)).toBe('open');
     expect(h.b.url).toBe('https://jobs.lever.co/northwind/7c1f2e9a-5b3d-4c8e-9a10-2f6b8e0a5c71/apply');
-    expect(h.b.opened).toContain(''); // window.open() with no address, then tab.location.href = …
+    expect(h.b.opened).toContain('');
     expect(h.b.history[1]).toBe('https://jobs.lever.co/northwind/7c1f2e9a-5b3d-4c8e-9a10-2f6b8e0a5c71');
   });
 
@@ -363,7 +351,6 @@ describe('Jobright as it really behaves (2.2.1)', () => {
     expect(page.__fixClicked).toBeUndefined();
     expect(page.__noRemind).toBeUndefined();
     expect((document.getElementById('noremind') as HTMLInputElement | null)?.checked ?? false).toBe(false);
-    // The blank tab is sent to the employer a moment later; let it land before the next test.
     await new Promise((r) => setTimeout(r, 120));
     expect(b.url).toBe('https://jobs.ashbyhq.com/helio/3b9e1d2c-8a7f-4e6d-b5c4-1a2b3c4d5e6f');
   });

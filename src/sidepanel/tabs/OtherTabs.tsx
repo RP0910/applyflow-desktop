@@ -4,7 +4,6 @@ import { HistoryList } from '@/components/HistoryTable';
 import { SettingsForm } from '@/components/SettingsForm';
 import { Icon } from '@/components/Icon';
 
-/** Desktop: switch the main window to that section. */
 export const navigateListeners = new Set<(section: string) => void>();
 
 export function openWorkspace(section: 'library' | 'profile' | 'history' | 'settings' | 'privacy'): void {

@@ -1,8 +1,3 @@
-/**
- * Every Dice-specific selector lives here so a Dice redesign is a one-file fix.
- * Ordered most-specific first. Structured data (JSON-LD JobPosting) is tried
- * before any of these, and generic heuristics run after them.
- */
 export const DICE_SELECTORS = {
   title: [
     'h1[data-cy="jobTitle"]',
@@ -60,7 +55,6 @@ export const DICE_SELECTORS = {
     'button[aria-label*="apply" i]',
     'a[aria-label*="apply" i]',
   ],
-  /** Explicit wizard containers, tried before the button-anchored search. */
   applicationRoot: [
     '[data-testid="application-wizard"]',
     '[data-testid*="wizard" i]',
@@ -70,7 +64,6 @@ export const DICE_SELECTORS = {
   ],
 } as const;
 
-/** URL shapes Dice has used for job detail pages and the application flow. */
 export const DICE_URLS = {
   jobDetail: [/\/job-detail\/[^/]+/i, /\/jobs\/detail\//i],
   application: [/\/job-applications\//i, /\/apply(?:\/|$|\?)/i, /\/wizard(?:\/|$|\?)/i],
@@ -79,9 +72,7 @@ export const DICE_URLS = {
 
 export const SUBMIT_LABEL = /^(submit(?: (?:my |your )?application)?|send application|finish(?: and submit)?|complete application)$/i;
 export const NEXT_LABEL = /^(next|next step|continue|save (?:and|&) continue|continue to review|review(?: (?:your )?application)?)$/i;
-/** Text that only appears on Dice's application wizard. */
 export const WIZARD_MARKERS = /you['’]?re applying for|step \d+ of \d+|resume (?:&|and) cover letter|review (?:your )?application|employer questions|screening questions/i;
-/** Page furniture that must never be mistaken for the application (site search, nav, footer). */
 export const PAGE_CHROME = 'header, nav, footer, [role="banner"], [role="navigation"], [role="search"], [role="contentinfo"], form[role="search"]';
 export const STEP_RE = /step\s+(\d+)\s+of\s+(\d+)/i;
 export const APPLY_LABEL = /^(apply|apply now|easy apply|quick apply)$/i;
@@ -93,7 +84,6 @@ export const SUCCESS_PATTERNS = [
   /thank(?:s| you) for (?:applying|your application)/i,
   /\bapplied\b.*\bsuccessfully\b/i,
   /successfully applied/i,
-  // Dice's confirmation page (/job-applications/<id>/wizard/success): "Fantastic! Your application is on its way."
   /your application is on its way/i,
 ];
 

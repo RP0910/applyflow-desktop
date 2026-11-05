@@ -1,7 +1,3 @@
-/**
- * Logging that can never leak an API key. Everything is passed through redact()
- * and only emitted in development builds unless it's an error.
- */
 const KEY_PATTERNS: RegExp[] = [
   /sk-ant-[A-Za-z0-9_\-]{8,}/g,
   /(x-api-key["']?\s*[:=]\s*["']?)[^"'\s,}]+/gi,

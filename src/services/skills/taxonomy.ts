@@ -1,8 +1,3 @@
-/**
- * Skill taxonomy used for deterministic, explainable matching.
- * `related` lets the matcher report partial evidence (e.g. job wants AWS, resume shows EC2).
- * Extend freely — every entry is data, not logic.
- */
 export type SkillCategory =
   | 'language' | 'frontend' | 'backend' | 'mobile' | 'cloud' | 'devops' | 'data' | 'database'
   | 'ai' | 'security' | 'testing' | 'methodology' | 'architecture' | 'tool' | 'business'
@@ -13,17 +8,11 @@ export interface SkillDef {
   aliases: string[];
   category: SkillCategory;
   related?: string[];
-  /** Match aliases case-sensitively (for short or ambiguous names like "Go"). */
   caseSensitive?: boolean;
-  /**
-   * A category term is backed by any of these members ("Connected TV" by Roku or Fire TV).
-   * Never the reverse: the category doesn't prove a member.
-   */
   includes?: string[];
 }
 
 export const SKILLS: SkillDef[] = [
-  // Languages
   { name: 'Python', aliases: ['python', 'python3'], category: 'language' },
   { name: 'Java', aliases: ['java'], category: 'language', related: ['Kotlin', 'Scala'] },
   { name: 'JavaScript', aliases: ['javascript', 'ecmascript', 'es6'], category: 'language', related: ['TypeScript'] },
@@ -40,7 +29,6 @@ export const SKILLS: SkillDef[] = [
   { name: 'SQL', aliases: ['sql', 't-sql', 'ansi sql'], category: 'language' },
   { name: 'Bash', aliases: ['bash', 'shell scripting', 'shell script'], category: 'language' },
   { name: 'PowerShell', aliases: ['powershell'], category: 'language' },
-  // Frontend
   { name: 'React', aliases: ['react', 'react.js', 'reactjs'], category: 'frontend', related: ['Next.js'] },
   { name: 'Next.js', aliases: ['next.js', 'nextjs'], category: 'frontend', related: ['React'] },
   { name: 'Angular', aliases: ['angular', 'angularjs'], category: 'frontend' },
@@ -48,7 +36,6 @@ export const SKILLS: SkillDef[] = [
   { name: 'HTML', aliases: ['html', 'html5'], category: 'frontend' },
   { name: 'CSS', aliases: ['css', 'css3', 'sass', 'scss'], category: 'frontend' },
   { name: 'Redux', aliases: ['redux'], category: 'frontend', related: ['React'] },
-  // Backend
   { name: 'Node.js', aliases: ['node.js', 'nodejs'], category: 'backend', related: ['JavaScript', 'TypeScript'] },
   { name: 'Spring Boot', aliases: ['spring boot', 'springboot', 'spring framework'], category: 'backend', related: ['Java'] },
   { name: '.NET', aliases: ['.net', '.net core', 'asp.net', 'dotnet'], category: 'backend', related: ['C#'] },
@@ -65,7 +52,6 @@ export const SKILLS: SkillDef[] = [
   { name: 'Distributed Systems', aliases: ['distributed systems', 'distributed computing'], category: 'architecture', related: ['Microservices'] },
   { name: 'System Design', aliases: ['system design', 'systems design', 'solution architecture', 'solutions architecture', 'software architecture', 'enterprise architecture', 'technical architecture'], category: 'architecture' },
   { name: 'Domain-Driven Design', aliases: ['domain-driven design', 'domain driven design', 'ddd'], category: 'architecture' },
-  // Cloud
   { name: 'AWS', aliases: ['aws', 'amazon web services'], category: 'cloud', related: ['Amazon EC2', 'AWS Lambda', 'Amazon S3', 'Amazon SageMaker', 'Amazon Bedrock', 'Amazon EKS'] },
   { name: 'Amazon EC2', aliases: ['ec2'], category: 'cloud', related: ['AWS'] },
   { name: 'AWS Lambda', aliases: ['lambda', 'aws lambda'], category: 'cloud', related: ['AWS', 'Serverless'] },
@@ -79,7 +65,6 @@ export const SKILLS: SkillDef[] = [
   { name: 'Vertex AI', aliases: ['vertex ai', 'vertex'], category: 'ai', related: ['Google Cloud'] },
   { name: 'Serverless', aliases: ['serverless'], category: 'cloud', related: ['AWS Lambda'] },
   { name: 'Multi-Cloud', aliases: ['multi-cloud', 'multicloud', 'hybrid cloud'], category: 'cloud' },
-  // DevOps
   { name: 'Docker', aliases: ['docker', 'containers', 'containerization'], category: 'devops', related: ['Kubernetes'] },
   { name: 'Kubernetes', aliases: ['kubernetes', 'k8s', 'openshift'], category: 'devops', related: ['Docker', 'Amazon EKS', 'Helm'] },
   { name: 'Helm', aliases: ['helm'], category: 'devops', related: ['Kubernetes'] },
@@ -90,7 +75,6 @@ export const SKILLS: SkillDef[] = [
   { name: 'Linux', aliases: ['linux', 'unix'], category: 'devops' },
   { name: 'Observability', aliases: ['observability', 'monitoring', 'prometheus', 'grafana', 'datadog', 'opentelemetry', 'splunk', 'new relic', 'elk', 'telemetry'], category: 'devops' },
   { name: 'Site Reliability Engineering', aliases: ['sre', 'site reliability'], category: 'devops', related: ['Observability'] },
-  // Data
   { name: 'Apache Kafka', aliases: ['kafka', 'apache kafka', 'confluent'], category: 'data', related: ['Event-Driven Architecture', 'Streaming Data'] },
   { name: 'Apache Spark', aliases: ['spark', 'apache spark', 'pyspark'], category: 'data', related: ['Databricks', 'Big Data'] },
   { name: 'Databricks', aliases: ['databricks'], category: 'data', related: ['Apache Spark'] },
@@ -106,7 +90,6 @@ export const SKILLS: SkillDef[] = [
   { name: 'Data Modeling', aliases: ['data modeling', 'data modelling', 'dimensional modeling'], category: 'data' },
   { name: 'Tableau', aliases: ['tableau'], category: 'data' },
   { name: 'Power BI', aliases: ['power bi', 'powerbi'], category: 'data' },
-  // Databases
   { name: 'PostgreSQL', aliases: ['postgresql', 'postgres'], category: 'database', related: ['SQL'] },
   { name: 'MySQL', aliases: ['mysql'], category: 'database', related: ['SQL'] },
   { name: 'Oracle Database', aliases: ['oracle database', 'oracle db', 'oracle sql', 'pl/sql'], category: 'database', related: ['SQL'] },
@@ -116,7 +99,6 @@ export const SKILLS: SkillDef[] = [
   { name: 'Redis', aliases: ['redis'], category: 'database' },
   { name: 'Elasticsearch', aliases: ['elasticsearch', 'opensearch', 'elastic search'], category: 'database' },
   { name: 'Vector Databases', aliases: ['vector database', 'vector databases', 'vector db', 'vector store', 'pinecone', 'weaviate', 'pgvector', 'milvus', 'faiss', 'chroma'], category: 'ai', related: ['Retrieval-Augmented Generation'] },
-  // AI / ML
   { name: 'Machine Learning', aliases: ['machine learning', 'ml', 'predictive modeling'], category: 'ai', related: ['MLOps', 'Deep Learning'] },
   { name: 'Deep Learning', aliases: ['deep learning', 'neural networks', 'neural network'], category: 'ai', related: ['Machine Learning', 'PyTorch', 'TensorFlow'] },
   { name: 'Generative AI', aliases: ['generative ai', 'genai', 'gen ai', 'gen-ai'], category: 'ai', related: ['Large Language Models', 'Retrieval-Augmented Generation'] },
@@ -135,7 +117,6 @@ export const SKILLS: SkillDef[] = [
   { name: 'Computer Vision', aliases: ['computer vision', 'image recognition'], category: 'ai', related: ['Deep Learning'] },
   { name: 'Hugging Face', aliases: ['hugging face', 'huggingface', 'transformers'], category: 'ai', related: ['Large Language Models'] },
   { name: 'Fine-Tuning', aliases: ['fine-tuning', 'fine tuning', 'lora', 'rlhf'], category: 'ai', related: ['Large Language Models'] },
-  // Video streaming & media
   { name: 'HLS', aliases: ['hls', 'http live streaming'], category: 'media', related: ['LL-HLS', 'MPEG-DASH', 'CMAF'] },
   { name: 'LL-HLS', aliases: ['ll-hls', 'low-latency hls', 'low latency hls'], category: 'media', related: ['HLS'] },
   { name: 'MPEG-DASH', aliases: ['MPEG-DASH', 'DASH', 'mpeg dash'], category: 'media', caseSensitive: true, related: ['HLS', 'CMAF'] },
@@ -185,7 +166,6 @@ export const SKILLS: SkillDef[] = [
   { name: 'AWS Elemental', aliases: ['aws elemental', 'medialive', 'aws medialive', 'mediapackage', 'aws mediapackage', 'mediatailor', 'aws mediatailor', 'mediaconvert', 'aws mediaconvert'], category: 'media', related: ['AWS'] },
   { name: 'Wowza', aliases: ['wowza'], category: 'media' },
   { name: 'SCTE-35', aliases: ['scte-35', 'scte35', 'scte 35'], category: 'adtech', related: ['SSAI'] },
-  // Ad tech
   { name: 'SSAI', aliases: ['ssai', 'server-side ad insertion', 'server side ad insertion', 'dynamic ad insertion'], category: 'adtech', related: ['CSAI', 'VAST'] },
   { name: 'CSAI', aliases: ['csai', 'client-side ad insertion', 'client side ad insertion'], category: 'adtech', related: ['SSAI', 'VAST'] },
   { name: 'VAST', aliases: ['vast', 'vast 4.x', 'vast 4', 'vast 3'], category: 'adtech', related: ['VMAP', 'VPAID'] },
@@ -198,7 +178,6 @@ export const SKILLS: SkillDef[] = [
   { name: 'OpenRTB', aliases: ['openrtb', 'real-time bidding', 'rtb'], category: 'adtech', related: ['Programmatic Advertising'] },
   { name: 'Programmatic Advertising', aliases: ['programmatic', 'programmatic advertising', 'header bidding', 'prebid', 'ad exchange'], category: 'adtech', related: ['OpenRTB'] },
   { name: 'Ad Tech', aliases: ['ad tech', 'adtech', 'advertising technology', 'ad serving', 'ad insertion', 'video advertising', 'monetization'], category: 'adtech', includes: ['VAST', 'VMAP', 'SSAI', 'CSAI', 'Google Ad Manager', 'Google IMA SDK', 'OpenRTB', 'Programmatic Advertising'] },
-  // Mobile
   { name: 'iOS', aliases: ['iOS'], category: 'mobile', caseSensitive: true, related: ['Swift', 'Objective-C'] },
   { name: 'Android', aliases: ['android'], category: 'mobile', related: ['Kotlin', 'Java'] },
   { name: 'Objective-C', aliases: ['objective-c', 'objective c', 'objc'], category: 'language', related: ['Swift', 'iOS'] },
@@ -207,19 +186,16 @@ export const SKILLS: SkillDef[] = [
   { name: 'Jetpack Compose', aliases: ['jetpack compose', 'compose ui'], category: 'mobile', related: ['Kotlin', 'Android'] },
   { name: 'React Native', aliases: ['react native'], category: 'mobile', related: ['React'] },
   { name: 'Flutter', aliases: ['flutter', 'dart'], category: 'mobile' },
-  // Networking & messaging
   { name: 'TCP/IP', aliases: ['tcp/ip', 'tcp', 'udp', 'networking protocols'], category: 'networking' },
   { name: 'NGINX', aliases: ['nginx'], category: 'networking' },
   { name: 'RabbitMQ', aliases: ['rabbitmq'], category: 'backend', related: ['Event-Driven Architecture'] },
   { name: 'WebSockets', aliases: ['websocket', 'websockets'], category: 'backend' },
   { name: 'JWT', aliases: ['jwt', 'json web token', 'json web tokens'], category: 'security', related: ['Identity & Access Management'] },
-  // Security
   { name: 'Application Security', aliases: ['application security', 'appsec', 'secure coding', 'owasp'], category: 'security' },
   { name: 'Identity & Access Management', aliases: ['iam', 'identity and access management', 'oauth', 'oauth2', 'saml', 'sso', 'okta', 'openid connect'], category: 'security' },
   { name: 'Zero Trust', aliases: ['zero trust'], category: 'security' },
   { name: 'Compliance', aliases: ['soc 2', 'soc2', 'pci', 'pci-dss', 'hipaa', 'gdpr', 'fcra', 'sox', 'iso 27001', 'nist', 'fedramp'], category: 'security' },
   { name: 'Encryption', aliases: ['encryption', 'kms', 'pki', 'tls'], category: 'security' },
-  // Testing & methodology
   { name: 'Test Automation', aliases: ['test automation', 'automated testing', 'unit testing', 'integration testing', 'selenium', 'cypress', 'playwright', 'jest', 'pytest', 'junit', 'tdd'], category: 'testing' },
   { name: 'Agile', aliases: ['agile', 'scrum', 'kanban', 'scaled agile'], category: 'methodology' },
   { name: 'DevOps Practices', aliases: ['devops'], category: 'methodology', related: ['CI/CD'] },
@@ -227,7 +203,6 @@ export const SKILLS: SkillDef[] = [
   { name: 'Architecture Governance', aliases: ['architecture review', 'architecture reviews', 'architecture governance', 'reference architecture', 'reference architectures', 'architecture standards', 'technical standards'], category: 'architecture' },
   { name: 'Cost Optimization', aliases: ['cost optimization', 'finops', 'cloud cost'], category: 'cloud' },
   { name: 'Performance Tuning', aliases: ['performance tuning', 'performance optimization', 'scalability', 'low latency', 'high availability'], category: 'architecture' },
-  // Tools / business
   { name: 'Jira', aliases: ['jira', 'confluence'], category: 'tool' },
   { name: 'Salesforce', aliases: ['salesforce'], category: 'business' },
   { name: 'SAP', aliases: ['sap'], category: 'business', caseSensitive: true },
@@ -251,7 +226,6 @@ export const SOFT_SKILLS: { name: string; aliases: string[] }[] = [
 
 export const SKILL_BY_NAME = new Map(SKILLS.map((s) => [s.name.toLowerCase(), s]));
 
-/** Display names for skill groups on the resume ("Languages: …"). */
 export const CATEGORY_LABELS: Record<SkillCategory, string> = {
   language: 'Languages',
   frontend: 'Frontend',
@@ -274,11 +248,6 @@ export const CATEGORY_LABELS: Record<SkillCategory, string> = {
   networking: 'Networking & Delivery',
 };
 
-/**
- * True synonyms (same thing, different words). ATS keyword matching treats these as the
- * same keyword; taxonomy aliases above can also be members of an umbrella (Jenkins ⊂ CI/CD),
- * which ApplyFlow never treats as proof of the exact keyword.
- */
 export const SYNONYM_GROUPS: string[][] = [
   ['kubernetes', 'k8s'], ['go', 'golang'], ['javascript', 'js'], ['typescript', 'ts'], ['postgresql', 'postgres'],
   ['google cloud', 'google cloud platform', 'gcp'], ['aws', 'amazon web services'], ['azure', 'microsoft azure'],

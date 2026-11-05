@@ -99,7 +99,6 @@ describe('truthfulness validator', () => {
     expect(hasCritical(issues)).toBe(true);
     const fixed = applyAutoFixes(t, master, undefined, issues);
     expect(validateTailoredResume(fixed, ctx).filter((i) => i.severity === 'critical')).toEqual([]);
-    // The invented bullet is replaced by this job's own original wording — without duplicating a bullet.
     const bullets = fixed.experience[0]!.bullets;
     expect(bullets.some((b) => /40\+ product teams/.test(b))).toBe(true);
     expect(bullets.some((b) => /90\+|Databricks/.test(b))).toBe(false);
@@ -128,8 +127,7 @@ describe('Claude output assembly', () => {
       'claude-sonnet-5-5',
     );
     expect(t.experience.map((e) => [e.company, e.title, e.startDate])).toEqual(p.experience.map((e) => [e.company, e.title, e.startDate]));
-    expect(t.experience[1]!.bullets.length).toBeGreaterThan(0); // omitted role restored
-    // The invented project is dropped; the candidate's own projects come back instead of vanishing.
+    expect(t.experience[1]!.bullets.length).toBeGreaterThan(0);
     expect(t.projects.map((x) => x.name)).not.toContain('Made-up project');
     expect(t.projects.every((x) => p.projects.some((m) => m.name === x.name))).toBe(true);
     expect(t.certifications).toEqual([p.certifications[0]]);

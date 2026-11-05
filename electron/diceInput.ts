@@ -1,19 +1,3 @@
-/**
- * Real (trusted) input for the built-in Dice browser, through Chromium's DevTools protocol on the
- * Dice view only. This is what a person does by hand, and what browser automation tools do:
- *
- *   - clickAt      a real left click at a point of the page (Input.dispatchMouseEvent). Menus that
- *                  ignore scripted clicks open, and the click counts as a user gesture, so Dice is
- *                  allowed to open its file chooser.
- *   - file chooser while ApplyFlow attaches a document it is "armed": the next file chooser Dice
- *                  opens is answered with the tailored file (Page.setInterceptFileChooserDialog +
- *                  DOM.setFileInputFiles) instead of showing the Windows "Open" dialog. Dice gets the
- *                  file exactly as if you had picked it, with genuine input/change events.
- *   - setInputFile put the file on one specific <input type=file> the page helper marked.
- *
- * Only the Dice view's own helper can ask for these (checked in main.ts), and only on dice.com.
- * Nothing is armed outside an upload ApplyFlow started; the interception is switched off right after.
- */
 import type { WebContents } from 'electron';
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -26,7 +10,8 @@ export type TrustedRequest =
   | { op: 'wait'; armId: string; timeoutMs: number }
   | { op: 'disarm'; armId: string }
   | { op: 'setInputFile'; marker: string; name: string; base64: string }
-  | { op: 'clickMarked'; marker: string };
+  | { op: 'clickMarked'; marker: string }
+  | { op: 'pageHelper' };
 
 interface Arm {
   id: string;
@@ -38,7 +23,6 @@ interface Arm {
 
 const UPLOAD_MARKER_ATTR = 'data-applyflow-upload';
 
-/** A Windows/macOS/Linux-safe file name that keeps what Dice will display. */
 export function safeUploadName(name: string): string {
   const cleaned = String(name || 'document.pdf')
     .replace(/[\\/:*?"<>|\u0000-\u001f]+/g, '_')
@@ -49,41 +33,73 @@ export function safeUploadName(name: string): string {
 }
 
 export class DiceInput {
-  private wc: WebContents | null = null;
+  private link: {
+    key: object;
+    alive(): boolean;
+    send(method: string, params?: Record<string, unknown>): Promise<unknown>;
+  } | null = null;
   private attached = false;
   private arms = new Map<string, Arm>();
   private active: Arm | null = null;
 
   constructor(private readonly tempDir: string) {
-    // Leftovers from an earlier run.
     rmSync(tempDir, { recursive: true, force: true });
   }
 
-  /** Point at the current Dice view (called when it is created). */
   use(wc: WebContents): void {
-    if (this.wc === wc) return;
-    this.wc = wc;
+    this.useConnected(
+      wc,
+      async (method, params) => {
+        if (wc.isDestroyed()) throw new Error('The Dice page is not open.');
+        if (!wc.debugger.isAttached()) wc.debugger.attach('1.3');
+        if (!this.attached) {
+          this.attached = true;
+          await wc.debugger.sendCommand('Page.enable');
+        }
+        return wc.debugger.sendCommand(method, params);
+      },
+      (cb) => wc.debugger.on('message', (_e, method: string, params: Record<string, unknown>) => cb(method, params)),
+      (cb) => {
+        wc.debugger.on('detach', () => {
+          this.attached = false;
+        });
+        wc.once('destroyed', cb);
+      },
+    );
+  }
+
+  useConnected(
+    key: object,
+    rawSend: (method: string, params?: Record<string, unknown>) => Promise<unknown>,
+    subscribe: (cb: (method: string, params: Record<string, unknown>) => void) => void,
+    onGone: (cb: () => void) => void,
+  ): void {
+    if (this.link?.key === key) return;
     this.attached = false;
-    wc.debugger.on('detach', () => {
-      this.attached = false;
-    });
-    wc.debugger.on('message', (_e, method: string, params: Record<string, unknown>) => {
+    subscribe((method, params) => {
       if (method === 'Page.fileChooserOpened') void this.onChooser(params as { backendNodeId?: number; mode?: string });
     });
-    wc.once('destroyed', () => {
-      if (this.wc === wc) this.wc = null;
+    onGone(() => {
+      if (this.link?.key === key) this.link = null;
     });
+    this.link = {
+      key,
+      alive: () => true,
+      send: async (method, params) => {
+        if (!this.attached) {
+          this.attached = true;
+          await rawSend('Page.enable');
+          await rawSend('DOM.enable').catch(() => undefined);
+        }
+        return rawSend(method, params);
+      },
+    };
   }
 
   private async cmd<T = Record<string, unknown>>(method: string, params?: Record<string, unknown>): Promise<T> {
-    const wc = this.wc;
-    if (!wc || wc.isDestroyed()) throw new Error('The Dice page is not open.');
-    if (!this.attached || !wc.debugger.isAttached()) {
-      if (!wc.debugger.isAttached()) wc.debugger.attach('1.3');
-      this.attached = true;
-      await wc.debugger.sendCommand('Page.enable');
-    }
-    return (await wc.debugger.sendCommand(method, params)) as T;
+    const link = this.link;
+    if (!link?.alive()) throw new Error('The Dice page is not open.');
+    return (await link.send(method, params)) as T;
   }
 
   async available(): Promise<boolean> {
@@ -104,7 +120,6 @@ export class DiceInput {
     return true;
   }
 
-  /** Write the document where Chromium can read it. Kept until ApplyFlow quits: Dice reads it while uploading. */
   private stage(name: string, base64: string): string {
     const dir = join(this.tempDir, randomUUID());
     mkdirSync(dir, { recursive: true });
@@ -119,12 +134,10 @@ export class DiceInput {
     this.arms.set(arm.id, arm);
     this.active = arm;
     await this.cmd('Page.setInterceptFileChooserDialog', { enabled: true });
-    // Never left on: an upload takes seconds, so switch it off after 90 s whatever happens.
     setTimeout(() => void this.disarm(arm.id), 90_000);
     return arm.id;
   }
 
-  /** The page navigated or its process went away: nothing it armed may stay on. */
   async disarmAll(): Promise<void> {
     for (const id of [...this.arms.keys()]) await this.disarm(id);
   }
@@ -172,11 +185,9 @@ export class DiceInput {
     try {
       await this.cmd('Page.setInterceptFileChooserDialog', { enabled: false });
     } catch {
-      /* the page went away */
     }
   }
 
-  /** Expression finding the element the page helper marked (document and open shadow roots). */
   private static finder(marker: string, selector: string): string {
     return `(() => {
       const sel = '${selector}[${UPLOAD_MARKER_ATTR}="${marker}"]';
@@ -190,7 +201,6 @@ export class DiceInput {
     })()`;
   }
 
-  /** element.click() on the marked element, run as a user gesture (so Dice may open its chooser). */
   async clickMarked(marker: string): Promise<boolean> {
     if (!/^[\w-]{6,64}$/.test(marker)) return false;
     const expression = `(() => { const el = ${DiceInput.finder(marker, '')}; if (!el) return false; el.click(); return true; })()`;
@@ -198,7 +208,6 @@ export class DiceInput {
     return res.result?.value === true;
   }
 
-  /** Set the file on the input the page helper marked with data-applyflow-upload="<marker>". */
   async setInputFile(marker: string, name: string, base64: string): Promise<boolean> {
     if (!/^[\w-]{6,64}$/.test(marker)) return false;
     const path = this.stage(name, base64);
@@ -239,7 +248,6 @@ export class DiceInput {
     try {
       rmSync(this.tempDir, { recursive: true, force: true });
     } catch {
-      /* in use */
     }
   }
 }

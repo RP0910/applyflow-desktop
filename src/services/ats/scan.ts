@@ -1,15 +1,3 @@
-/**
- * ATS scan: reads a resume the way keyword-based applicant tracking systems do and scores it
- * against the job. Transparent and deterministic — every point comes from a named check.
- *
- *   Keywords (hard skills, tools, domain terms)   45
- *   Job title match                               10
- *   Experience structure & dates                  15
- *   Sections & contact details                    10
- *   Writing (verbs, results, length)              10
- *   Soft skills & education                        5
- *   File format (font, size, layout, parse test)   5
- */
 import type {
   AtsCategory, AtsCheck, AtsPlan, AtsReport, CareerProfile, EducationEntry, KeywordResult, MasterResume, ParseCheck, ResumeFormat, SupportedKeyword, TailoredResume,
 } from '@/types';
@@ -46,7 +34,6 @@ export interface ScanDoc {
   experience: ScanJob[];
   education: EducationEntry[];
   certifications: string[];
-  /** Section headings the document uses (standard names when produced by ApplyFlow). */
   headings: string[];
 }
 
@@ -84,7 +71,6 @@ export function docFromMaster(m: MasterResume, profile?: CareerProfile): ScanDoc
   };
 }
 
-/** Strong action verbs that open ATS-friendly bullets. */
 const ACTION_VERBS = new Set(
   (
     'accelerated achieved administered advanced advised analyzed architected assembled authored automated balanced built captured championed coached collaborated ' +
@@ -103,7 +89,6 @@ const ACTION_VERBS = new Set(
 const WEAK_STARTS = /^(?:responsible for|duties included|worked on|helped|assisted|participated in|involved in|tasked with)\b/i;
 const PRONOUNS = /(?:^|[\s(])(?:I|me|my|mine|we|our|us)(?=[\s,.;)]|$)/;
 const RESUME_CLICHES = /\b(results[- ]driven|team player|go-getter|hard[- ]working|detail[- ]oriented|self[- ]starter|think outside the box|synerg\w*|dynamic professional|passionate about|proven track record|seasoned professional|rockstar|ninja|guru)\b/i;
-/** A real result: "18%", "$2M", "40+", "3x", "9,000 events", "200 ms" — not "SCTE-35", "H.264" or "24/7". */
 const METRIC = /\$\s?\d|(?<![\w.\-/])\d+(?:[.,]\d+)*\s*(?:%|percent|x\b|k\b|m\b|ms\b|million|billion|thousand|\+)|(?<![\w.\-/])(?!(?:19|20)\d{2}\b)\d{2,}(?:,\d{3})*(?![\w\-/.])/i;
 
 function round1(n: number): number {
@@ -146,7 +131,6 @@ function keywordResult(k: SupportedKeyword, doc: ScanDoc): KeywordResult {
   };
 }
 
-/** How much a found keyword counts: the job's exact words in context count fully. */
 function credit(r: KeywordResult): number {
   if (r.found === 'missing') return 0;
   let c = r.found === 'exact' ? 1 : 0.8;
@@ -168,10 +152,8 @@ function reverseChronological(jobs: ScanJob[], now: Date): boolean {
 
 export interface ScanContext {
   plan: AtsPlan;
-  /** Number of jobs in the master resume — every one must be on the resume. */
   masterJobs: number;
   computedFor: 'master' | 'tailored';
-  /** Known only for documents ApplyFlow produced. */
   format?: ResumeFormat | null;
   parse?: ParseCheck | null;
   pageTarget?: AtsPlan['pageTarget'];
@@ -184,7 +166,6 @@ export function scanResume(doc: ScanDoc, ctx: ScanContext): AtsReport {
   const results = ctx.plan.keywords.map((k) => keywordResult(k, doc));
   const byTerm = new Map(results.map((r) => [r.term, r]));
 
-  // ---- Keywords (45)
   const hard = results.filter((r) => r.kind === 'hard' || r.kind === 'domain' || r.kind === 'certification');
   const totalW = hard.reduce((n, r) => n + r.weight, 0) || 1;
   const gotW = hard.reduce((n, r) => n + r.weight * credit(r), 0);
@@ -207,8 +188,6 @@ export function scanResume(doc: ScanDoc, ctx: ScanContext): AtsReport {
   if (synonymOnly.length) {
     checks.push({ id: 'exact_terms', status: 'warn', label: 'Use the job’s exact wording', detail: `Some ATS only match exact words. The job says ${synonymOnly.slice(0, 4).map((r) => `“${r.term}”`).join(', ')}.` });
   }
-  // Skills shown only in the Skills list: either the resume can use them in a job (it has proof),
-  // or the master resume itself needs a line showing where they were used.
   const planned = new Map(ctx.plan.keywords.map((k) => [k.term, k]));
   const skillsOnly = hard.filter((r) => r.found !== 'missing' && !r.inExperience && !r.inSummary && r.support === 'supported' && r.weight >= 2.5);
   const canShow = skillsOnly.filter((r) => planned.get(r.term)?.evidence.some((e) => e.sourceId));
@@ -220,7 +199,6 @@ export function scanResume(doc: ScanDoc, ctx: ScanContext): AtsReport {
     checks.push({ id: 'skills_without_proof', status: 'warn', label: `${noProof.length} job skill${noProof.length > 1 ? 's are' : ' is'} listed but not shown in any job`, detail: `${noProof.slice(0, 5).map((r) => r.term).join(', ')}: if you used ${noProof.length > 1 ? 'them' : 'it'} at a job, add a line to your master resume so ApplyFlow can show it there.` });
   }
 
-  // ---- Title (10)
   const titleKw = ctx.plan.keywords.find((k) => k.kind === 'title');
   const titleRes = titleKw ? byTerm.get(titleKw.term) : undefined;
   let titleScore = 10;
@@ -236,7 +214,6 @@ export function scanResume(doc: ScanDoc, ctx: ScanContext): AtsReport {
     });
   }
 
-  // ---- Experience (15)
   const jobs = doc.experience;
   const allJobs = ctx.masterJobs ? Math.min(1, jobs.length / ctx.masterJobs) : jobs.length ? 1 : 0;
   const complete = jobs.length ? jobs.filter((e) => e.title && e.company && e.startDate).length / jobs.length : 0;
@@ -259,14 +236,12 @@ export function scanResume(doc: ScanDoc, ctx: ScanContext): AtsReport {
     label: complete === 1 && located === 1 ? 'Each job has title, company, city and dates' : complete === 1 ? 'Some jobs have no city' : 'Some jobs are missing a title, company or dates',
   });
   checks.push({ id: 'dates', status: consistent && ordered ? 'pass' : 'warn', label: consistent && ordered ? 'Dates in one format, newest job first' : !consistent ? 'Dates use mixed formats' : 'Jobs are not newest-first' });
-  // US jobs read best as "City, ST" (Workday, iCIMS); ApplyFlow never guesses the state.
   const noState = jobs.filter((e) => /^[^,]+,\s*(?:United States|USA|US)$/i.test(e.location.trim()));
   if (noState.length) {
     checks.push({ id: 'city_state', status: 'warn', label: `${noState.length} job${noState.length > 1 ? 's' : ''} list the country instead of the state`, detail: `“${noState[0]!.location}”: write it as “City, ST” (for example “Boston, MA”) in your master resume.` });
   }
   if (req) checks.push({ id: 'years', status: yearsOk ? 'pass' : 'warn', label: `${years}+ years shown; the job asks for ${req}+` });
 
-  // ---- Sections & contact (10)
   const hasLoc = /[A-Za-z]+,\s*[A-Za-z]{2,}/.test(doc.location) || /remote/i.test(doc.location);
   const sectionsPresent = [doc.summary, doc.skills.length, jobs.length, doc.education.length].filter(Boolean).length;
   const secScore = (doc.name ? 1 : 0) + (doc.email ? 2 : 0) + (doc.phone ? 2 : 0) + (hasLoc ? 2 : 0) + 0.75 * sectionsPresent;
@@ -277,7 +252,6 @@ export function scanResume(doc: ScanDoc, ctx: ScanContext): AtsReport {
   });
   checks.push({ id: 'sections', status: sectionsPresent === 4 ? 'pass' : 'warn', label: sectionsPresent === 4 ? 'Summary, Skills, Experience and Education sections' : 'A standard section is missing' });
 
-  // ---- Writing (10)
   const bullets = jobs.flatMap((e) => e.bullets);
   const firstWord = (b: string) => b.trim().split(/\s+/)[0]!.toLowerCase().replace(/[^a-z]/g, '');
   const verbShare = bullets.length ? bullets.filter((b) => ACTION_VERBS.has(firstWord(b)) && !WEAK_STARTS.test(b)).length / bullets.length : 0;
@@ -304,7 +278,6 @@ export function scanResume(doc: ScanDoc, ctx: ScanContext): AtsReport {
   if (cliche) checks.push({ id: 'cliches', status: 'warn', label: `Generic phrase “${cliche}”` });
   checks.push({ id: 'length', status: lengthOk ? 'pass' : 'warn', label: `About ${words} words${page === 'two_pages' ? ' (target 2 pages)' : page === 'one_page' ? ' (target 1 page)' : ''}` });
 
-  // ---- Soft skills & education (5)
   const soft = results.filter((r) => r.kind === 'soft');
   const softShare = soft.length ? soft.filter((r) => r.found !== 'missing').length / soft.length : 1;
   const edu = results.filter((r) => r.kind === 'education');
@@ -312,7 +285,6 @@ export function scanResume(doc: ScanDoc, ctx: ScanContext): AtsReport {
   const seScore = 2 * softShare + 3 * eduOk;
   if (edu.length) checks.push({ id: 'education', status: eduOk === 1 ? 'pass' : 'warn', label: eduOk === 1 ? 'Degree requirement shown' : `Degree keywords missing: ${edu.filter((r) => r.found === 'missing').map((r) => r.term).join(', ')}` });
 
-  // ---- Format (5) — only known for files ApplyFlow builds
   const fmt = ctx.format;
   let fmtScore = 0;
   if (fmt) {
@@ -343,7 +315,6 @@ export function scanResume(doc: ScanDoc, ctx: ScanContext): AtsReport {
   const maxTotal = app.reduce((n, c) => n + c.max, 0);
   const score = Math.round((app.reduce((n, c) => n + c.score, 0) / maxTotal) * 100);
 
-  // The best this candidate can reach truthfully: every supported keyword used in context.
   const reachKw = 45 * (supportedW / totalW);
   const reachTitle = !titleKw ? 0 : titleKw.support === 'supported' ? 10 : titleKw.support === 'related' ? 4 : 2;
   const reachExp = 5 + 4 + 2 * located + 2 + (yearsOk ? 2 : req ? 2 * Math.min(1, years / req) : 2);

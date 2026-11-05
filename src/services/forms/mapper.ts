@@ -1,7 +1,3 @@
-/**
- * Field → proposed value. Pure function: no DOM access, fully testable.
- * Every proposal carries its source and a confidence so the user can see why.
- */
 import type { CareerProfile, CoverLetter, FieldProposal, FieldSemantic, FormFieldDescriptor, TailoredResume, ApprovedAnswer, ScreeningControl } from '@/types';
 import { formatLocationLine } from '@/utils/address';
 import { SENSITIVE_LABELS } from './sensitive';
@@ -16,12 +12,10 @@ import {
   scoreAgainstPatterns,
 } from './questionMatch';
 
-/** Merge remembered answers when patterns are clearly the same question. */
 const REMEMBER_MERGE_THRESHOLD = 0.55;
 
 export { questionWords, matchOption } from './questionMatch';
 
-/** Map a live form control onto the Screening Q&A control set. */
 export function toScreeningControl(control: FormFieldDescriptor['control']): ScreeningControl | undefined {
   if (control === 'text' || control === 'textarea' || control === 'select' || control === 'combobox' || control === 'radio' || control === 'checkbox') return control;
   if (control === 'email' || control === 'tel' || control === 'url' || control === 'number' || control === 'date') return 'text';
@@ -41,7 +35,6 @@ const SEMANTIC_RULES: { semantic: FieldSemantic; re: RegExp; controls?: FormFiel
   { semantic: 'github', re: /github/i, controls: ['text', 'email', 'tel', 'url', 'other'] },
   { semantic: 'portfolio', re: /portfolio|personal (?:site|website)/i, controls: ['text', 'email', 'tel', 'url', 'other'] },
   { semantic: 'website', re: /website|\burl\b|homepage/i, controls: ['text', 'email', 'tel', 'url', 'other'] },
-  // Line 2 before line 1 so "Address Line 2" is not classified as street.
   { semantic: 'address_line2', re: /address\s*(line)?\s*2\b|apt\.?\s*#?|apartment|suite|unit\b|#\s*\w/i, controls: ['text', 'textarea', 'other'] },
   { semantic: 'street', re: /address\s*(line)?\s*1\b|^street\b|street address|mailing address|home address|^address$/i, controls: ['text', 'textarea', 'other'] },
   { semantic: 'city', re: /^city\b|town\/?city|municipality/i },
@@ -54,7 +47,6 @@ const SEMANTIC_RULES: { semantic: FieldSemantic; re: RegExp; controls?: FormFiel
   { semantic: 'skills', re: /\bskills?\b|technologies|tech stack/i, controls: ['textarea', 'text'] },
 ];
 
-/** Questions about someone else (a referrer, a manager, an emergency contact): never your own details. */
 const SOMEONE_ELSE = /\b(refer(?:r(?:al|er|ed)|ence)s?|referred by|emergency|manager|supervisor|recruiter|hiring|contact person|parent|guardian|spouse|partner|friend|employee who|who referred)\b/i;
 const CONTACT_SEMANTICS = new Set<FieldSemantic>(['first_name', 'last_name', 'full_name', 'email', 'phone', 'linkedin', 'github', 'portfolio', 'website', 'location', 'street', 'address_line2', 'city', 'state', 'postal_code', 'country']);
 
@@ -65,7 +57,6 @@ export function semanticOf(f: Pick<FormFieldDescriptor, 'label' | 'name' | 'cont
 
 function semanticOfRaw(f: Pick<FormFieldDescriptor, 'label' | 'name' | 'control'>): FieldSemantic {
   const hay = `${f.label} ${f.name}`;
-  // Lever's "Additional information" box is where a cover letter goes.
   if (f.control === 'textarea' && f.name === 'comments') return 'cover_letter_text';
   for (const r of SEMANTIC_RULES) {
     if (r.controls && !r.controls.includes(f.control)) continue;
@@ -84,16 +75,10 @@ export interface MapperContext {
   includeCoverLetter: boolean;
   resumeFileName: string | null;
   coverLetterFileName: string | null;
-  /** Apply answers the user saved earlier (each one approved by the user). */
   useSavedAnswers?: boolean;
-  /**
-   * Fields to correct even when already filled: employer forms that read the uploaded resume fill
-   * name, email and phone themselves, sometimes wrongly. Your profile wins for these.
-   */
   overwrite?: FieldSemantic[];
 }
 
-/** The country in a profile location ("St. Petersburg, FL 33702, US" → "United States"). */
 export function countryOf(location: string): string {
   const l = location.trim();
   if (!l) return '';
@@ -153,13 +138,11 @@ export function approvedFor(answers: ApprovedAnswer[], f: Pick<FormFieldDescript
     .filter((x) => x.score >= MATCH_THRESHOLD)
     .sort((x, y) => y.score - x.score || (y.a.useCount ?? 0) - (x.a.useCount ?? 0));
   if (ranked[0]) return ranked[0].a.answer;
-  // Single saved answer for this category that fits the options — reuse it (e.g. Gender / Race / Veteran).
   const categoryOnly = answers.filter((a) => a.category === category && answerFitsField(a, f));
   if (categoryOnly.length === 1) return categoryOnly[0]!.answer;
   return null;
 }
 
-/** Upsert a remembered screening answer (same category + similar pattern → replace). */
 export function rememberAnswer(
   answers: ApprovedAnswer[],
   next: Omit<ApprovedAnswer, 'id' | 'approvedAt'> & { id?: string; approvedAt?: string },
@@ -202,7 +185,6 @@ export function rememberAnswer(
   ];
 }
 
-/** Mark a reused answer as used (for ranking and Profile review). */
 export function markAnswerUsed(answers: ApprovedAnswer[], answerText: string, category: ApprovedAnswer['category'], now: string): ApprovedAnswer[] {
   return answers.map((a) =>
     a.category === category && a.answer.trim().toLowerCase() === answerText.trim().toLowerCase()
@@ -238,9 +220,7 @@ export function proposeFieldValues(fields: FormFieldDescriptor[], ctx: MapperCon
       status: 'pending',
       options: f.options.length ? f.options : undefined,
     };
-    // An answer the user saved earlier for this kind of question: apply it (it is shown in the review before submit).
     const saved = (): FieldProposal | null => {
-      // Legal attestations ("I certify…", terms) are confirmed by the user on every application.
       if (!ctx.useSavedAnswers || f.currentValue || f.sensitive === 'legal_consent') return null;
       const ans = approvedFor(p.approvedAnswers, f);
       if (!ans) return null;
@@ -273,7 +253,6 @@ export function proposeFieldValues(fields: FormFieldDescriptor[], ctx: MapperCon
 
     const set = (value: string, source: string, confidence: FieldProposal['confidence'] = 'high'): FieldProposal => {
       if (f.currentValue && correctable) {
-        // Filled by the site from your resume: keep it when it matches your profile, correct it otherwise.
         if (!value || same(f.currentValue, value)) return { ...base, action: 'skip', proposedValue: f.currentValue, source: 'Already filled on the page', confidence: 'high', reason: 'Already filled correctly.', status: 'skipped' };
         return { ...base, action: 'fill', proposedValue: value, source: `${source} (corrected what the site read from your resume)`, confidence };
       }
@@ -303,7 +282,6 @@ export function proposeFieldValues(fields: FormFieldDescriptor[], ctx: MapperCon
       case 'state': return set(profileState(p), 'Profile → State', 'medium');
       case 'postal_code': return set(profilePostal(p), 'Profile → Postal code');
       case 'location': {
-        // City/region for “Current location” pickers — never the street (that’s Address Line 1).
         const line = p.location.trim() || formatLocationLine(p) || r?.contact.location || '';
         return set(line, 'Profile → Location');
       }

@@ -1,4 +1,3 @@
-/** Shared system prompt. Every ApplyFlow request carries these rules. */
 export const TRUTHFULNESS_RULES = `You are ApplyFlow, an assistant that helps a job seeker apply to jobs truthfully.
 
 Non-negotiable rules:

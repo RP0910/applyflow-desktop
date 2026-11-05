@@ -2,7 +2,6 @@ export function nowIso(): string {
   return new Date().toISOString();
 }
 
-/** Local calendar date, YYYY-MM-DD. */
 export function todayLocal(d: Date = new Date()): string {
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, '0');
@@ -27,10 +26,6 @@ const MONTHS: Record<string, number> = {
   jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5, jul: 6, aug: 7, sep: 8, sept: 8, oct: 9, nov: 10, dec: 11,
 };
 
-/**
- * Parse resume-style dates: "Jan 2020", "January 2020", "01/2020", "2020", "Present".
- * Returns months since year 0, or null.
- */
 export function parseResumeDate(s: string, now: Date = new Date()): number | null {
   const t = s.trim().toLowerCase();
   if (!t) return null;
@@ -54,7 +49,6 @@ export interface DateSpan {
   end: number;
 }
 
-/** Total distinct months covered by spans (overlaps counted once). */
 export function totalMonths(spans: DateSpan[]): number {
   const sorted = spans.filter((s) => s.end >= s.start).sort((a, b) => a.start - b.start);
   let total = 0;
@@ -73,7 +67,6 @@ export function totalMonths(spans: DateSpan[]): number {
   return total;
 }
 
-/** Gaps between employment spans, in months, longer than minMonths. */
 export function findGaps(spans: DateSpan[], minMonths: number): { afterEnd: number; beforeStart: number; months: number }[] {
   const sorted = spans.filter((s) => s.end >= s.start).sort((a, b) => a.start - b.start);
   const gaps: { afterEnd: number; beforeStart: number; months: number }[] = [];

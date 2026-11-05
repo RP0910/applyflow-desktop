@@ -1,4 +1,3 @@
-/** Small pieces of the Jobright / employer-site support. */
 import { describe, expect, it } from 'vitest';
 import { countryOf, semanticOf } from '@/services/forms/mapper';
 import { appliedConfirmDialog, confirmAppliedControl, dialogChoice, isJobrightListUrl, jobrightJobId } from '@/services/platforms/jobright/adapter';
@@ -83,7 +82,6 @@ describe('employer pages', () => {
   it('closed and already-applied messages', () => {
     expect(statusBlocker(html('<p>The job you are looking for is no longer open.</p>'), false)?.kind).toBe('closed');
     expect(statusBlocker(html('<p>You have already applied to this job.</p>'), true)?.kind).toBe('applied');
-    // A job description mentioning closing isn't a closed job while the form is there.
     expect(statusBlocker(html('<p>Applications close on Friday; this position is no longer open after that.</p><form></form>'), true)).toBeNull();
   });
 });
@@ -113,7 +111,6 @@ describe('Jobright titles and stale page data', () => {
     const { extractJobrightJobAsync } = await import('@/services/platforms/jobright/adapter');
     const nd = (id: string, title: string, company: string) =>
       `<script id="__NEXT_DATA__" type="application/json">${JSON.stringify({ props: { pageProps: { dataSource: { jobResult: { jobId: id, jobTitle: `${title} Job Details | ${company} LLC`, jobNlpTitle: title, jobSummary: `${company} is hiring a ${title} to build data pipelines and models for healthcare clients.`, coreResponsibilities: ['Build models', 'Ship pipelines'], jobLocation: 'Remote' }, companyResult: { companyName: company } } } } })}</script>`;
-    // The app was first loaded on job A; job B was opened from a list without a page load.
     const doc = html(`${nd('aaa111', 'Nurse Manager', 'Mercy Health')}<main><h2>Gainwell Technologies · 43 minutes ago</h2><h1>Experienced Data Science AI Engineer</h1><button>APPLY WITH AUTOFILL</button></main>`);
     const urls: string[] = [];
     const res = await extractJobrightJobAsync(doc, 'https://jobright.ai/jobs/info/bbb222', async (u) => {

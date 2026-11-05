@@ -1,16 +1,3 @@
-/**
- * Transparent, estimated internal match score.
- * Factors and weights are fixed and explained in plain language. This is NOT an
- * employer ATS score and must always be shown with its disclaimer.
- *
- *   Required skills            40  (32 required coverage + 8 preferred/keyword coverage)
- *   Relevant experience        30  (15 years vs. requirement + 15 responsibility overlap)
- *   Job-title alignment        15
- *   ATS structure & readability 10
- *   Evidence quality             5
- *   Missing/uncertain requirements  0 to −15
- *   Unsupported claims (tailored only) 0 to −10
- */
 import type { CareerProfile, JobAnalysis, JobPosting, MatchScore, ScoreComponent, SkillEvidence, ValidationIssue } from '@/types';
 import { similarity, tokens, wordCount } from '@/utils/text';
 import { findSkills } from '@/services/skills/extract';

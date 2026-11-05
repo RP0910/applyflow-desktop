@@ -4,11 +4,8 @@ export interface SkillEvidence {
   skill: string;
   importance: 'required' | 'preferred';
   status: EvidenceStatus;
-  /** Verbatim snippets from the master resume that support the skill. */
   evidence: string[];
-  /** Plain-language reason for the classification. */
   note: string;
-  /** How a 'partial' was reached. 'related' and 'claude' never allow naming the skill itself. */
   via?: 'listed' | 'profile' | 'related' | 'claude';
 }
 
@@ -56,7 +53,6 @@ export interface ScoreComponent {
   label: string;
   score: number;
   max: number;
-  /** Negative components have max 0 and score <= 0. */
   isPenalty: boolean;
   explanation: string;
 }
@@ -64,7 +60,6 @@ export interface ScoreComponent {
 export interface MatchScore {
   total: number;
   components: ScoreComponent[];
-  /** Always shown next to the number in the UI. */
   disclaimer: string;
   band: 'strong' | 'good' | 'fair' | 'weak';
   computedFor: 'master' | 'tailored';

@@ -1,4 +1,3 @@
-/** Convert job-description HTML into text that keeps list items and paragraph breaks. */
 const BLOCK = new Set(['P', 'DIV', 'SECTION', 'ARTICLE', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'UL', 'OL', 'TR', 'TABLE', 'BLOCKQUOTE', 'PRE', 'HEADER', 'FOOTER']);
 const SKIP = new Set(['SCRIPT', 'STYLE', 'NOSCRIPT', 'SVG', 'BUTTON', 'IFRAME', 'TEMPLATE']);
 
@@ -23,7 +22,6 @@ export function elementToText(root: Element): string {
     else if (BLOCK.has(el.tagName)) out.push('\n');
     const beforeLen = out.length;
     el.childNodes.forEach(walk);
-    // Bold-only paragraphs often act as section headings on job boards.
     if (isHeading) out.push(':');
     if (isLi || BLOCK.has(el.tagName)) out.push('\n');
     if (out.length === beforeLen) out.pop();

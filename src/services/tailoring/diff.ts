@@ -1,6 +1,3 @@
-/**
- * Side-by-side comparison of the master and tailored resume, section by section.
- */
 import type { ParsedResume, TailoredResume } from '@/types';
 import { similarity } from '@/utils/text';
 
@@ -9,7 +6,6 @@ export type LineStatus = 'same' | 'moved' | 'reworded' | 'added' | 'removed';
 export interface DiffLine {
   text: string;
   status: LineStatus;
-  /** For reworded lines: the original text it came from. */
   original?: string;
 }
 

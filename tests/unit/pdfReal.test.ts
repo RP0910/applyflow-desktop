@@ -1,8 +1,4 @@
 // @vitest-environment node
-/**
- * The real pdf.js text extraction on a FlowCV-style PDF (bold "Title, Company" with dates
- * right-aligned at the margin, bullets drawn as graphics, text wrapping to the margin).
- */
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -43,13 +39,11 @@ describe('real PDF resumes', () => {
       ['Junior Backend Developer', 'Hanbit Apps', 'Seoul, South Korea', '07/2015', '12/2016'],
     ]);
     expect(p.experience.map((e) => e.bullets.length)).toEqual([5, 5, 4, 3]);
-    // Wrapped bullet lines are joined back together, with no stray bullet glyphs.
     expect(p.experience[0]!.bullets[1]).toBe('Designed the Apple playback architecture using AVFoundation, AVPlayer, AVPlayerItem and AVPictureInPictureController.');
     expect(p.experience.flatMap((e) => e.bullets).some((b) => /•/.test(b))).toBe(false);
     expect(p.experience[1]!.technologies).toContain('Kubernetes');
     expect(p.experience[0]!.technologies).toHaveLength(12);
     expect(p.education[0]).toMatchObject({ degree: "Bachelor's degree in Computer Science", institution: 'University of Washington', date: '09/2011 – 06/2015', location: 'Seattle, WA' });
-    // Grid category labels ("Video Players", "Cloud & DevOps") are not skills.
     expect(p.skills).toContain('Shaka Player');
     expect(p.skills).not.toContain('Video Players');
     expect(p.skills.some((s) => /Cloud & DevOps|Streaming Infrastructure/.test(s))).toBe(false);

@@ -1,9 +1,3 @@
-/**
- * Applications — "who is calling?"
- * Type a company, a recruiter's name, any part of a phone number, an email, a job title or a
- * skill, and see the application with the exact resume and cover letter that were sent.
- * Ctrl+Alt+Shift+F brings this screen to the front from anywhere in Windows.
- */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ApplicationRecord, ApplicationStage, JobSession } from '@/types';
 import { APPLICATION_STAGES } from '@/types';
@@ -39,7 +33,6 @@ function stageTone(stage: ApplicationStage): string {
 
 const fmtDate = (iso: string | null | undefined) => (iso ? new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }) : '—');
 
-/** Highlights [matched] words in an FTS snippet. */
 function Snippet({ text }: { text: string }) {
   const parts = text.split(/(\[[^\]]*\])/g);
   return (
@@ -216,11 +209,8 @@ function ApplicationDetail({ id, tick, onOpenStudio }: { id: string; tick: numbe
     setRec(await saveApplication(next));
   };
 
-  /** The saved PDF when it's still on disk; otherwise drawn again from the stored JSON (no AI). */
   const pdfOf = async (d: StoredDocument): Promise<Uint8Array | null> => {
     const b = bridge()!;
-    // The saved file holds the newest version only (a rewrite replaces it); older versions are
-    // drawn again from their own JSON.
     const newest = docs.filter((x) => x.kind === d.kind).sort((x, y) => y.version - x.version)[0];
     if (d.filePath && d.filePath.endsWith('.pdf') && newest?.id === d.id) {
       const bytes = await b.invoke('files.read', d.filePath);

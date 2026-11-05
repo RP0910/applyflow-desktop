@@ -3,11 +3,6 @@ import { block } from './system';
 const str = { type: 'string' } as const;
 const strArr = { type: 'array', items: str } as const;
 
-/**
- * The model returns only wording, ordering and grouping. Employer, title, dates, location,
- * education and certifications are copied from the master resume by ApplyFlow, keyed by
- * sourceId, so they cannot be invented or dropped.
- */
 export const TAILOR_RESUME_SCHEMA = {
   type: 'object',
   additionalProperties: false,
@@ -56,7 +51,6 @@ export interface TailorResumeReply {
   headline: string;
   summary: string;
   skillGroups?: { name: string; skills: string[] }[];
-  /** Older replies (and tests) may send a flat list. */
   skills?: string[];
   experience: { sourceId: string; bullets: string[]; technologies?: string[] }[];
   projects: { sourceName: string; bullets: string[] }[];
@@ -66,9 +60,7 @@ export interface TailorResumeReply {
   unsupportedRequirements: string[];
 }
 
-/** What Claude sees of the ATS plan. */
 export interface PromptPlan {
-  /** Today's date, so "current job" and verb tense are right. */
   today?: string;
   targetTitle: string;
   years: number;
@@ -89,7 +81,6 @@ export interface TailorPromptInput {
   plan?: PromptPlan;
 }
 
-/** Shared ATS writing rules for the first draft and the refine pass. */
 export const ATS_WRITING_RULES = [
   'ATS RULES (keyword-based applicant tracking systems match words literally and weight the job title, skills used in recent jobs, and standard structure):',
   '1. Every job in CANDIDATE_FACTS.experience must appear by its sourceId with the number of bullets in PLAN.bulletBudget (one more or one fewer is fine). Never drop, merge or reorder jobs.',
@@ -138,7 +129,6 @@ export interface RefinePromptInput extends TailorPromptInput {
   findings: string[];
 }
 
-/** Second pass: fix exactly what the ATS scan found, keep the rest. */
 export function buildRefineResumePrompt(i: RefinePromptInput): string {
   return [
     'You are an expert technical resume writer and ATS specialist. ApplyFlow scanned the tailored resume draft below like an ATS would. Revise the draft to fix each FINDING — but only where that job’s facts support it; otherwise leave it and list it in unsupportedRequirements. Keep everything else as it is, return projects unchanged (same sourceName and bullets as in DRAFT), and return the complete resume in the same JSON shape.',

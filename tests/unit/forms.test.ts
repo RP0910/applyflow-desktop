@@ -86,7 +86,6 @@ describe('field scanning and proposals', () => {
     const on = proposeFieldValues(fields, { ...ctx, useSavedAnswers: true });
     expect(on.find((p) => p.sensitive === 'work_authorization')).toMatchObject({ action: 'answer', proposedValue: 'Yes', source: 'Your saved answer' });
     expect(on.find((p) => p.sensitive === 'sponsorship')).toMatchObject({ action: 'manual', proposedValue: '' });
-    // Legal attestations are never filled from a saved answer.
     const consent = proposeFieldValues(fields, { ...ctx, useSavedAnswers: true, profile: { ...profile, approvedAnswers: [{ id: 'c', category: 'legal_consent', questionPattern: '', answer: 'checked', approvedAt: '' }] } });
     expect(consent.filter((p) => p.sensitive === 'legal_consent').every((p) => p.action === 'manual')).toBe(true);
     expect(consent.some((p) => p.sensitive === 'legal_consent')).toBe(true);
@@ -103,7 +102,6 @@ describe('field scanning and proposals', () => {
     }
     const sensitiveCount = proposals.filter((x) => x.sensitive).length;
     expect(sensitiveCount).toBeGreaterThanOrEqual(11);
-    // Saved answers are offered (never applied) only for the matching category.
     expect(proposals.find((p) => p.sensitive === 'work_authorization')!.approvedSuggestion).toBe('Yes');
     expect(proposals.find((p) => p.sensitive === 'sponsorship')!.approvedSuggestion).toBeNull();
   });
@@ -115,10 +113,10 @@ describe('field scanning and proposals', () => {
     expect(by('First Name')).toMatchObject({ action: 'fill', proposedValue: 'Jordan', source: 'Profile → Name', confidence: 'high' });
     expect(by('Last Name').proposedValue).toBe('Rivera');
     expect(by('Email Address').proposedValue).toBe('jordan.rivera@example.com');
-    expect(by('Mobile phone')).toMatchObject({ action: 'skip', status: 'skipped' }); // already filled by Dice
+    expect(by('Mobile phone')).toMatchObject({ action: 'skip', status: 'skipped' });
     expect(by('LinkedIn URL').proposedValue).toBe('https://linkedin.com/in/jordan-rivera-example');
     expect(by('Professional Summary').action).toBe('fill');
-    expect(by('Upload your resume')).toBeUndefined(); // attached by the upload engine instead
+    expect(by('Upload your resume')).toBeUndefined();
     expect(by('What is your favorite programming paradigm?')).toMatchObject({ action: 'manual', semantic: 'unknown' });
   });
 

@@ -1,6 +1,3 @@
-/**
- * Resume file readers. Everything runs locally in the extension page — files are never uploaded anywhere.
- */
 import JSZip from 'jszip';
 import { DATE_RANGE_RE, isSectionHeading } from './parser';
 
@@ -54,7 +51,7 @@ export async function readDocx(data: ArrayBuffer): Promise<string> {
             line += '\n';
             break;
           case 'p':
-            break; // nested paragraphs (text boxes) are visited by the outer loop
+            break;
           default:
             walker(child);
         }
@@ -81,9 +78,7 @@ export interface PdfTextItem {
 
 const BULLET_START = /^\s*(?:[•·▪●◦►■◆❖➢⦁\uF0B7\uF0A7]\s*|[-*–—]\s|\d+[.)]\s)/;
 const HEADING_LIKE = /^[A-Z][A-Z &/]{2,40}$/;
-/** "AI & Data: Python, …" starts a new labeled line, never a continuation. */
 const LABEL_START = /^[A-Z][A-Za-z &/+\-]{1,40}:\s/;
-/** A line that ends a sentence (or a label) isn't continued on the next line. */
 const LINE_END = /[.!?:;]["')\]]?$/;
 const LONE_BULLET = /^\s*[•\-*–—·▪●◦►]\s*$/;
 
@@ -91,7 +86,6 @@ interface Row {
   y: number;
   text: string;
   left: number;
-  /** x where the text starts after a bullet glyph (continuation lines align here). */
   textLeft: number;
   right: number;
   font: string;
@@ -104,19 +98,9 @@ function median(xs: number[]): number {
   return s[Math.floor(s.length / 2)]!;
 }
 
-/**
- * Rebuild text lines from positioned PDF text runs, then re-join lines that were only
- * wrapped by the PDF layout. A line is a soft-wrapped continuation only when everything says
- * so: the previous line runs to (nearly) the right margin, the spacing is ordinary line
- * spacing, the font and size are the same, the text lines up with the paragraph above, and
- * neither line looks like a heading, label, bullet or role header with dates. Getting this
- * wrong in the other direction swallows a whole job into the role above it (FlowCV-style
- * layouts put the dates right-aligned on the header line).
- */
 export function pdfItemsToLines(items: PdfTextItem[]): string[] {
   const groups = new Map<number, { x: number; right: number; s: string; font: string; size: number }[]>();
   for (const it of items) {
-    // pdf.js fills gaps with blank items as wide as the gap; skipping them keeps column gaps visible.
     if (!it.str.trim()) continue;
     const y = Math.round((it.transform[5] ?? 0) / 2) * 2;
     const x = it.transform[4] ?? 0;
@@ -125,7 +109,6 @@ export function pdfItemsToLines(items: PdfTextItem[]): string[] {
     if (!groups.has(y)) groups.set(y, []);
     groups.get(y)!.push({ x, right, s: it.str, font: it.fontName ?? '', size });
   }
-  // Some builders (FlowCV) draw the bullet glyph a few points below its text: move it onto that line.
   for (const y of Array.from(groups.keys())) {
     const parts = groups.get(y)!;
     if (!parts.every((p) => LONE_BULLET.test(p.s))) continue;
@@ -203,7 +186,6 @@ async function defaultPdfLoader(data: ArrayBuffer): ReturnType<PdfLoader> {
   const pdfjs = await import('pdfjs-dist');
   const workerUrl = (await import('pdfjs-dist/build/pdf.worker.min.mjs?url')).default;
   pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
-  // pdf.js v5 does not use eval, so it runs under the extension's strict CSP.
   const task = pdfjs.getDocument({ data: new Uint8Array(data), useSystemFonts: true, disableFontFace: true });
   return task.promise as unknown as ReturnType<PdfLoader>;
 }
@@ -233,11 +215,9 @@ export async function readPdf(data: ArrayBuffer, loader: PdfLoader = defaultPdfL
 export async function readResumeFile(file: File): Promise<{ text: string; format: 'docx' | 'pdf' | 'text'; data: ArrayBuffer | null }> {
   const name = file.name.toLowerCase();
   if (file.size > MAX_BYTES) throw new ResumeFileError('too_large', 'This file is larger than 10 MB. Save a smaller copy and try again.');
-  // Reject unsupported types before reading anything into memory.
   if (name.endsWith('.doc')) throw new ResumeFileError('unsupported', 'Older .doc files are not supported. Save it as .docx or PDF, or paste the text.');
   if (!/\.(docx|pdf|txt|md)$/.test(name)) throw new ResumeFileError('unsupported', 'Upload a .docx, .pdf or .txt file, or paste your resume text.');
   const buf = await file.arrayBuffer();
-  // pdf.js hands the bytes to its worker, so keep a copy for later re-reads.
   const data = buf.slice(0);
   if (name.endsWith('.docx')) return { text: await readDocx(buf), format: 'docx', data };
   if (name.endsWith('.pdf')) return { text: await readPdf(buf), format: 'pdf', data };
@@ -246,7 +226,6 @@ export async function readResumeFile(file: File): Promise<{ text: string; format
   return { text, format: 'text', data: null };
 }
 
-/** Re-read a stored original file (used when the reader improves). */
 export async function rereadSource(data: ArrayBuffer, format: 'docx' | 'pdf' | 'text' | 'form'): Promise<string | null> {
   if (format === 'docx') return readDocx(data.slice(0));
   if (format === 'pdf') return readPdf(data.slice(0));

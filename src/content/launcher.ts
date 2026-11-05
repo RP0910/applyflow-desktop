@@ -1,10 +1,4 @@
-/**
- * A small "Tailor & Apply" button on Dice job pages (inside ApplyFlow's built-in browser).
- * Rendered in a closed shadow root so it can't be styled or read by the page,
- * and it never displays user data.
- */
 let host: HTMLElement | null = null;
-/** What the button does — the desktop app starts Tailor & Apply. */
 let onOpen: () => void = () => undefined;
 
 export function setLauncherHandler(fn: () => void): void {

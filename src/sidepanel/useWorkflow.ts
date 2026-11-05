@@ -1,10 +1,3 @@
-/**
- * The side panel's controller. One primary flow, "Tailor & Apply":
- *   job detected → match scored automatically → (click) documents tailored, Dice's application
- *   opened, documents attached, safe fields and saved answers filled, Next pressed step by step →
- *   stops at Dice's review step → (click) "Submit application" → recorded, files saved.
- * The user only steps in for questions ApplyFlow must not guess, and for the final submit.
- */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
   ApplicationRecord, ApplicationStage, ApprovedAnswer, CareerProfile, CoverLetterAction, CoverLetterTone, FieldProposal,
@@ -37,7 +30,6 @@ import { addDays, nowIso, todayLocal } from '@/utils/dates';
 import { bridge, DICE_TAB_ID } from '@/platform/bridge';
 import { toResumeDocument, renderResumePdf } from '@/resume-renderer';
 
-/** Desktop: keep every generated version's JSON in the database (and the file path once saved). */
 async function storeDocuments(s: JobSession, applicationId: string | null, paths: { resume?: string | null; cover_letter?: string | null } = {}): Promise<void> {
   const b = bridge();
   if (!b || !s.resume) return;
@@ -62,7 +54,6 @@ export interface WorkflowDeps {
   downloads?: DownloadsApi | null;
   engine?: Partial<EngineDeps>;
   pinnedTabId?: number | null;
-  /** Test hook: how long the runner waits between checks of the Dice page. */
   pollMs?: number;
 }
 
@@ -101,11 +92,9 @@ function newSession(job: JobPosting, extraction: JobSession['extraction'], resum
 
 const errText = (e: unknown, fallback: string) => (e instanceof ClaudeError || e instanceof TabUnreachableError ? e.message : e instanceof Error && e.message ? e.message : fallback);
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
-/** Which versions of the documents a saved copy holds. */
 const docsStamp = (s: JobSession) => `${s.resume?.version ?? 0}|${s.includeCoverLetter ? (s.coverLetter?.version ?? 0) : 'none'}`;
 const uploadExt = (settings: Settings): 'pdf' | 'docx' => (!settings.resumeOutputFormats.includes('pdf') && settings.resumeOutputFormats.includes('docx') ? 'docx' : 'pdf');
 
-/** Desktop browser veil only while opening the employer application (not during document prep). */
 function syncOpeningOverlay(run: ApplyRunState): void {
   if (typeof document === 'undefined') return;
   const show = run.status === 'working' && run.stages.open === 'active';
@@ -131,7 +120,6 @@ export function useWorkflow(inputs: WorkflowInputs, deps: WorkflowDeps) {
   const [run, setRun] = useState<ApplyRunState>(INITIAL_RUN);
 
   const abortRef = useRef<AbortController | null>(null);
-  // Assigned below; lets earlier callbacks save files without a dependency cycle.
   const saveFilesRef = useRef<(rec: ApplicationRecord, s: JobSession, kinds?: SavedFile['kind'][]) => Promise<ApplicationRecord>>(async (r) => r);
   const sessionRef = useRef<JobSession | null>(null);
   const runRef = useRef<ApplyRunState>(INITIAL_RUN);
@@ -160,7 +148,6 @@ export function useWorkflow(inputs: WorkflowInputs, deps: WorkflowDeps) {
   }, []);
 
   const engineDeps = useCallback(async (): Promise<EngineDeps> => {
-    // One controller per run, so Cancel stops whichever Claude request is in flight.
     if (!runningRef.current || !abortRef.current || abortRef.current.signal.aborted) abortRef.current = new AbortController();
     const b = bridge();
     const onUsage: EngineDeps['onUsage'] = b
@@ -174,7 +161,6 @@ export function useWorkflow(inputs: WorkflowInputs, deps: WorkflowDeps) {
 
   const upsertRecord = useCallback(async (s: JobSession, stage: ApplicationStage, extra: Partial<ApplicationRecord> = {}) => {
     const existing = s.applicationId ? await getApplication(s.applicationId) : undefined;
-    // Stages only move forward: re-running a step never turns "Interview" back into "Analyzed".
     const order: ApplicationStage[] = ['Saved', 'Analyzed', 'Resume Ready', 'Ready to Apply', 'Applied'];
     let stageToSet = stage;
     if (existing) {
@@ -189,7 +175,6 @@ export function useWorkflow(inputs: WorkflowInputs, deps: WorkflowDeps) {
     return saved;
   }, [setSession]);
 
-  // ---------- analysis (automatic, local and instant) ----------
   const analyzeSession = useCallback(async (s: JobSession, m: MasterResume | null): Promise<JobSession> => {
     if (s.job.description.trim().length < 100) return s;
     const d = await engineDeps();
@@ -198,17 +183,15 @@ export function useWorkflow(inputs: WorkflowInputs, deps: WorkflowDeps) {
     return { ...s, resumeId: m?.id ?? null, analysis: r.analysis, evidence: r.evidence, masterScore: r.masterScore, atsPlan: r.atsPlan, atsMaster: r.atsMaster };
   }, [engineDeps, notify]);
 
-  // ---------- detection ----------
   const detect = useCallback(async () => {
     if (tabId === null) return;
-    if (runningRef.current) return; // never swap the job out from under a running application
+    if (runningRef.current) return;
     setPhase('detecting');
     setExtractionError(null);
     try {
       const state = await deps.messenger.send(tabId, { type: 'AF_GET_PAGE_STATE' });
       setPage(state);
       if (state.pageType === 'unsupported' || state.pageType === 'other' || state.pageType === 'search') {
-        // Keep the job while an application is under way (including one you finish on the employer's site).
         if (!['questions', 'attention', 'ready', 'submitted', 'external'].includes(runRef.current.status)) {
           setSessionState(null);
           sessionRef.current = null;
@@ -216,11 +199,9 @@ export function useWorkflow(inputs: WorkflowInputs, deps: WorkflowDeps) {
         return;
       }
       let existing = state.jobKey ? await getSession(state.jobKey) : undefined;
-      // Dice's wizard URL may not carry the job ID: continue the job the user was just on.
       if (!existing && state.pageType === 'application') {
         if (state.site === 'dice' || !state.site) existing = sessionRef.current ?? (await latestSession());
         else {
-          // An employer's form: continue the Jobright job you just started from — never an unrelated older one.
           const recent = sessionRef.current ?? (await latestSession(20 * 60 * 1000));
           existing = recent && recent.job.platform === 'jobright' && !recent.submittedAt ? recent : undefined;
         }
@@ -248,7 +229,6 @@ export function useWorkflow(inputs: WorkflowInputs, deps: WorkflowDeps) {
       }
       let s = newSession(result.job, { confidence: result.confidence, sources: result.sources, uncertain: result.uncertain, warnings: result.warnings }, master?.id ?? null, settings.includeCoverLetterByDefault);
       report(INITIAL_RUN);
-      // A new job: the previous job's notes and "Applied…" line no longer apply.
       setLastResult('');
       setNotices([]);
       setApplication(null);
@@ -266,7 +246,6 @@ export function useWorkflow(inputs: WorkflowInputs, deps: WorkflowDeps) {
     }
   }, [tabId, deps.messenger, master, settings.includeCoverLetterByDefault, analyzeSession, setSession, report]);
 
-  // Follow the active tab (unless pinned for testing).
   useEffect(() => {
     if (deps.pinnedTabId == null && bridge()) {
       setTabId(DICE_TAB_ID);
@@ -285,7 +264,6 @@ export function useWorkflow(inputs: WorkflowInputs, deps: WorkflowDeps) {
     void detect();
   }, [tabId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // The score appears as soon as both a job and a master resume are known — no click, whichever loads first.
   const analyzingRef = useRef<string | null>(null);
   useEffect(() => {
     const s = sessionRef.current;
@@ -302,7 +280,6 @@ export function useWorkflow(inputs: WorkflowInputs, deps: WorkflowDeps) {
       });
   }, [master?.id, session?.jobKey, Boolean(session?.analysis)]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Confirming a skill (or editing the master resume) changes which job keywords are backed: re-plan.
   const masterKey = master ? masterStamp(master) : '';
   useEffect(() => {
     const s = sessionRef.current;
@@ -316,7 +293,6 @@ export function useWorkflow(inputs: WorkflowInputs, deps: WorkflowDeps) {
     void deps.messenger.send(tabId, { type: 'AF_SET_LAUNCHER', visible: settings.showPageLauncher }).catch(() => undefined);
   }, [tabId, settings.showPageLauncher, deps.messenger]);
 
-  // Stage changes made in the workspace show up here immediately.
   useEffect(
     () =>
       onDataChange((t) => {
@@ -326,14 +302,12 @@ export function useWorkflow(inputs: WorkflowInputs, deps: WorkflowDeps) {
     [],
   );
 
-  // ---------- documents ----------
   const fileName = useCallback((kind: 'resume' | 'cover_letter') => {
     const s = sessionRef.current;
     if (!s?.resume || (kind === 'cover_letter' && !s.coverLetter)) return null;
     return uploadFileName(s, kind, uploadExt(settings));
   }, [settings]);
 
-  /** Tailor the resume and cover letter (in parallel), fixing anything the truthfulness check flags. */
   const makeDocuments = useCallback(async (masterOverride?: MasterResume): Promise<boolean> => {
     let s = sessionRef.current;
     const master = masterOverride ?? masterFromProps;
@@ -346,7 +320,6 @@ export function useWorkflow(inputs: WorkflowInputs, deps: WorkflowDeps) {
       const fixed = applyAutoFixes(resume, master, profileRef.current, resume.issues, supportedKeywords(s.evidence), r.atsPlan);
       resume = { ...fixed, issues: validateTailoredResume(fixed, { master, profile: profileRef.current, job: s.job, evidence: s.evidence, length: settings.defaultResumeLength, plan: r.atsPlan }) };
     }
-    // Parse test: read the exported PDF back the way an ATS would.
     let atsParse = null;
     try {
       atsParse = await parseCheckPdf(await renderResumePdf(toResumeDocument(resume, r.coverLetter), settings.resumeFormat), resume);
@@ -371,8 +344,6 @@ export function useWorkflow(inputs: WorkflowInputs, deps: WorkflowDeps) {
     const rec = await upsertRecord(next, 'Resume Ready');
     await storeDocuments(sessionRef.current ?? next, rec.id).catch(() => undefined);
     r.notices.forEach((n) => notify('warning', n));
-    // Keep a copy in Downloads right away, so the tailored files are on the computer even if Dice
-    // won't take them automatically.
     if (settings.saveDocumentsWhenReady) {
       try {
         await saveFilesRef.current(rec, sessionRef.current ?? next, ['resume', 'cover_letter', 'resume_json', 'job_description']);
@@ -385,7 +356,6 @@ export function useWorkflow(inputs: WorkflowInputs, deps: WorkflowDeps) {
     return !resume.issues.some((i) => i.severity === 'critical') && !(next.coverLetter?.issues ?? []).some((i) => i.severity === 'critical');
   }, [masterFromProps, engineDeps, analyzeSession, tone, settings, setSession, upsertRecord, notify]);
 
-  // ---------- the runner ----------
   const runnerIO = useCallback((): RunnerIO => ({
     send: (msg) => deps.messenger.send(tabId as number, msg),
     session: () => sessionRef.current,
@@ -415,7 +385,6 @@ export function useWorkflow(inputs: WorkflowInputs, deps: WorkflowDeps) {
     }
   }, [upsertRecord]);
 
-  /** One click: tailor documents (if needed), open Dice's application and walk it to the review step. */
   const quickApply = useCallback(async () => {
     const s = sessionRef.current;
     if (!s || !master || tabId === null || runningRef.current) return;
@@ -425,7 +394,6 @@ export function useWorkflow(inputs: WorkflowInputs, deps: WorkflowDeps) {
       if (!s.duplicateAcknowledged && duplicates?.exact && hasApplied(duplicates.exact)) await setSession({ ...s, duplicateAcknowledged: true });
       report({ ...INITIAL_RUN, status: 'working', label: 'Starting…' });
       const cur = sessionRef.current!;
-      // Rewrite when the master resume changed since (re-imported, re-read, or facts edited).
       const outdated = Boolean(cur.resume && !cur.submittedAt && (cur.documentsFrom !== masterStamp(master) || cur.resume.contentSource !== 'cv-generate'));
       if (outdated) notify('info', 'Your candidate details or generation engine changed, so ApplyFlow is writing these documents again.');
       const needDocs = !cur.resume || outdated || (cur.includeCoverLetter && !cur.coverLetter);
@@ -440,8 +408,6 @@ export function useWorkflow(inputs: WorkflowInputs, deps: WorkflowDeps) {
       }
       report({ ...runRef.current, stages: { ...runRef.current.stages, documents: 'done' } });
       const io = runnerIO();
-      // A Dice job that applies elsewhere: the documents are what you need. (Jobright jobs always apply on
-      // the employer's site, and ApplyFlow follows them there.)
       if (sessionRef.current?.job.externalApply && sessionRef.current.job.platform !== 'jobright') {
         const opened = await ensureApplicationOpen(io);
         if (opened === 'external') await saveDocsNow('Resume Ready');
@@ -463,13 +429,11 @@ export function useWorkflow(inputs: WorkflowInputs, deps: WorkflowDeps) {
   }, [master, tabId, duplicates, setSession, report, makeDocuments, runnerIO, afterRun]); // eslint-disable-line react-hooks/exhaustive-deps
   quickApplyRef.current = quickApply;
 
-  /** Continue after the user did something on Dice (answered, signed in, solved a CAPTCHA). */
   const continueRun = useCallback(async (opts: { autoAdvance?: boolean } = {}) => {
     if (runningRef.current || tabId === null || !sessionRef.current) return;
     if (!sessionRef.current.resume) return void quickApply();
     runningRef.current = true;
     abortRef.current = new AbortController();
-    // Continue = try attaching again too.
     const a = runRef.current.attachments;
     report({ ...runRef.current, attachments: { resume: { ...a.resume, tries: 0 }, coverLetter: { ...a.coverLetter, tries: 0 } } });
     try {
@@ -491,7 +455,6 @@ export function useWorkflow(inputs: WorkflowInputs, deps: WorkflowDeps) {
     }
   }, [tabId, runnerIO, report, afterRun, quickApply]);
 
-  /** The user answered a question in the panel (one tap). Saved for next time when `remember` is on. */
   const answerQuestion = useCallback(async (q: FieldProposal, value: string, remember: boolean) => {
     const s = sessionRef.current;
     if (!s || tabId === null || !value.trim()) return;
@@ -500,7 +463,6 @@ export function useWorkflow(inputs: WorkflowInputs, deps: WorkflowDeps) {
       notify('warning', res?.error ? `Couldn’t set “${q.label}”: ${res.error}` : `Couldn’t set “${q.label}”. Answer it on the page.`);
       return;
     }
-    // Legal attestations are per application: they're answered each time, never remembered.
     if (remember && q.sensitive !== 'legal_consent') {
       const p = profileRef.current;
       const category: ApprovedAnswer['category'] = q.sensitive ?? 'general';
@@ -529,24 +491,18 @@ export function useWorkflow(inputs: WorkflowInputs, deps: WorkflowDeps) {
     if (!remaining.length && runRef.current.status === 'questions') void continueRun();
   }, [tabId, deps.messenger, setSession, report, notify, continueRun]);
 
-  // Page changes: Dice moved to another step (the user clicked Next/Back on Dice) → pick it up.
-  // The handler is replaced every render (it reads current state); the subscription is made once
-  // per tab, so the Continue timer below isn't cancelled by the page update it triggers.
   const pageRef = useRef<PageState | null>(null);
   pageRef.current = page;
   const continueTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const handleEventRef = useRef<(msg: { type?: string; state?: PageState; url?: string }) => void>(() => undefined);
   handleEventRef.current = (msg: { type?: string; state?: PageState; url?: string }) => {
       if (msg?.type === 'AF_LAUNCHER_CLICKED') {
-        // The "Tailor & Apply" button on the Dice page.
         if (sessionRef.current && !runningRef.current && !sessionRef.current.submittedAt) void quickApplyRef.current();
         return;
       }
       if (msg?.type === 'AF_APPLICATION_SUBMITTED') {
         const s = sessionRef.current;
         const run = runRef.current;
-        // Only for the application this run opened, once its form was on screen (never while still
-        // opening it, nor after handing off to a site ApplyFlow doesn't fill).
         const sameForm = !run.formKey || (msg.url ? formKeyFor(msg.url) === run.formKey : false);
         if (s && !s.submittedAt && ['questions', 'attention', 'ready'].includes(run.status) && sameForm) void recordSubmittedRef.current(true, 'manual');
         return;
@@ -566,7 +522,6 @@ export function useWorkflow(inputs: WorkflowInputs, deps: WorkflowDeps) {
         return;
       }
       if (runningRef.current) return;
-      // You moved on to another job (e.g. left a Workday sign-in or a closed job): switch to it.
       const otherJob = st.pageType === 'job-detail' && Boolean(st.jobKey) && st.jobKey !== sessionRef.current?.jobKey && (st.site === 'dice' || st.site === 'jobright');
       if (active && !otherJob) return;
       if (first || otherJob || (st.jobKey !== prevKey && st.pageType !== 'application')) void detect();
@@ -597,8 +552,6 @@ export function useWorkflow(inputs: WorkflowInputs, deps: WorkflowDeps) {
     };
   }, [tabId]);
 
-  // ---------- files & history ----------
-  /** Save the application's files. `kinds` limits which ones (documents early, metadata at submit). */
   const saveFiles = useCallback(async (rec: ApplicationRecord, s: JobSession, kinds?: SavedFile['kind'][]): Promise<ApplicationRecord> => {
     setPhase('downloading');
     try {
@@ -608,9 +561,7 @@ export function useWorkflow(inputs: WorkflowInputs, deps: WorkflowDeps) {
       const resumeFile = all.find((f) => f.kind === 'resume' && f.format === 'pdf') ?? all.find((f) => f.kind === 'resume');
       const clFile = all.find((f) => f.kind === 'cover_letter' && f.format === 'pdf') ?? all.find((f) => f.kind === 'cover_letter');
       const withNames = { ...rec, folderPath: folder, resumeFileName: resumeFile?.relativePath.split('/').pop() ?? null, coverLetterFileName: clFile?.relativePath.split('/').pop() ?? null };
-      // Re-plan so the metadata file includes the final file names.
       const files = planApplicationFiles(withNames, s, settings, docs, folder).filter((f) => !kinds || kinds.includes(f.kind));
-      // Newer versions of this application's documents replace the earlier copies in its folder.
       const conflict = s.savedDocs?.folder === folder ? 'overwrite' : 'uniquify';
       const saved: SavedFile[] = await downloadFiles(files, deps.downloads === undefined ? undefined : deps.downloads, conflict);
       const latest = (await getApplication(rec.id)) ?? rec;
@@ -658,10 +609,6 @@ export function useWorkflow(inputs: WorkflowInputs, deps: WorkflowDeps) {
     if (!r.ok) notify('info', r.message);
   }, [application, deps.downloads, notify]);
 
-  /**
-   * After a verified employer confirmation, open the Jobright job and press “Yes, I applied!”.
-   * Skipped when submission wasn’t confirmed (canceled, failed, still in progress, or manual guess).
-   */
   const confirmJobrightApplied = useCallback(async (jobUrl: string) => {
     if (tabId === null || !jobUrl) return;
     const b = bridge();
@@ -681,7 +628,6 @@ export function useWorkflow(inputs: WorkflowInputs, deps: WorkflowDeps) {
   const recordSubmitted = useCallback(async (confirmedByDice: boolean, how: 'applyflow' | 'manual') => {
     const s = sessionRef.current;
     if (!s || s.submittedAt) return;
-    // Only a verified site confirmation marks the job applied — never a cancel, failure, or in-progress form.
     if (!confirmedByDice && how === 'applyflow') {
       report({ ...runRef.current, status: 'attention', label: 'Check the page', message: `Submit was pressed, but ${pageRef.current?.siteName || 'the site'} hasn’t confirmed it yet. ApplyFlow will record it when the confirmation appears (or press “Record it as applied”).` });
       return;
@@ -703,12 +649,10 @@ export function useWorkflow(inputs: WorkflowInputs, deps: WorkflowDeps) {
       const b = bridge();
       if (b) {
         void b.invoke('reminders.set', { applicationId: rec.id, whenIso: new Date(`${followUpDate}T09:00:00`).toISOString(), label: `Follow up on ${rec.title} at ${rec.company}` }).catch(() => undefined);
-        // Store the exact versions that were attached, then mark those as sent.
         try {
           await storeDocuments(next, rec.id);
           await b.invoke('documents.markSent', rec.id, next.jobKey, { resume: next.resume?.version ?? null, cover_letter: next.includeCoverLetter ? next.coverLetter?.version ?? null : null });
         } catch {
-          /* the application itself is recorded */
         }
       } else if (typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) {
         void chrome.runtime.sendMessage({ type: 'AF_BG_SET_REMINDER', applicationId: rec.id, whenIso: `${followUpDate}T09:00:00`, label: `Follow up on ${rec.title} at ${rec.company}` }).catch(() => undefined);
@@ -719,8 +663,6 @@ export function useWorkflow(inputs: WorkflowInputs, deps: WorkflowDeps) {
       }
       if (!settings.saveJobDescriptionsLocally) await setSession({ ...next, job: { ...next.job, description: '' } });
       setLastResult(`Applied. ${rec.files.length ? `${rec.files.filter((f) => f.state === 'complete').length} files saved to ${bridge() ? '' : 'Downloads/'}${rec.folderPath}. ` : ''}Follow-up reminder on ${followUpDate}.`);
-      // Jobright’s tracker — only once ApplyFlow has recorded Applied (verified site confirmation or
-      // an explicit “Record it as applied”). Never while opening, canceling, or on a failed submit.
       if (next.job.platform === 'jobright' && next.job.url) {
         void confirmJobrightApplied(next.job.url);
       }
@@ -731,7 +673,6 @@ export function useWorkflow(inputs: WorkflowInputs, deps: WorkflowDeps) {
   const recordSubmittedRef = useRef(recordSubmitted);
   recordSubmittedRef.current = recordSubmitted;
 
-  /** The final, explicit confirmation: clicks Dice's Submit button once, with a one-time token. */
   const submit = useCallback(async () => {
     const s = sessionRef.current;
     if (!s || tabId === null || runRef.current.status !== 'ready') return;
@@ -746,7 +687,6 @@ export function useWorkflow(inputs: WorkflowInputs, deps: WorkflowDeps) {
         return;
       }
       if (res.needsUser || !res.successDetected) {
-        // Not applied until the site confirms (the page helper reports the confirmation when it appears).
         report({
           ...runRef.current,
           status: 'attention',
@@ -757,8 +697,6 @@ export function useWorkflow(inputs: WorkflowInputs, deps: WorkflowDeps) {
       }
       await recordSubmitted(true, 'applyflow');
     } catch (e: unknown) {
-      // Dice may load a new page after Submit, so the answer to the click is lost. Look at the
-      // new page: if it shows Dice's confirmation, the application went through.
       if (e instanceof TabUnreachableError && bridge()) {
         for (let i = 0; i < 20; i++) {
           await sleep(750);
@@ -778,14 +716,12 @@ export function useWorkflow(inputs: WorkflowInputs, deps: WorkflowDeps) {
 
   const recordManualSubmit = useCallback(() => recordSubmitted(false, 'manual'), [recordSubmitted]);
 
-  /** A privacy-safe outline of the Dice page, for reporting a layout ApplyFlow doesn't understand. */
   const diagnose = useCallback(async (): Promise<string> => {
     if (tabId === null) return '';
     const r = await deps.messenger.send(tabId, { type: 'AF_DIAGNOSE' }).catch(() => null);
     return r?.text ?? '';
   }, [tabId, deps.messenger]);
 
-  /** The user chose to send the resume that's already on Dice for this application. */
   const keepDiceResume = useCallback(() => {
     report({ ...runRef.current, allowOriginalResume: true, need: null, attachments: { ...runRef.current.attachments, resume: { ...runRef.current.attachments.resume, state: 'skipped', message: 'You kept the resume already on Dice.' } } });
     void continueRun();
@@ -797,7 +733,6 @@ export function useWorkflow(inputs: WorkflowInputs, deps: WorkflowDeps) {
     report({ ...runRef.current, status: runRef.current.status === 'working' ? 'attention' : runRef.current.status, label: 'Paused', message: 'Paused. Press Continue to pick up where ApplyFlow stopped.' });
   }, [report]);
 
-  // ---------- document editing (Documents view) ----------
   const selectResume = useCallback(async (id: string) => {
     const s = sessionRef.current;
     const r = resumes.find((x) => x.id === id);
@@ -855,10 +790,6 @@ export function useWorkflow(inputs: WorkflowInputs, deps: WorkflowDeps) {
     setLastResult(issues.some((i) => i.severity === 'critical') ? 'Some issues need a manual edit.' : 'Fixed: unsupported items were reverted to your original wording.');
   }, [master, profile, settings, setSession]);
 
-  /**
-   * "I have this": the user confirms a job skill their resume doesn't show. It becomes a verified
-   * fact on the master resume (theirs to remove any time), so the engine may list it in Skills.
-   */
   const confirmSkills = useCallback(async (terms: string[], rewrite = false) => {
     if (!master || !terms.length || runningRef.current) return;
     const have = new Set(master.facts.filter((f) => f.kind === 'skill').map((f) => f.text.toLowerCase()));
@@ -947,7 +878,6 @@ export function useWorkflow(inputs: WorkflowInputs, deps: WorkflowDeps) {
     setLastResult(changed ? 'Job details saved and re-scored.' : 'Job details saved.');
   }, [setSession, master, settings.includeCoverLetterByDefault, analyzeSession]);
 
-  // ---------- derived ----------
   const duplicateApplied = Boolean(duplicates?.exact && hasApplied(duplicates.exact) && !session?.submittedAt);
   const busy = phase !== 'idle' || run.status === 'working' || run.status === 'submitting';
   const progressText = run.status === 'working' || run.status === 'submitting' ? run.label : phase !== 'idle' ? `${PROGRESS_LABELS[phase]}…` : lastResult;

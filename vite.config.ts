@@ -2,10 +2,6 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { resolve } from 'node:path';
 
-/**
- * The ApplyFlow window (React). Served to Electron from dist/renderer through the app:// protocol.
- * Electron's main process and preloads are built by scripts/build.mjs.
- */
 export default defineConfig({
   plugins: [react()],
   resolve: {

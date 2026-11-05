@@ -1,11 +1,3 @@
-/**
- * Skill evidence classification — deterministic and explainable.
- *   strong              a work/project bullet in the master resume mentions the skill
- *   partial             listed in skills only, confirmed in profile only, or a closely related skill is evidenced
- *   needs_confirmation  only present in facts the user hasn't reviewed
- *   conflict            present in the resume, but the user marked it "Do not use"
- *   none                no evidence at all
- */
 import type { CareerProfile, EvidenceStatus, MasterResume, SkillEvidence } from '@/types';
 import { mentionsSkill, patternsFor, relatedSkills } from '@/services/skills/extract';
 import { truncate } from '@/utils/text';
@@ -89,10 +81,6 @@ export function classifySkills(required: string[], preferred: string[], resume: 
   return out;
 }
 
-/**
- * Merge Claude's evidence view with the local one. Claude can only upgrade a skill
- * when its quotes are found verbatim in the user's allowed resume text.
- */
 export function mergeClaudeEvidence(
   local: SkillEvidence[],
   claude: { skill: string; importance: 'required' | 'preferred'; status: string; evidenceQuotes: string[] }[],
@@ -131,13 +119,11 @@ export function mergeClaudeEvidence(
   return out;
 }
 
-/** Order skills by how often the job text mentions them (ties keep their original order). */
 export function rankByJobEmphasis(skills: string[], jobText: string): string[] {
   const count = (s: string) => patternsFor(s).reduce((n, re) => n + (jobText.match(new RegExp(re.source, re.flags.includes('g') ? re.flags : `${re.flags}g`))?.length ?? 0), 0);
   return skills.map((s, i) => ({ s, i, c: count(s) })).sort((a, b) => b.c - a.c || a.i - b.i).map((x) => x.s);
 }
 
-/** Skills the resume may name: shown in a job, listed, or confirmed — not merely near a related skill. */
 export function supportedKeywords(evidence: SkillEvidence[]): string[] {
   return evidence.filter((e) => e.status === 'strong' || (e.status === 'partial' && e.via !== 'related' && e.via !== 'claude')).map((e) => e.skill);
 }

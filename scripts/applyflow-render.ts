@@ -1,12 +1,3 @@
-/**
- * applyflow-render — ApplyFlow's resume renderer on the command line (no AI, no network).
- *
- *   node dist-cli/applyflow-render.mjs resume.json                 → resume.pdf (+ resume-cover-letter.pdf)
- *   node dist-cli/applyflow-render.mjs resume.json -o out.pdf --template modern --font calibri --size 11
- *   node dist-cli/applyflow-render.mjs resume.json --docx           → also resume.docx
- *
- * Input: applyflow.resume/1 JSON (what ApplyFlow saves as resume.json) or a JSON Resume file.
- */
 import { readFileSync, writeFileSync } from 'node:fs';
 import { basename, dirname, extname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';

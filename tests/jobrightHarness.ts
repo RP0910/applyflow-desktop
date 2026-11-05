@@ -1,10 +1,3 @@
-/**
- * A small stand-in for the built-in browser for Jobright → employer-site flows in tests: it loads the
- * mock pages in tests/fixtures/jobright into the test document, runs their scripts with this page's
- * address, and follows navigation (location.assign, history.pushState, and Jobright's window.open,
- * which the desktop app opens in the same browser). Each page gets a fresh content controller,
- * as the page helper does on every page load.
- */
 import { readFileSync, existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { createContentController, type ContentController } from '@/content/controller';
@@ -13,7 +6,6 @@ import type { ContentResponseMap, PanelToContent } from '@/types/messages';
 
 const DIR = resolve(__dirname, 'fixtures/jobright');
 
-/** Same mapping as the desktop app's mock mode (electron/main.ts → mockSite). */
 export function pageFor(url: string): string {
   const u = new URL(url);
   const h = u.hostname;
@@ -33,7 +25,6 @@ export function pageFor(url: string): string {
 
 const realSleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
-/** jsdom has no DataTransfer: attach a File the way Chrome's input.files would expose it. */
 export const browserlikeUploadDeps: UploadDeps = {
   sleep: realSleep,
   setFiles: (input, file) => {
@@ -50,7 +41,6 @@ export class FakeBrowser {
   url = '';
   history: string[] = [];
   ctl!: ContentController;
-  /** The page's own `window` additions (window.__submitted, …). */
   page: Record<string, unknown> = {};
   loads = 0;
 
@@ -107,7 +97,6 @@ export class FakeBrowser {
     });
   }
 
-  /** What the desktop app does with a new tab from Jobright: its address (now, or once set) loads here. */
   open(to?: string): unknown {
     this.opened.push(to ?? '');
     if (to && !/^about:blank/i.test(to)) {

@@ -1,4 +1,3 @@
-/** Inline SVG icons (no external assets — keeps the strict CSP simple). */
 const PATHS: Record<string, string> = {
   building: 'M3 14V3.5a.5.5 0 0 1 .5-.5h6a.5.5 0 0 1 .5.5V14M10 6.5h2.5a.5.5 0 0 1 .5.5V14M2 14h12M5.5 5.5h2M5.5 8h2M5.5 10.5h2',
   pin: 'M8 14s4.5-4.2 4.5-7.5a4.5 4.5 0 0 0-9 0C3.5 9.8 8 14 8 14zM8 8.2a1.7 1.7 0 1 0 0-3.4 1.7 1.7 0 0 0 0 3.4z',
@@ -65,7 +64,6 @@ export function Icon({ name, size = 16, title, className }: { name: IconName; si
   );
 }
 
-/** App mark / tray-sized icon (teal rounded square with the ApplyFlow “A”). */
 export function AppMark({ size = 18 }: { size?: number }) {
   return (
     <img
@@ -80,7 +78,6 @@ export function AppMark({ size = 18 }: { size?: number }) {
   );
 }
 
-/** Full wordmark for the application header / navigation rail. */
 export function BrandLogo({ height = 44, title = 'ApplyFlow' }: { height?: number; title?: string }) {
   return (
     <img

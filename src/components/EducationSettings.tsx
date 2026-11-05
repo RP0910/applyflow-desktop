@@ -4,11 +4,6 @@ import { builderFromParsed, builderProblems, emptyEducation } from '@/services/r
 import type { BuilderEducation } from '@/types';
 import { Icon } from './Icon';
 
-/**
- * Profile settings → Education. Edits the university / school entries of the candidate setup (the default
- * master resume). Education is never written by Claude: these entries are placed on every tailored
- * resume exactly as typed.
- */
 export function EducationSettings({ lib }: { lib: LibraryController }) {
   const existing = lib.resumes.find((r) => r.isDefault) ?? lib.resumes[0];
   const load = (): BuilderEducation[] => {

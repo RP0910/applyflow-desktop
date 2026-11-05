@@ -1,7 +1,3 @@
-/**
- * Tiny cross-page data bus. The side panel and the workspace are separate extension
- * pages; a write in one must refresh the other (e.g. "Applied" shows up in history at once).
- */
 export type DataTopic = 'applications' | 'resumes' | 'profile' | 'sessions';
 
 const channel: BroadcastChannel | null = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('applyflow-data') : null;
@@ -11,9 +7,7 @@ export function emitChange(topic: DataTopic): void {
   try {
     channel?.postMessage(topic);
   } catch {
-    /* channel closed */
   }
-  // BroadcastChannel doesn't echo to the sender, so notify same-page listeners directly.
   local.forEach((l) => l(topic));
 }
 

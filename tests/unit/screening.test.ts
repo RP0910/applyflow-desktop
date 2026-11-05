@@ -52,7 +52,7 @@ describe('screening question matching', () => {
     const a = canonicalizeQuestion('How did you hear about this job?');
     const b = canonicalizeQuestion('How did you learn about this role?');
     expect(a).toContain('hear_about');
-    expect(b).toContain('hear_about'); // learn about → same canonical phrase
+    expect(b).toContain('hear_about');
     expect(questionSimilarity('How did you hear about this job?', 'How did you learn about this role?')).toBeGreaterThan(0.4);
   });
 

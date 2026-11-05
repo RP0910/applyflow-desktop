@@ -13,12 +13,10 @@ export type WorkflowStep =
   | 'confirm'
   | 'submitted';
 
-/** Everything ApplyFlow knows about one job, persisted so a multi-page Dice application can resume where it left off. */
 export interface JobSession {
   jobKey: string;
   job: JobPosting;
   extraction: Pick<ExtractionResult, 'confidence' | 'sources' | 'uncertain' | 'warnings'>;
-  /** User acknowledged the extracted details are correct (or edited them). */
   jobConfirmed: boolean;
   resumeId: string | null;
   analysis: JobAnalysis | null;
@@ -27,15 +25,11 @@ export interface JobSession {
   tailoredScore: MatchScore | null;
   resume: TailoredResume | null;
   coverLetter: CoverLetter | null;
-  /** ATS engine: job keywords and plan, and scans of the master and tailored resumes. */
   atsPlan?: AtsPlan | null;
   atsMaster?: AtsReport | null;
   atsTailored?: AtsReport | null;
-  /** What an ATS-style reader recovered from the exported PDF. */
   atsParse?: ParseCheck | null;
-  /** masterStamp() of the master resume the tailored documents were written from. */
   documentsFrom?: string;
-  /** Documents already saved to Downloads (resume/cover-letter versions and folder). */
   savedDocs?: { stamp: string; folder: string } | null;
   resumeReviewed: boolean;
   coverLetterReviewed: boolean;

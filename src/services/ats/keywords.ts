@@ -1,15 +1,9 @@
-/**
- * Job keyword extraction for the ATS engine. Deterministic and explainable: every keyword
- * comes from the posting's own words — its title, skill tags, technologies, acronyms,
- * requirement lists, repeated phrases, soft skills, degree and certifications.
- */
 import type { AtsKeyword, JobAnalysis, JobPosting, KeywordKind } from '@/types';
 import { findSkillMentions, findSoftSkills, canonicalSkill } from '@/services/skills/extract';
 import { SKILL_BY_NAME, SOFT_SKILLS } from '@/services/skills/taxonomy';
 import { withoutContacts } from '@/utils/contacts';
 import { acronymPairs, countForm, sameKeyword, synonymsOf, termKey } from './terms';
 
-/** Capitalized tokens that aren't skills: places, HR and legal words, pay types, filler. */
 export const STOP_TOKENS = new Set(
   (
     'US USA U.S. EEO EOE EEOC PTO W2 W-2 C2C C2H H1B H-1B GC USC NA N/A OR AND THE IT HR CEO CTO CIO CFO COO VP SVP EVP II III IV LLC INC LTD AM PM ' +
@@ -19,7 +13,6 @@ export const STOP_TOKENS = new Set(
   ).split(/\s+/),
 );
 
-/** Lowercase words that make a phrase generic ("strong experience", "team members"). */
 const GENERIC = new Set(
   (
     'a an the and or of for to in on at by with from as is are be will you your we our us they their this that these those it its our ' +
@@ -34,7 +27,6 @@ const GENERIC = new Set(
 
 const SENIORITY = /\b(senior|sr\.?|junior|jr\.?|lead|staff|principal|chief|associate|entry[- ]level|mid[- ]level|intern|i{1,3}|iv|[123])\b\.?/gi;
 
-/** "Senior Video Playback Engineer - Remote (W2)" → "Senior Video Playback Engineer". */
 export function cleanJobTitle(title: string): string {
   return title
     .replace(/\(([^)]*)\)/g, (m, inner: string) => (/remote|hybrid|on-?site|w-?2|c2c|contract|full|part|\d|[A-Z]{2}\b/i.test(inner) ? ' ' : m))
@@ -45,14 +37,12 @@ export function cleanJobTitle(title: string): string {
     .trim();
 }
 
-/** The job title without seniority words: "Senior Video Playback Engineer" → "Video Playback Engineer". */
 export function coreTitle(title: string): string {
   return cleanJobTitle(title).replace(SENIORITY, ' ').replace(/\s{2,}/g, ' ').replace(/^[\s,-]+|[\s,-]+$/g, '').trim();
 }
 
 interface Draft {
   term: string;
-  /** Taxonomy skill this keyword came from, when it did. */
   canon?: string;
   forms: Set<string>;
   kind: KeywordKind;
@@ -73,7 +63,6 @@ function weightOf(d: Draft): number {
   return Math.round((base + freq + (d.inTitle ? 1 : 0)) * 10) / 10;
 }
 
-/** Requirement lists: "experience with Roku, Samsung Tizen and LG webOS" → items. */
 function listItems(line: string): string[] {
   const out: string[] = [];
   const grabs = [
@@ -82,13 +71,11 @@ function listItems(line: string): string[] {
     ...Array.from(line.matchAll(/\b(?:such as|including|like)\s+([^.;:]+)/gi)).map((m) => m[1]!),
   ];
   for (const g of grabs) {
-    // "CSAI/SSAI" and "AVFoundation/AVPlayer" are two items; "CI/CD", "TCP/IP" and "UI/UX" stay one.
     const pieces = g.split(/,|;|\s+(?:and|or|and\/or)\s+|\s\/\s/).flatMap((x) => (/^\s*[\w.+#-]{3,}\/[\w.+#-]{3,}\s*$/.test(x) ? x.split('/') : [x]));
     for (const raw of pieces) {
       const item = raw.replace(/^(?:and|or|the|a|an|modern|common|popular|major|other|similar|related|various)\s+/i, '').replace(/\s+(?:etc\.?|or similar|or equivalent|frameworks?|platforms?|tools?)$/i, '').trim();
       const words = item.split(/\s+/);
       if (!item || words.length > 4 || item.length < 2 || item.length > 40) continue;
-      // Every word looks like a product or technology name.
       if (!words.every((w) => /^(?:[A-Z0-9][\w.+#/-]*|[a-z]+[A-Z][\w.+#-]*|\.NET|of|and|for)$/.test(w))) continue;
       if (words.every((w) => GENERIC.has(w.toLowerCase()))) continue;
       out.push(item);
@@ -107,17 +94,14 @@ function requirementText(job: JobPosting): string {
 
 const VENDOR = /^(?:google|amazon|aws|microsoft|apache|ibm|oracle|adobe|meta|elastic)\s+/i;
 
-/** "Google Vertex AI" = "Vertex AI", "Amazon EKS" = "EKS", "Apache Kafka" = "Kafka". */
 function vendorVariant(a: string, b: string): boolean {
   const strip = (x: string) => x.replace(VENDOR, '').trim().toLowerCase();
   return strip(a) === strip(b) && strip(a).length >= 2;
 }
 
-/** Lines about eligibility, not skills ("authorized to work in the United States"). */
 const NOT_SKILL_LINE = /\b(authori[sz]|sponsor|citizen|green card|visa|clearance|equal opportunity|eeo|disabilit|veteran|background check|drug|benefits?|salary|compensation|401k|pto|relocat)/i;
 const PLACE_ONLY = new RegExp(`^(?:the\\s+)?(?:${'United States|USA|US|U\\.S\\.|Canada|India|Europe|North America|EMEA|APAC|LATAM|[A-Z][a-z]+,\\s*[A-Z]{2}'})$`);
 
-/** Occurrences of `token` in `text` that are not part of a longer keyword already found. */
 function freeOccurrences(text: string, token: string, longer: string[]): number {
   let masked = text;
   for (const f of longer.filter((x) => x.length > token.length && x.toLowerCase().includes(token.toLowerCase())).sort((a, b) => b.length - a.length)) {
@@ -127,7 +111,6 @@ function freeOccurrences(text: string, token: string, longer: string[]): number 
 }
 
 export function extractJobKeywords(job: JobPosting, analysis?: Pick<JobAnalysis, 'requiredSkills' | 'preferredSkills' | 'resumeKeywords'> | null): AtsKeyword[] {
-  // Recruiter phone numbers, emails and links in a posting are never keywords ("(312)" is not a skill).
   const description = withoutContacts(job.description || '');
   job = { ...job, description };
   const reqText = requirementText(job);
@@ -163,35 +146,26 @@ export function extractJobKeywords(job: JobPosting, analysis?: Pick<JobAnalysis,
     drafts.push({ term: t, forms: new Set(all), kind, importance, jobCount, inTitle: all.some((f) => countForm(job.title, f) > 0) });
   };
 
-  // 1. The job title — the single most-weighted ATS keyword.
   if (title) {
     const core = coreTitle(title);
     drafts.push({ term: title, forms: new Set([title, ...(core && core !== title ? [core] : [])]), kind: 'title', importance: 'required', jobCount: 1, inTitle: true });
   }
 
-  // 2. Known skills and technologies, keeping the posting's own spelling.
-  // Only the posting's own text: Dice's skill tags arrive under taxonomy names, not the job's wording.
   for (const m of findSkillMentions(`${job.title}\n${description}`)) {
     const def = SKILL_BY_NAME.get(m.name.toLowerCase());
     const surfaces = Array.from(m.surfaces.entries()).sort((a, b) => b[1] - a[1]);
     const lowerName = m.name.toLowerCase();
-    // Spellings of the skill itself merge ("Shaka" into "Shaka Player", "playback" into "Video Playback");
-    // distinct products under an umbrella ("Jenkins" under CI/CD, "Akamai" under CDN) stay separate keywords.
     const isSame = (s: string) => {
       const l = s.toLowerCase();
       if (sameKeyword(s, m.name) || termKey(s) === termKey(m.name)) return true;
-      // A part of the name ("Shaka" of "Shaka Player") is the same thing; a longer, more specific
-      // name ("Roku SceneGraph" vs "Roku") is not — a platform doesn't prove its framework.
       if (lowerName.includes(l)) return true;
       if (l.includes(lowerName) && l !== lowerName) return false;
       const productLike = /[A-Z0-9.+#]/.test(s) && s !== s.toLowerCase();
       return !productLike;
     };
     const same = surfaces.filter(([s]) => isSame(s));
-    // "SceneGraph" found inside "Roku SceneGraph" belongs with it.
     const members = surfaces.filter(([s]) => !isSame(s) && !same.some(([x]) => x.toLowerCase().includes(s.toLowerCase())));
     for (const [s, n] of surfaces) if (!isSame(s) && same.some(([x]) => x.toLowerCase().includes(s.toLowerCase()))) same.push([s, n]);
-    // A member that contains or is contained in another member is one keyword ("Roku SceneGraph" / "SceneGraph").
     const memberGroups: [string, number][][] = [];
     for (const mem of members) {
       const g = memberGroups.find((grp) => grp.some(([x]) => x.toLowerCase().includes(mem[0].toLowerCase()) || mem[0].toLowerCase().includes(x.toLowerCase())));
@@ -199,7 +173,6 @@ export function extractJobKeywords(job: JobPosting, analysis?: Pick<JobAnalysis,
       else memberGroups.push([mem]);
     }
     if (same.length) {
-      // The fullest spelling the job uses ("Samsung Tizen" over "Tizen").
       const surface = [...same].filter(([s]) => s !== s.toLowerCase()).sort((x, y) => y[0].length - x[0].length)[0]?.[0] ?? same[0]![0];
       const term = surface === surface.toLowerCase() ? m.name : surface;
       add(term, 'hard', importanceFor(m.name, surface), [m.name, ...same.map(([s]) => s)]);
@@ -212,13 +185,10 @@ export function extractJobKeywords(job: JobPosting, analysis?: Pick<JobAnalysis,
       add(longest, 'hard', importanceFor(m.name, longest), grp.map(([s]) => s));
     }
   }
-  // 3. Dice skill tags not already found in the text ("Video Streaming"). Tags arrive under their
-  // taxonomy name ("Amazon EKS"), so a tag the posting already spells its own way ("EKS") is skipped.
   const hasCanon = (tag: string) => drafts.some((d) => d.canon && d.canon.toLowerCase() === canonicalSkill(tag).toLowerCase());
   for (const tag of job.requiredSkills) if (!hasCanon(tag)) add(tag, 'hard', 'required');
   for (const tag of job.preferredSkills) if (!hasCanon(tag)) add(tag, 'hard', 'preferred');
 
-  // 4. Acronyms and technology-shaped tokens (ExoPlayer, AVFoundation, Media3, QoE, H.264).
   const tokenCounts = new Map<string, number>();
   for (const m of description.matchAll(TECH_TOKEN)) {
     const tok = m[1]!;
@@ -228,12 +198,10 @@ export function extractJobKeywords(job: JobPosting, analysis?: Pick<JobAnalysis,
   const knownForms = () => drafts.flatMap((d) => Array.from(d.forms));
   for (const [tok, n] of tokenCounts) {
     if (n < 2 && !countForm(reqText, tok)) continue;
-    // "TV" inside "Fire TV", "MPEG" inside "MPEG-DASH" — not keywords of their own.
     if (!freeOccurrences(`${job.title}\n${description}`, tok, knownForms())) continue;
     add(tok, 'hard', importanceFor(tok, tok));
   }
 
-  // 5. Items in requirement lists.
   for (const line of [...job.qualifications, ...job.responsibilities, ...description.split('\n')]) {
     if (NOT_SKILL_LINE.test(line)) continue;
     for (const item of listItems(line)) {
@@ -243,7 +211,6 @@ export function extractJobKeywords(job: JobPosting, analysis?: Pick<JobAnalysis,
     }
   }
 
-  // 6. Acronym ↔ expansion pairs written in the posting ("Quality of Experience (QoE)").
   for (const [long, short] of acronymPairs(description)) {
     const d = drafts.find((x) => sameKeyword(x.term, short) || sameKeyword(x.term, long));
     if (d) {
@@ -252,7 +219,6 @@ export function extractJobKeywords(job: JobPosting, analysis?: Pick<JobAnalysis,
     } else add(short, 'hard', importanceFor(short, short), [long]);
   }
 
-  // 7. Repeated domain phrases ("video playback", "player sdk").
   const phraseCounts = new Map<string, number>();
   for (const sentence of description.toLowerCase().split(/[.\n;:!?()•]+/)) {
     const words = sentence.split(/[^a-z0-9+#-]+/).filter(Boolean);
@@ -273,18 +239,15 @@ export function extractJobKeywords(job: JobPosting, analysis?: Pick<JobAnalysis,
     .sort((a, b) => b[1] * b[0].length - a[1] * a[0].length)
     .slice(0, 8);
   for (const [p, n] of phrases) {
-    // Drop a 2-word phrase that only appears inside a kept 3-word one.
     if (phrases.some(([q, m]) => q !== p && q.includes(p) && m >= n)) continue;
     add(p, 'domain', titleLower.includes(p) ? 'required' : 'mentioned');
   }
 
-  // 8. Soft skills.
   for (const s of findSoftSkills(description)) {
     const def = SOFT_SKILLS.find((x) => x.name === s)!;
     drafts.push({ term: s, forms: new Set([s, ...def.aliases]), kind: 'soft', importance: 'mentioned', jobCount: 1, inTitle: false });
   }
 
-  // 9. Degree and field.
   const edu = job.educationRequirements.join(' ') || (description.match(/[^.\n]*\b(?:bachelor|master|ph\.?d|degree)\b[^.\n]*/i)?.[0] ?? '');
   if (edu) {
     const req = /\b(required|must|minimum)\b/i.test(edu) && !/\bor equivalent experience\b/i.test(edu) ? 'required' : 'preferred';
@@ -295,7 +258,6 @@ export function extractJobKeywords(job: JobPosting, analysis?: Pick<JobAnalysis,
     if (field) drafts.push({ term: field.replace(/\b\w/g, (c) => c.toUpperCase()), forms: new Set([field]), kind: 'education', importance: req, jobCount: 1, inTitle: false });
   }
 
-  // 10. Certifications.
   for (const m of description.matchAll(CERT_RE)) add(m[1]!, 'certification', /\brequired|must\b/i.test(description.slice(Math.max(0, m.index! - 80), m.index! + 120)) ? 'required' : 'preferred');
 
   const out: AtsKeyword[] = drafts.map((d) => ({
@@ -308,7 +270,6 @@ export function extractJobKeywords(job: JobPosting, analysis?: Pick<JobAnalysis,
   }));
   const byWeight = (a: AtsKeyword, b: AtsKeyword) => b.weight - a.weight || b.jobCount - a.jobCount;
   const titleKw = out.filter((k) => k.kind === 'title');
-  // Keep room for "preferred" skills even when the posting lists many required ones.
   const tech = out.filter((k) => k.kind === 'hard' || k.kind === 'domain').sort(byWeight);
   const technical = [...tech.filter((k) => k.importance !== 'preferred').slice(0, 70), ...tech.filter((k) => k.importance === 'preferred').slice(0, 15)].sort(byWeight);
   const other = out.filter((k) => k.kind === 'soft' || k.kind === 'education' || k.kind === 'certification').sort(byWeight);

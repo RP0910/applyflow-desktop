@@ -1,8 +1,4 @@
 // @vitest-environment node
-/**
- * The ATS resume engine end to end on a two-column FlowCV-style resume and a video playback
- * job: keywords, plan, truthfulness, Claude draft + refine (mocked), export and parse test.
- */
 import { beforeAll, describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -60,11 +56,9 @@ describe('job keywords', () => {
     expect(kws[0]).toMatchObject({ term: 'Senior Video Playback Engineer', kind: 'title', weight: 6 });
     for (const t of ['HLS', 'MPEG-DASH', 'DRM', 'ExoPlayer', 'AVFoundation', 'Kubernetes', 'Samsung Tizen', 'LG webOS', 'Microservices', 'Distributed Systems']) expect(terms).toContain(t);
     expect(terms.some((t) => /^LLMs?$/.test(t))).toBe(true);
-    // Fragments of longer keywords are not keywords of their own.
     for (const t of ['TV', 'MPEG', 'Shaka', 'SceneGraph', 'Tizen']) expect(terms).not.toContain(t);
     expect(kws.find((k) => k.kind === 'education')?.term).toBe('Bachelor’s degree');
     expect(kws.some((k) => k.kind === 'soft')).toBe(true);
-    // Required-section skills outweigh preferred ones.
     const preferred = kws.filter((k) => k.importance === 'preferred' && k.kind === 'hard');
     expect(preferred.length).toBeGreaterThan(0);
     expect(kws.find((k) => k.term === 'HLS')!.weight).toBeGreaterThan(Math.max(...preferred.map((k) => k.weight)));
@@ -80,7 +74,6 @@ describe('ATS plan', () => {
     expect(support('Microservices')).not.toBe('supported');
     expect(support('Distributed Systems')).toBe('missing');
     expect(p.keywords.find((k) => /^LLMs?$/.test(k.term))!.support).toBe('missing');
-    // Kubernetes is only proven at Signalwave, so it may only be placed in that job.
     const k8s = p.keywords.find((k) => k.term === 'Kubernetes')!;
     expect(k8s.placements).toContain(`exp:${master.parsed.experience[1]!.id}`);
     expect(k8s.placements).not.toContain(`exp:${master.parsed.experience[0]!.id}`);
@@ -121,7 +114,6 @@ describe('ATS scan', () => {
 
 const ids = () => master.parsed.experience.map((e) => e.id);
 
-/** A plausible Claude draft with the mistakes models make: banned skills, moved skills, inflated years, a dropped job. */
 function badDraft(): TailorResumeReply {
   const [a, b, , d] = ids();
   return {
@@ -165,7 +157,6 @@ function badDraft(): TailorResumeReply {
   };
 }
 
-/** The 2.0 compact reply for a draft written in the 1.x shape (job ids pass through unchanged). */
 function asApplication(r: TailorResumeReply) {
   return {
     headline: r.headline,
@@ -208,19 +199,17 @@ describe('Claude draft → verified resume', () => {
     const { r } = await tailor(badDraft(), undefined, { atsRefinePass: false });
     const t = r.resume;
     expect(t.experience.map((e) => e.company)).toEqual(['Lumenstream', 'Signalwave Media', 'Northbeam Video Inc', 'Hanbit Apps']);
-    expect(t.experience[2]!.bullets.length).toBeGreaterThanOrEqual(2); // the dropped job is restored with its own bullets
+    expect(t.experience[2]!.bullets.length).toBeGreaterThanOrEqual(2);
     expect(t.issues.filter((i) => i.severity === 'critical')).toEqual([]);
     const all = resumeToText(t);
     expect(all).not.toMatch(/Microservices|microservices|\bLLM|AI agents|Roku/);
     expect(t.summary).toMatch(/11\+ years/);
     expect(t.summary).not.toMatch(/15\+/);
-    // Kubernetes was proven at Signalwave, not Lumenstream: it stays there and leaves Lumenstream.
     expect(t.experience[0]!.bullets.join(' ')).not.toMatch(/Kubernetes/);
     expect(t.experience[0]!.technologies).not.toContain('Kubernetes');
     expect(t.experience[1]!.bullets.join(' ')).toMatch(/Kubernetes/);
     expect(t.additional).toEqual([]);
     expect(t.headline.startsWith('Senior Video Playback Engineer')).toBe(true);
-    // Every supported hard keyword is on the resume, in the job's spelling.
     for (const k of r.atsPlan.keywords.filter((x) => x.support === 'supported' && x.kind === 'hard')) {
       expect(r.atsTailored.keywords.find((x) => x.term === k.term)!.found).not.toBe('missing');
     }
@@ -362,7 +351,6 @@ describe('review findings (v1.3 hardening)', () => {
   it('keeps every required keyword of a long posting (no cap drops skills you have)', () => {
     const terms = extractJobKeywords(job, analyzeJobLocally(job, master)).map((k) => k.term);
     for (const t of ['CSAI', 'SSAI', 'VAST', 'VMAP', 'Google IMA SDK', 'iOS', 'Technical Leadership']) expect(terms).toContain(t);
-    // Product pairs are split, and the company name is never a keyword.
     expect(terms.some((t) => t.includes('/') && !/^(?:CI\/CD|TCP\/IP|UI\/UX)$/i.test(t))).toBe(false);
     expect(terms.some((t) => /arcadia/i.test(t))).toBe(false);
   });

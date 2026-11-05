@@ -1,12 +1,3 @@
-/**
- * Greenhouse — boards.greenhouse.io (classic), job-boards.greenhouse.io (2024 redesign) and the
- * "embed/job_app" form that company careers pages show in a frame.
- *   Classic:   form#application_form · #first_name #last_name #email #phone · resume/cover letter
- *              "Attach" fields · questions job_application[answers_attributes]… · #submit_app
- *   Redesign:  form#application-form · same ids · #country and #candidate-location are comboboxes ·
- *              input#resume / #cover_letter (visually hidden) · "Submit application"
- * Closed jobs redirect to the board with ?error=true ("The job you are looking for is no longer open").
- */
 import type { JobSiteAdapter } from '../types';
 import { visibleText } from '../dom';
 import { ATS_SUCCESS_PATTERNS, atsDocumentLocator, atsForms, findApplyButton, findAtsSubmit, findForm, statusBlocker, visibleCaptcha } from './common';
@@ -32,7 +23,6 @@ export const greenhouseAdapter: JobSiteAdapter = {
     }
   },
   findApplyControl: (doc) => {
-    // The form is on the same page; "Apply" only scrolls to it.
     const el = findApplyButton(doc, /^(apply|apply now|apply for this job|apply to this job)$/i);
     return el ? { element: el, label: visibleText(el, 60) || 'Apply', external: false } : null;
   },

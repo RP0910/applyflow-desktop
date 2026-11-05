@@ -1,8 +1,3 @@
-/**
- * The panel's main screen, laid out like Dice's own application: the job ("You're applying for"),
- * a progress bar with "Step N of 5", one card per thing that needs you, and a review that mirrors
- * Dice's "Review your application" cards. Details live behind links.
- */
 import { useState } from 'react';
 import type { FieldProposal, MatchScore, Settings } from '@/types';
 import type { LibraryController } from '@/hooks/useLibrary';
@@ -29,7 +24,6 @@ function ScoreBadge({ score, onOpen }: { score: MatchScore; onOpen: () => void }
   );
 }
 
-/** Dice's round outlined icon button (the edit buttons on its review cards). */
 function RoundButton({ icon, label, onClick }: { icon: IconName; label: string; onClick: () => void }) {
   return (
     <button type="button" className="round-btn" onClick={onClick} aria-label={label} title={label}>
@@ -165,7 +159,6 @@ function Progress({ wf }: { wf: Workflow }) {
   );
 }
 
-/** "Copy page details" — a privacy-safe outline of the Dice page for reporting a layout change. */
 function CopyPageDetails({ wf }: { wf: Workflow }) {
   const [state, setState] = useState<'idle' | 'copied' | 'shown'>('idle');
   const [text, setText] = useState('');
@@ -329,7 +322,6 @@ function Questions({ wf }: { wf: Workflow }) {
   );
 }
 
-/** Mirrors Dice's "Review your application" cards. */
 function Review({ wf }: { wf: Workflow }) {
   const s = wf.session!;
   const r = wf.run;

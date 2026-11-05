@@ -8,7 +8,6 @@ const GROUPS: { status: EvidenceStatus; title: string; marker: string }[] = [
   { status: 'strong', title: 'Strong evidence', marker: 'marker-strong' },
 ];
 
-/** Missing requirements are listed first and never collapsed away. */
 export function SkillEvidenceList({ evidence }: { evidence: SkillEvidence[] }) {
   if (!evidence.length) return <p className="muted">Add a master resume to compare your experience with this job.</p>;
   return (

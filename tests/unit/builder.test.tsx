@@ -87,7 +87,6 @@ describe('resume form screen', () => {
     await u.type(screen.getByLabelText('Phone'), '555 010 2000');
     await u.type(screen.getByLabelText('Email'), 'riley@example.com');
     await u.click(screen.getByRole('button', { name: 'Save resume' }));
-    // Nothing is saved until a real job is entered.
     expect(await screen.findByText('Add at least one job.')).toBeInTheDocument();
     await u.type(screen.getByLabelText('Company'), 'Acme Media');
     await u.type(screen.getByLabelText('Your job title'), 'Player Engineer');

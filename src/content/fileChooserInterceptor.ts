@@ -1,11 +1,3 @@
-/**
- * File-chooser interception, installed in the page's own JavaScript world on dice.com
- * (see mainWorld.ts). Dice opens its file chooser by calling `input.click()` on a hidden
- * or freshly created <input type=file>. While — and only while — ApplyFlow's content script
- * has set <html data-applyflow-intercept="1"> for an upload it started, that call marks the
- * input for ApplyFlow instead of opening the operating system's chooser. At every other
- * moment the original behavior is untouched. Nothing is read or sent anywhere.
- */
 export const INTERCEPT_ATTR = 'data-applyflow-intercept';
 export const CAPTURED_ATTR = 'data-applyflow-file-target';
 const INSTALLED = '__applyflowFileChooser';
@@ -18,7 +10,6 @@ function active(input: HTMLInputElement): boolean {
 
 function capture(input: HTMLInputElement): void {
   input.setAttribute(CAPTURED_ATTR, String(Date.now()));
-  // Inputs created on the fly and never attached must be reachable from the content script.
   if (!input.isConnected) {
     input.style.display = 'none';
     input.ownerDocument.body.appendChild(input);

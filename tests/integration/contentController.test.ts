@@ -22,7 +22,6 @@ describe('content script: page detection', () => {
   it('reports job pages, application pages and unsupported pages', () => {
     expect(diceTab('job-detail-jsonld.html', JOB_URL).ctl.pageState()).toMatchObject({ pageType: 'job-detail', jobKey: 'dice:3f9a1c2e-7b4d-4e8a-9c1f-2d6b8e0a5c71', hasApplicationForm: false });
     expect(diceTab('apply-questions.html', APPLY_URL).ctl.pageState()).toMatchObject({ pageType: 'application', hasApplicationForm: true });
-    // Other sites get best-effort employer-site support: a job page there (no application form) is just "other".
     expect(diceTab('job-detail-jsonld.html', 'https://example.com/job-detail/1').ctl.pageState()).toMatchObject({ pageType: 'other', site: 'generic', hasApplicationForm: false });
     expect(diceTab('job-detail-jsonld.html', 'http://example.com/job-detail/1').ctl.pageState().pageType).toBe('unsupported');
   });

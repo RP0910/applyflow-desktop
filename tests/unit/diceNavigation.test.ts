@@ -1,4 +1,3 @@
-/** Getting back to the Dice job search after applying (built-in browser history). */
 import { describe, expect, it, vi } from 'vitest';
 import { backTargetIndex, isDiceApplicationUrl, isDiceSearchUrl, searchIndex } from '@/services/platforms/dice/navigation';
 import { SUCCESS_PATTERNS } from '@/services/platforms/dice/selectors';
@@ -27,9 +26,9 @@ describe('Back and Search results', () => {
   it('Back leaves all application pages in one step, landing on the job', () => {
     expect(backTargetIndex(history, 4)).toBe(1);
     expect(backTargetIndex(history, 2)).toBe(1);
-    expect(backTargetIndex(history, 1)).toBe(0); // ordinary pages: one step
+    expect(backTargetIndex(history, 1)).toBe(0);
     expect(backTargetIndex(history, 0)).toBe(-1);
-    expect(backTargetIndex([WIZ, DONE], 1)).toBe(-1); // opened straight into the wizard: nowhere behind it
+    expect(backTargetIndex([WIZ, DONE], 1)).toBe(-1);
   });
   it('finds the latest search results behind the current page', () => {
     expect(searchIndex(history, 4)).toBe(0);

@@ -1,4 +1,3 @@
-/** A PDF drawn page by page with pdf.js (works offline, no browser PDF plugin needed). */
 import { useEffect, useRef, useState } from 'react';
 
 export function PdfFrame({ bytes, title, height = 700 }: { bytes: Uint8Array; title: string; height?: number }) {
@@ -47,7 +46,6 @@ export function PdfFrame({ bytes, title, height = 700 }: { bytes: Uint8Array; ti
     })();
     return () => {
       cancelled = true;
-      // Each document has its own pdf.js worker; free it when the preview changes.
       void task?.destroy().catch(() => undefined);
     };
   }, [bytes, title]);

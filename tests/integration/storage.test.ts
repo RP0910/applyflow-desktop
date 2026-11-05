@@ -20,7 +20,6 @@ describe('settings and API key storage', () => {
     const { storageSet } = await import('@/storage/chromeStorage');
     await storageSet('applyflow.settings.v1', { schema: 2, engine: 'claude', atsRefinePass: true, resumeFormat: { font: 'calibri' } });
     const s = await getSettings();
-    // 2.0: the refine pass (a second full request) is opt-in.
     expect(s.atsRefinePass).toBe(false);
     expect(s.promptCache).toBe('5m');
     expect(s.resumeFormat).toEqual({ font: 'calibri', bodySize: 10.5, dateStyle: 'mon_yyyy', showJobTechnologies: true, margins: 'normal', template: 'classic', accentColor: '#007595' });
@@ -97,7 +96,6 @@ describe('resumes imported by an older version', () => {
     ].join('\n');
     const fresh = buildMasterResume('FlowCV resume', glued, 'pdf', 'resume.pdf');
     const skill = fresh.facts.find((f) => f.kind === 'skill' && f.text === 'Kubernetes')!;
-    // What v1.1 stored: one job, no reader version, and a fact the user excluded.
     await saveResume({
       ...fresh,
       parserVersion: undefined,

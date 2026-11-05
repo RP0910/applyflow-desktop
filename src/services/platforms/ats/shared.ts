@@ -1,6 +1,5 @@
 import type { ExtractionResult } from '@/types';
 
-/** Employer sites are where you apply, not where ApplyFlow reads the job (that's Dice or Jobright). */
 export const notAJobPage = (name: string) => (): ExtractionResult => ({
   ok: false,
   job: null,

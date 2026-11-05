@@ -1,8 +1,3 @@
-/**
- * Resume generation through a signed-in Claude.ai chat.
- * The prompt is the same CV Generate / company-research text the API sends.
- * The reply is parsed and validated before PDF Studio ever sees it.
- */
 import type { Settings } from '@/types';
 import type { CompanyResearchReply } from '@/prompts/companyResearch';
 import { COMPANY_RESEARCH_SYSTEM, companyResearchUser, researchPeriods, validateCompanyResearch } from '@/prompts/companyResearch';
@@ -28,7 +23,6 @@ export interface ChatResumeDeps {
   chatComplete?: (req: ChatCompleteRequest) => Promise<{ text: string; model: string }>;
 }
 
-/** Sidebar-visible chat name: company, then role. */
 export function claudeChatTitle(company: unknown, role: unknown): string {
   const one = (value: unknown, fallback: string) => {
     const text = typeof value === 'string' ? value.replace(/[\u0000-\u001f]+/g, ' ').replace(/\s+/g, ' ').trim() : '';
@@ -43,12 +37,11 @@ export function buildClaudeChatPrompt(system: string, user: string): string {
   return `${system.trim()}\n\n${user.trim()}\n\nReply with one JSON object only. No markdown fences and no text before or after the JSON.`;
 }
 
-/** Last complete top-level JSON object, preferring a resume or company-research payload. */
 export function parseClaudeChatJson<T>(text: string): T {
   const objects = topLevelJsonObjects(text);
   const parsed: unknown[] = [];
   for (const raw of objects) {
-    try { parsed.push(JSON.parse(raw) as unknown); } catch { /* keep scanning */ }
+    try { parsed.push(JSON.parse(raw) as unknown); } catch {  }
   }
   const picked = pickPayload(parsed);
   if (picked !== undefined) return picked as T;

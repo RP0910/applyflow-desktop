@@ -3,19 +3,15 @@ import { onStorageChange, storageGet, storageRemove, storageSet } from './chrome
 import { bridge } from '@/platform/bridge';
 
 const SETTINGS_KEY = 'applyflow.settings.v1';
-/** Kept separate from settings so the key is never serialized with them, exported, or sent to a page. */
 const API_KEY_SLOT = 'applyflow.secret.anthropicApiKey';
 
 const SCHEMA = 3;
 
-/** One-time upgrades for settings saved by older versions. */
 export function migrateSettings(stored: Partial<Settings> & { schema?: number }): Partial<Settings> & { schema: number } {
   if ((stored.schema ?? 1) >= SCHEMA) return stored as Partial<Settings> & { schema: number };
   const from = stored.schema ?? 1;
   const next = { ...stored, schema: SCHEMA };
-  // 2.0: one Claude request per job. The refine pass (a second full request) becomes opt-in.
   if (from < 3) next.atsRefinePass = false;
-  // v1.0 used 8,000 tokens, which thinking can exhaust before the answer is written.
   if (typeof next.maxOutputTokens === 'number' && next.maxOutputTokens < 16000) next.maxOutputTokens = 16000;
   return next;
 }
@@ -31,7 +27,6 @@ export async function getSettings(): Promise<Settings> {
 
 export async function saveSettings(patch: Partial<Settings>): Promise<Settings> {
   const next = { ...(await getSettings()), ...patch };
-  // Defensive: never allow a secret to ride along in settings.
   delete (next as Record<string, unknown>).apiKey;
   await storageSet(SETTINGS_KEY, { ...next, schema: SCHEMA });
   return next;
@@ -61,7 +56,6 @@ export async function setApiKey(key: string): Promise<void> {
   const trimmed = key.trim();
   if (!trimmed) throw new Error('The API key is empty.');
   const b = bridge();
-  // Desktop: encrypted with the operating system's keychain (Windows DPAPI) — never stored in plain text.
   if (b) {
     await b.invoke('secret.set', trimmed);
     keyListeners.forEach((l) => l(true));

@@ -1,13 +1,3 @@
-/**
- * ApplyFlow's resume renderer — a plain program, no AI.
- *
- *   resume JSON (applyflow.resume/1) ──► PDF (pdf-lib, embedded open fonts, real text)
- *                                    ├─► DOCX (Word, real Office font names)
- *                                    └─► TXT / Markdown
- *
- * Used by the app for every tailored resume, by PDF Studio, and by the command-line tool
- * (scripts/applyflow-render.mjs).
- */
 import type { CoverLetter, ResumeFormat, TailoredResume } from '@/types';
 import { DEFAULT_RESUME_FORMAT } from '@/types';
 import { coverLetterToPdf, resumeToPdf } from '@/services/export/pdf';
@@ -17,7 +7,6 @@ import { RESUME_FORMAT_ID, type ResumeDocument } from './schema';
 
 export * from './schema';
 
-/** A tailored resume (and its cover letter) as the stored JSON document. */
 export function toResumeDocument(
   t: TailoredResume,
   letter: Pick<CoverLetter, 'text'> | null = null,
@@ -53,7 +42,6 @@ export function toResumeDocument(
   };
 }
 
-/** The renderer's input shape (the document read back into ApplyFlow's layout model). */
 export function fromResumeDocument(d: ResumeDocument): TailoredResume {
   const skillGroups = d.skills.filter((g) => g.items.length).map((g) => ({ name: g.group, skills: g.items }));
   return {

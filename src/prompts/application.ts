@@ -1,18 +1,3 @@
-/**
- * ApplyFlow 2.0 — one Claude request per job, JSON in, JSON out.
- *
- * Token budget, compared with 1.x (resume + cover letter as two parallel requests that each
- * re-sent the job and the candidate's facts, plus an ATS refine request):
- *   - ONE request writes the resume content and the cover letter together.
- *   - The rules and the candidate's facts form a fixed system prompt with a cache breakpoint:
- *     from the second job on (within the cache lifetime) they are read from the cache at a
- *     fraction of the price. Facts are serialized deterministically so the cache hits.
- *   - Everything is compact JSON (no indentation), jobs have short ids (j1, j2…), the plan is
- *     a list of tuples, and the job posting drops legal boilerplate.
- *   - Claude returns content only — no layout, no change log. Employers, titles, dates,
- *     education and contact details are filled in locally; the PDF is drawn by ApplyFlow's
- *     own (non-AI) renderer from the resulting JSON.
- */
 import type { CareerProfile, CoverLetterAction, CoverLetterTone, JobPosting, MasterResume } from '@/types';
 import { allowedResume } from '@/services/resume/facts';
 import type { PromptPlan, TailorResumeReply } from './tailorResume';
@@ -20,7 +5,6 @@ import type { PromptPlan, TailorResumeReply } from './tailorResume';
 const str = { type: 'string' } as const;
 const strArr = { type: 'array', items: str } as const;
 
-// ---------------------------------------------------------------- output schemas
 
 const RESUME_PROPS = {
   headline: str,
@@ -59,7 +43,6 @@ export const LETTER_SCHEMA = {
   properties: { letter: strArr },
 } as const;
 
-/** What Claude returns for one job. */
 export interface ApplicationReply {
   headline: string;
   summary: string;
@@ -68,13 +51,10 @@ export interface ApplicationReply {
   projects: { name: string; bullets: string[] }[];
   certs: number[];
   gaps: string[];
-  /** Cover letter paragraphs, greeting first and sign-off last. */
   letter?: string[];
 }
 
-// ---------------------------------------------------------------- fixed system prompt
 
-/** Identical for every request and every user — the first cached block. */
 export const SYSTEM_RULES = `You are ApplyFlow, a resume writer and ATS specialist for US tech hiring. You write job-targeted resume content and cover letters that are strictly truthful.
 
 TRUTH (non-negotiable)
@@ -102,16 +82,10 @@ COVER LETTER (only when asked)
 Respond with JSON only, matching the schema.`;
 
 export interface CompactFacts {
-  /** The JSON sent to Claude. */
   text: string;
-  /** j1 → master experience id. */
   jobIds: Record<string, string>;
 }
 
-/**
- * The candidate's confirmed facts, compact and deterministic (same input → same text, so the
- * prompt cache hits). Email, phone, links, work authorization and salary are never included.
- */
 export function compactFacts(master: MasterResume, profile?: CareerProfile): CompactFacts {
   const a = allowedResume(master, profile);
   const jobIds: Record<string, string> = {};
@@ -140,14 +114,11 @@ export function compactFacts(master: MasterResume, profile?: CareerProfile): Com
   return { text: JSON.stringify(facts), jobIds };
 }
 
-/** The cached system prompt: rules, then the candidate. */
 export function systemBlocks(facts: CompactFacts): { text: string; cache?: boolean }[] {
   return [{ text: SYSTEM_RULES }, { text: `<CANDIDATE>\n${facts.text}\n</CANDIDATE>`, cache: true }];
 }
 
-// ---------------------------------------------------------------- per-job message
 
-/** Paragraphs that never help write a resume: EEO statements, legal notices, application instructions. */
 const BOILERPLATE = /(equal (employment )?opportunity|eeo\b|affirmative action|without regard to (race|age)|reasonable accommodation|e-verify|pay transparency|privacy (notice|policy)|drug[- ]free|background check)/i;
 
 export function compactJob(job: JobPosting, sendFull: boolean, maxChars = 7000): Record<string, unknown> {
@@ -160,7 +131,6 @@ export function compactJob(job: JobPosting, sendFull: boolean, maxChars = 7000):
     return base;
   }
   const clean = job.description.replace(/[ \t]+/g, ' ').replace(/\n\s*\n\s*/g, '\n\n').trim();
-  // Drop legal sentences one by one (never whole blocks), and never more than a small share of the text.
   let dropped = 0;
   let text = clean
     .split('\n')
@@ -184,7 +154,6 @@ export function compactJob(job: JobPosting, sendFull: boolean, maxChars = 7000):
   return base;
 }
 
-/** PLAN as tuples, with job ids shortened to j1, j2… */
 export function compactPlan(plan: PromptPlan, jobIds: Record<string, string>): Record<string, unknown> {
   const toShort = Object.fromEntries(Object.entries(jobIds).map(([s, l]) => [l, s]));
   const bullets: Record<string, number> = {};
@@ -275,7 +244,6 @@ export function buildRefinePrompt(i: { draft: unknown; findings: string[]; plan:
   ].join('\n\n');
 }
 
-/** Claude's compact reply in the shape the local assembler (and truthfulness checks) expect. */
 export function toTailorReply(r: ApplicationReply, jobIds: Record<string, string>): TailorResumeReply {
   return {
     headline: r.headline ?? '',
@@ -290,7 +258,6 @@ export function toTailorReply(r: ApplicationReply, jobIds: Record<string, string
   };
 }
 
-/** The draft in the reply's own compact shape (for the refine pass). */
 export function draftFromTailored(t: { headline: string; summary: string; skillGroups?: { name: string; skills: string[] }[]; skills: string[]; experience: { sourceId: string; bullets: string[]; technologies?: string[] }[]; projects: { name: string; bullets: string[] }[] }, jobIds: Record<string, string>): ApplicationReply {
   const toShort = Object.fromEntries(Object.entries(jobIds).map(([s, l]) => [l, s]));
   return {
@@ -304,7 +271,6 @@ export function draftFromTailored(t: { headline: string; summary: string; skillG
   };
 }
 
-/** Letter paragraphs → the letter text ApplyFlow validates, edits and renders. */
 export function letterText(paragraphs: string[] | undefined): string | null {
   const ps = (paragraphs ?? []).map((p) => p.trim()).filter(Boolean);
   return ps.length ? ps.join('\n\n') : null;

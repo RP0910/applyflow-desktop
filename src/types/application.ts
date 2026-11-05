@@ -26,9 +26,7 @@ export interface ApplicationNote {
 export interface SavedFile {
   kind: 'resume' | 'cover_letter' | 'resume_json' | 'job_description' | 'metadata' | 'job_url';
   format: string;
-  /** Path relative to the save folder (Documents by default). */
   relativePath: string;
-  /** Desktop app: where the file is on disk. */
   absolutePath?: string | null;
   downloadId: number | null;
   state: 'pending' | 'complete' | 'failed';
@@ -61,7 +59,6 @@ export interface ApplicationRecord {
   notes: ApplicationNote[];
   folderPath: string | null;
   files: SavedFile[];
-  /** Stage changes over time, newest last. */
   stageHistory: { stage: ApplicationStage; at: string }[];
   createdAt: string;
   updatedAt: string;

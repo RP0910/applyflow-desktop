@@ -21,7 +21,7 @@ describe('Dice job extraction', () => {
     expect(j.salary).toBe('USD 142,500 – 237,500 per year');
     expect(j.datePosted).toBe('2026-10-29');
     expect(j.jobKey).toBe('dice:3f9a1c2e-7b4d-4e8a-9c1f-2d6b8e0a5c71');
-    expect(j.url).toBe(JOB_URL); // tracking params removed
+    expect(j.url).toBe(JOB_URL);
     expect(j.externalApply).toBe(false);
     expect(j.applicationUrl).toBe(APPLY_URL);
     expect(j.responsibilities).toHaveLength(7);
@@ -79,7 +79,6 @@ describe('Dice page detection', () => {
   it('routes only Dice hosts to the Dice adapter', () => {
     expect(adapterForUrl('https://www.dice.com/job-detail/x')?.id).toBe('dice');
     expect(adapterForUrl('https://dice.com/job-detail/x')?.id).toBe('dice');
-    // Other https sites: best-effort employer-site support (never the Dice adapter).
     expect(adapterForUrl('https://www.linkedin.com/jobs/view/1')?.id).toBe('generic');
     expect(adapterForUrl('https://dice.com.evil.example/job-detail/x')?.id).toBe('generic');
     expect(adapterForUrl('http://example.com/x')).toBeNull();

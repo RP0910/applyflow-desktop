@@ -14,7 +14,6 @@ export class TabUnreachableError extends Error {
 
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-/** chrome.tabs messaging that injects the content script once if the tab predates the install. */
 export const chromeMessenger: Messenger = {
   async send(tabId, msg) {
     try {
@@ -33,7 +32,6 @@ export const chromeMessenger: Messenger = {
   },
 };
 
-/** The desktop app: messages go to the page helper in the built-in Dice browser via the main process. */
 export const desktopMessenger: Messenger = {
   async send(_tabId, msg) {
     const b = bridge();
@@ -46,7 +44,6 @@ export const desktopMessenger: Messenger = {
   },
 };
 
-/** The messenger for this environment. */
 export function defaultMessenger(): Messenger {
   return bridge() ? desktopMessenger : chromeMessenger;
 }

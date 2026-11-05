@@ -1,13 +1,3 @@
-/**
- * ApplyFlow desktop — Electron main process.
- *
- *   ┌──────────────────────────── ApplyFlow window ───────────────────────────────┐
- *   │ nav │  built-in Dice browser (WebContentsView)      │  ApplyFlow panel       │
- *   │     │  dice-preload.cjs runs the page helper        │  (React, app://)       │
- *   └─────────────────────────────────────────────────────────────────────────────┘
- *
- * The React UI talks to this process only through the IPC methods in src/platform/bridge.ts.
- */
 import { app, BrowserWindow, dialog, globalShortcut, ipcMain, Menu, nativeImage, net, Notification, protocol, safeStorage, session, shell, Tray, WebContentsView } from 'electron';
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, extname, isAbsolute, join, normalize, relative, resolve, sep } from 'node:path';
@@ -17,67 +7,67 @@ import { DiceInput, type TrustedRequest } from './diceInput';
 import { backTargetIndex, DICE_SEARCH_HOME, isDiceApplicationUrl, isDiceSearchUrl, searchIndex } from '../src/services/platforms/dice/navigation';
 import type { BridgeMethod, BrowserState, ClaudeChatCompleteRequest, ClaudeChatStatus } from '../src/platform/bridge';
 import { startClaudeChat, type ClaudeChatController } from './claudeChat';
+import { browserUserAgent, isSignInUrl } from './browserPolicy';
+import { allMonitors, BrowserDiagnostics, monitorSession, type SessionMonitor } from './browserSession';
+import { BrowserTabs } from './browserTabs';
+import { electronSurface } from './browserSurface';
+import { connectJobsInput, launchEmbeddedChrome, type EmbeddedChrome } from './embeddedChrome';
+import type { PageController } from './pageController';
 import type { PanelToContent } from '../src/types/messages';
 import type { SiteCredential } from '../src/types';
 
 const APP_NAME = 'ApplyFlow';
 const DICE_HOME = 'https://www.dice.com/';
-/** First page when ApplyFlow opens. Same destination as the Jobright button. */
 const JOBRIGHT_HOME = 'https://jobright.ai/jobs/recommend';
 const DICE_PARTITION = 'persist:dice';
 const SECRET_KEY = 'applyflow.secret.anthropicApiKey.enc';
 const REMINDERS_KEY = 'applyflow.reminders';
 const SETTINGS_KEY = 'applyflow.settings.v1';
-/** The last Dice search-results page you were on (kept across restarts). */
 const LAST_SEARCH_KEY = 'applyflow.dice.lastSearchUrl';
-// Ctrl+Alt alone is AltGr on many keyboards; with Shift it doesn't block typing anywhere.
 const FIND_SHORTCUT = 'CommandOrControl+Alt+Shift+F';
-/** Set once the "still running in the tray" tip has been shown. */
 const TRAY_HINT_KEY = 'applyflow.trayHintShown';
 
 app.setName(APP_NAME);
-// Development/testing only: a separate data folder, and mock Dice pages (nothing reaches dice.com).
+app.userAgentFallback = browserUserAgent(app.userAgentFallback);
 if (!app.isPackaged && process.env.APPLYFLOW_USER_DATA) app.setPath('userData', process.env.APPLYFLOW_USER_DATA);
 const MOCK_DICE = !app.isPackaged ? process.env.APPLYFLOW_MOCK_DICE ?? '' : '';
 if (process.platform === 'win32') app.setAppUserModelId('com.applyflow.desktop');
 
-// One instance only: a second launch focuses the running window.
 if (!app.requestSingleInstanceLock()) app.exit(0);
 
 protocol.registerSchemesAsPrivileged([{ scheme: 'app', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true } }]);
 
-const here = __dirname; // dist-electron/
+const here = __dirname;
 const rendererDir = resolve(here, '../dist/renderer');
 const iconPath = resolve(here, '../build/icon.png');
 
 let win: BrowserWindow | null = null;
-/** The tray (Windows/Linux) or menu-bar (macOS) icon that keeps ApplyFlow reachable while its window is closed. */
 let tray: Tray | null = null;
-/** True once ApplyFlow is really exiting; until then, closing the window only hides it. */
 let quitting = false;
-let dice: WebContentsView | null = null;
+let dice: { webContents: PageController } | null = null;
+let chromeHost: EmbeddedChrome | null = null;
 let diceReady = false;
 let diceVisible = true;
 let diceBounds = { x: 0, y: 0, width: 0, height: 0 };
 let store: Store;
 let mainWorldScript = '';
-/** Real clicks and file-chooser answers for the Dice view (created when the app is ready). */
 let diceInput: DiceInput | null = null;
 let claudeChat: ClaudeChatController | null = null;
+let tabs: BrowserTabs | null = null;
+const browserDiagnostics = new BrowserDiagnostics();
+let diceMonitor: SessionMonitor | null = null;
+const READ_ONLY_MESSAGES = new Set(['AF_PING', 'AF_GET_PAGE_STATE', 'AF_EXTRACT_JOB', 'AF_HIGHLIGHT_FIELD', 'AF_SET_LAUNCHER', 'AF_DIAGNOSE', 'AF_CHECK_SUCCESS']);
 const CLAUDE_CHAT_IDLE: ClaudeChatStatus = { state: 'checking', detail: 'Checking Claude.ai…', checkedAt: null };
 
-// ---------------- helpers ----------------
 function settings(): { saveLocation?: string } {
   return (store.kvGet(SETTINGS_KEY) as { saveLocation?: string } | undefined) ?? {};
 }
 
-/** Where documents are saved: the folder chosen in Settings, or Documents. */
 function baseDir(): string {
   const chosen = settings().saveLocation;
   return chosen && isAbsolute(chosen) ? chosen : app.getPath('documents');
 }
 
-/** Resolve a relative path under the save location; refuses anything that escapes it. */
 function safeJoin(base: string, rel: string): string {
   const target = resolve(base, normalize(rel.replace(/^[/\\]+/, '')));
   const r = relative(base, target);
@@ -87,7 +77,6 @@ function safeJoin(base: string, rel: string): string {
 
 const pickedFolders = new Set<string>();
 
-/** Only files ApplyFlow saved, or anything inside its save folder or data folder, may be opened or read. */
 function allowedFile(p: string): boolean {
   if (typeof p !== 'string' || !isAbsolute(p)) return false;
   const target = resolve(p);
@@ -99,7 +88,6 @@ function allowedFile(p: string): boolean {
   return store.isKnownFile(p);
 }
 
-/** Never launch programs: only documents and folders open in their default app. */
 const OPENABLE = /\.(pdf|docx?|txt|md|json|csv)$/i;
 
 function uniquePath(p: string): string {
@@ -128,12 +116,10 @@ function lastSearchUrl(): string | null {
   return typeof v === 'string' && isDiceSearchUrl(v) ? v : null;
 }
 
-/** Remember the search-results page (Dice changes the query and page number in place). */
 function rememberSearch(url: string): void {
   if (isDiceSearchUrl(url) && url !== lastSearchUrl()) store.kvSet(LAST_SEARCH_KEY, url);
 }
 
-/** Back, but out of Dice's application pages in one step (they redirect to themselves after you apply). */
 function diceBack(): void {
   const h = dice?.webContents.navigationHistory;
   if (!h) return;
@@ -143,7 +129,6 @@ function diceBack(): void {
   else if (h.canGoBack()) h.goBack();
 }
 
-/** Return to your search results: the same history entry when it's there (results and scroll kept), else reopen it. */
 function diceBackToSearch(): void {
   const wc = dice?.webContents;
   if (!wc) return;
@@ -180,7 +165,6 @@ function focusWindow(): void {
   win.focus();
 }
 
-// ---------------- the built-in Dice browser ----------------
 const pending = new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void; timer: NodeJS.Timeout }>();
 let nextRequest = 1;
 
@@ -196,8 +180,11 @@ function rejectPending(reason: string, only?: number[]): void {
 function diceSend(msg: PanelToContent): Promise<unknown> {
   const wc = dice?.webContents;
   if (!wc || wc.isDestroyed() || !diceReady) return Promise.reject(new Error('Could not establish connection. Receiving end does not exist.'));
+  if (!READ_ONLY_MESSAGES.has(msg.type)) {
+    if (diceMonitor?.onChallengePage(wc)) return Promise.reject(new Error('The page is showing a security check. Complete it in the Jobs tab, then try again.'));
+    tabs?.activateJobs();
+  }
   const id = nextRequest++;
-  // Employer forms: scans open each dropdown once, and fills type into autocompletes — allow time.
   const slow = ['AF_UPLOAD_DOCUMENT', 'AF_SUBMIT', 'AF_OPEN_APPLICATION', 'AF_SCAN_FIELDS', 'AF_FILL_FIELDS', 'AF_ANSWER_FIELD'];
   const timeoutMs = slow.includes(msg.type) ? 120_000 : 45_000;
   return new Promise((res, rej) => {
@@ -211,13 +198,43 @@ function diceSend(msg: PanelToContent): Promise<unknown> {
 }
 
 function layoutDice(): void {
-  if (!dice) return;
-  const b = diceVisible && diceBounds.width > 0 && diceBounds.height > 0 ? diceBounds : { x: 0, y: 0, width: 0, height: 0 };
-  dice.setBounds({ x: Math.round(b.x), y: Math.round(b.y), width: Math.round(b.width), height: Math.round(b.height) });
-  dice.setVisible(diceVisible && b.width > 0);
+  if (!tabs) return;
+  tabs.setVisible(diceVisible);
+  tabs.setBounds(diceBounds);
 }
 
-/** Mock pages for Jobright and employer sites (tests/fixtures/jobright, development only). */
+async function claudeCheckLoopDialog(signIn: BrowserWindow): Promise<void> {
+  if (signIn.isDestroyed()) return;
+  const { response } = await dialog.showMessageBox(signIn, {
+    type: 'warning',
+    title: 'Claude.ai security check',
+    message: 'Claude.ai’s security check keeps coming back',
+    detail:
+      'Cloudflare, which protects claude.ai, has shown its check several times in a row in ApplyFlow’s built-in browser. ' +
+      'It may not accept this browser from this network right now (VPNs and shared networks make that more likely). ApplyFlow will not keep reloading it.\n\n' +
+      'You can keep trying here, open claude.ai in your usual browser, or switch resume generation to the Claude API in Settings. ' +
+      '(Claude.ai Chat resume generation needs the sign-in here; a sign-in in another browser is separate.)',
+    buttons: ['Keep trying here', 'Open claude.ai in my browser', 'Open Settings'],
+    defaultId: 0,
+    cancelId: 0,
+    noLink: true,
+  });
+  if (response === 1) void shell.openExternal('https://claude.ai/');
+  if (response === 2) {
+    if (!signIn.isDestroyed()) signIn.close();
+    focusWindow();
+    send('app:navigate', { view: 'settings' });
+  }
+}
+
+async function resetBrowserSession(home: string): Promise<void> {
+  if (chromeHost) await chromeHost.reset();
+  else await diceMonitor?.reset();
+  tabs?.closeWebTabs();
+  tabs?.activateJobs();
+  void dice?.webContents.loadURL(home);
+}
+
 function mockSite(url: URL, dir: string): string | null {
   const jr = join(dir, '../jobright');
   const read = (f: string) => (existsSync(join(jr, f)) ? readFileSync(join(jr, f), 'utf8') : null);
@@ -234,7 +251,6 @@ function mockSite(url: URL, dir: string): string | null {
   return null;
 }
 
-/** Serves tests/fixtures pages for dice.com, jobright.ai and mock employer sites (development only). */
 function mockDice(ses: Electron.Session, dir: string): void {
   ses.protocol.handle('https', async (req) => {
     const url = new URL(req.url);
@@ -251,16 +267,67 @@ function mockDice(ses: Electron.Session, dir: string): void {
   });
 }
 
-/** Sign-in pop-ups keep their own window. */
 const OAUTH_HOSTS = /accounts\.google\.com|appleid\.apple\.com|linkedin\.com\/oauth|login\.microsoftonline\.com|facebook\.com\/(v\d|dialog)/i;
-/** When a job board just opened a blank tab (see setWindowOpenHandler). */
 let pendingBlankTab = 0;
 
+function wireJobsPage(wc: PageController): void {
+  const pushState = () => send('dice:state', browserState());
+  wc.on('did-start-navigation', (details: { isMainFrame?: boolean; isSameDocument?: boolean }) => {
+    if (details?.isMainFrame && !details.isSameDocument) void diceInput?.disarmAll();
+    pushState();
+  });
+  wc.on('did-navigate', (_e: unknown, url: string) => {
+    rememberSearch(url);
+    diceReady = false;
+    const open = [...pending.keys()];
+    setTimeout(() => rejectPending('Could not establish connection. The page changed.', open), 1500);
+    pushState();
+  });
+  wc.on('dom-ready', pushState);
+  wc.on('did-navigate-in-page', (_e: unknown, url: string, isMainFrame: boolean) => {
+    if (isMainFrame) rememberSearch(url);
+    pushState();
+  });
+  wc.on('did-stop-loading', pushState);
+  wc.on('page-title-updated', pushState);
+  wc.on('render-process-gone', () => {
+    void diceInput?.disarmAll();
+    diceReady = false;
+    rejectPending('The Dice page stopped responding.');
+    pushState();
+  });
+}
+
+function mountElectronJobs(): void {
+  const view = createDiceView();
+  dice = { webContents: view.webContents as unknown as PageController };
+  tabs?.adoptJobs(electronSurface(() => win, view));
+  layoutDice();
+  void view.webContents.loadURL(JOBRIGHT_HOME);
+}
+
+async function mountChromeJobs(): Promise<void> {
+  const helperPath = join(here, 'dice-page.js');
+  const host = await launchEmbeddedChrome({
+    userDataDir: join(app.getPath('userData'), 'embedded-chrome'),
+    parent: () => win,
+    helperSource: existsSync(helperPath) ? readFileSync(helperPath, 'utf8') : '',
+    onJobsEvent: (evt) => acceptPageEvent(evt as { type?: string }),
+    onJobsResponse: (body) => acceptPageResponse(body),
+    onJobsTrusted: (req) => trustedFromPage(req as TrustedRequest),
+    onPageResponse: (res) => diceMonitor?.noteResponse(res),
+  });
+  chromeHost = host;
+  dice = { webContents: host.jobs };
+  if (diceInput) connectJobsInput(host, diceInput);
+  wireJobsPage(host.jobs);
+  tabs?.adoptJobs(host.jobsSurface);
+  layoutDice();
+  void host.jobs.loadURL(JOBRIGHT_HOME);
+}
 function createDiceView(): WebContentsView {
-  const ses = session.fromPartition(DICE_PARTITION);
-  if (MOCK_DICE) mockDice(ses, MOCK_DICE);
-  // A plain Chrome user agent: sites treat the built-in browser like Chrome.
-  ses.setUserAgent(ses.getUserAgent().replace(/\s(Electron|applyflow|ApplyFlow)\/\S+/gi, ''));
+  diceMonitor = monitorSession(DICE_PARTITION, browserDiagnostics);
+  if (MOCK_DICE) mockDice(diceMonitor.session, MOCK_DICE);
   const view = new WebContentsView({
     webPreferences: {
       partition: DICE_PARTITION,
@@ -276,24 +343,18 @@ function createDiceView(): WebContentsView {
   wc.setWindowOpenHandler(({ url, features, disposition }) => {
     const opener = wc.getURL();
     const fromBoard = /^https:\/\/([^/]+\.)?(jobright\.ai|dice\.com)\//i.test(opener);
-    // Jobright's Apply opens a blank tab first and sends it to the employer once it knows the address
-    // (window.open() then tab.location = …). Let that tab exist, hidden, and bring its first real
-    // address into this browser.
     if (fromBoard && (!url || /^about:blank/i.test(url))) {
       pendingBlankTab = Date.now();
       return { action: 'allow', overrideBrowserWindowOptions: { show: false, width: 400, height: 300, webPreferences: { partition: DICE_PARTITION, contextIsolation: true, sandbox: true } } };
     }
     if (!/^https?:/i.test(url)) return { action: 'deny' };
-    // Job boards' "Apply" opening the employer's application: always in this browser, so ApplyFlow follows it.
     if (fromBoard && !OAUTH_HOSTS.test(url)) {
       void wc.loadURL(url);
       return { action: 'deny' };
     }
-    // Real pop-ups (sign-in windows) open as small windows in the same browser profile.
     if (disposition === 'new-window' && features) {
       return { action: 'allow', overrideBrowserWindowOptions: { width: 520, height: 680, autoHideMenuBar: true, webPreferences: { partition: DICE_PARTITION, contextIsolation: true, sandbox: true } } };
     }
-    // Dice opens jobs in new tabs; the built-in browser shows them in place (Back returns).
     void wc.loadURL(url);
     return { action: 'deny' };
   });
@@ -305,7 +366,6 @@ function createDiceView(): WebContentsView {
     const adopt = (target: string) => {
       if (done || !/^https?:/i.test(target)) return;
       done = true;
-      // A sign-in window keeps its own window; anything else comes into the built-in browser.
       if (OAUTH_HOSTS.test(target)) {
         child.setSize(520, 680);
         child.center();
@@ -326,53 +386,17 @@ function createDiceView(): WebContentsView {
       if (d.isMainFrame) adopt(d.url);
     });
     cwc.setWindowOpenHandler(() => ({ action: 'deny' }));
-    // Never left behind: a blank tab nobody sent anywhere goes away.
     setTimeout(() => {
       if (!done && !child.isDestroyed()) child.destroy();
     }, 15_000);
   });
-  const pushState = () => send('dice:state', browserState());
-  wc.on('did-start-navigation', (details) => {
-    // A new document: a file-chooser hand-off armed by the old page must not carry over.
-    if (details.isMainFrame && !details.isSameDocument) void diceInput?.disarmAll();
-    pushState();
-  });
-  // A new document replaced the page: its helper announces itself (AF_READY) once loaded.
-  // Answers the old page sent just before it went away still arrive, so wait a moment
-  // before giving up on requests that are still open.
-  wc.on('did-navigate', (_e, url) => {
-    rememberSearch(url);
-    diceReady = false;
-    const open = [...pending.keys()];
-    setTimeout(() => rejectPending('Could not establish connection. The page changed.', open), 1500);
-    pushState();
-  });
-  wc.on('dom-ready', () => {
-    // The file-chooser helper stays dormant unless ApplyFlow is attaching a document (see fileChooserInterceptor.ts).
-    if (mainWorldScript && /^https:\/\//i.test(wc.getURL())) void wc.executeJavaScript(mainWorldScript, false).catch(() => undefined);
-    pushState();
-  });
-  wc.on('did-navigate-in-page', (_e, url, isMainFrame) => {
-    if (isMainFrame) rememberSearch(url);
-    pushState();
-  });
-  wc.on('did-stop-loading', pushState);
-  wc.on('page-title-updated', pushState);
-  wc.on('render-process-gone', () => {
-    void diceInput?.disarmAll();
-    diceReady = false;
-    rejectPending('The Dice page stopped responding.');
-    pushState();
-  });
-  // Native dialogs in the page (beforeunload etc.) would block the helper; the user still sees them.
+  wireJobsPage(wc as unknown as PageController);
   wc.on('will-prevent-unload', (e) => e.preventDefault());
   return view;
 }
 
-// ---------------- IPC ----------------
 type Handler = (...args: never[]) => unknown;
 
-/** Encrypt job-site passwords at rest (same OS protection as the Claude API key). */
 function encryptSiteCred(c: SiteCredential): SiteCredential {
   const ok = safeStorage.isEncryptionAvailable();
   const enc = ok ? safeStorage.encryptString(c.password).toString('base64') : Buffer.from(c.password, 'utf8').toString('base64');
@@ -381,7 +405,7 @@ function encryptSiteCred(c: SiteCredential): SiteCredential {
 
 function decryptSiteCred(c: SiteCredential): SiteCredential {
   const m = /^enc:([01]):(.+)$/.exec(c.password);
-  if (!m) return c; // plain (tests / older rows)
+  if (!m) return c;
   try {
     const plain = m[1] === '1' ? safeStorage.decryptString(Buffer.from(m[2]!, 'base64')) : Buffer.from(m[2]!, 'base64').toString('utf8');
     return { ...c, password: plain };
@@ -394,7 +418,6 @@ function registerIpc(): void {
   const h: Partial<Record<BridgeMethod, Handler>> = {
     'kv.get': (k: string) => store.kvGet(k),
     'kv.set': (k: string, v: unknown) => {
-      // The save location can only become a folder the user picked in the folder dialog.
       if (k === SETTINGS_KEY && v && typeof v === 'object') {
         const next = v as { saveLocation?: string };
         const prev = settings().saveLocation ?? '';
@@ -494,7 +517,6 @@ function registerIpc(): void {
     'files.baseDir': () => baseDir(),
     'dice.send': (msg: PanelToContent) => diceSend(msg),
     'dice.setBounds': (b: typeof diceBounds) => {
-      // The window reports CSS pixels; the view is placed in window pixels (they differ when zoomed).
       const z = win?.webContents.getZoomFactor() ?? 1;
       diceBounds = { x: b.x * z, y: b.y * z, width: b.width * z, height: b.height * z };
       layoutDice();
@@ -505,16 +527,42 @@ function registerIpc(): void {
     },
     'dice.navigate': (url: string) => {
       const u = /^https?:\/\//i.test(url) ? url : /\.\w{2,}(\/|$)/.test(url) ? `https://${url}` : `https://www.dice.com/jobs?q=${encodeURIComponent(url)}`;
+      tabs?.activateJobs();
       void dice?.webContents.loadURL(u);
     },
     'dice.back': () => diceBack(),
-    'dice.backToSearch': () => diceBackToSearch(),
+    'dice.backToSearch': () => {
+      tabs?.activateJobs();
+      diceBackToSearch();
+    },
     'dice.forward': () => dice?.webContents.navigationHistory.goForward(),
     'dice.reload': () => dice?.webContents.reload(),
     'dice.state': () => browserState(),
-    'dice.clearSession': async () => {
-      await session.fromPartition(DICE_PARTITION).clearStorageData();
-      void dice?.webContents.loadURL(DICE_HOME);
+    'dice.clearSession': () => resetBrowserSession(DICE_HOME),
+    'browser.state': () => tabs?.state() ?? { activeId: 0, jobsId: 0, tabs: [] },
+    'browser.newTab': (url?: string) => tabs?.open(typeof url === 'string' ? url : undefined) ?? 0,
+    'browser.closeTab': (id: number) => tabs?.close(Number(id)),
+    'browser.activate': (id: number) => tabs?.activate(Number(id)),
+    'browser.navigate': (id: number, input: string) => tabs?.navigate(Number(id), String(input ?? '')),
+    'browser.back': (id: number) => tabs?.back(Number(id)),
+    'browser.forward': (id: number) => tabs?.forward(Number(id)),
+    'browser.reload': (id: number) => tabs?.reload(Number(id)),
+    'browser.stop': (id: number) => tabs?.stop(Number(id)),
+    'browser.retryCheck': (id: number) => tabs?.retryCheck(Number(id)),
+    'browser.openExternal': (id: number) => tabs?.openExternally(Number(id)) ?? false,
+    'browser.resetSession': () => resetBrowserSession(JOBRIGHT_HOME),
+    'browser.diagnostics': async () => {
+      const report = await browserDiagnostics.report(allMonitors());
+      if (chromeHost) {
+        const summary = await chromeHost.cookieSummary().catch(() => null);
+        const row = report.partitions.find((p) => p.partition === DICE_PARTITION);
+        if (summary && row) {
+          row.cookies = summary.cookies;
+          row.sites = summary.sites;
+          row.clearanceSites = summary.clearance;
+        }
+      }
+      return report;
     },
     'reminders.set': (r: { applicationId: string; whenIso: string; label: string }) => {
       const all = (store.kvGet(REMINDERS_KEY) as Record<string, { whenIso: string; label: string }> | undefined) ?? {};
@@ -543,38 +591,51 @@ function registerIpc(): void {
     return (fn as (...a: unknown[]) => unknown)(...(args ?? []));
   });
 
-  // From the Dice page helper.
   ipcMain.on('af:response', (e, r: { id: number; result?: unknown; error?: string }) => {
     if (e.sender !== dice?.webContents) return;
-    const p = pending.get(r.id);
-    if (!p) return;
-    clearTimeout(p.timer);
-    pending.delete(r.id);
-    if (r.error !== undefined) p.reject(new Error(r.error));
-    else p.resolve(r.result);
+    acceptPageResponse(r);
   });
-  // Real input for an upload ApplyFlow started (see electron/diceInput.ts). Dice view, dice.com only.
   ipcMain.handle('af:trusted', async (e, req: TrustedRequest) => {
-    const wc = dice?.webContents;
-    if (!wc || e.sender !== wc || !diceInput) throw new Error('Not allowed.');
-    // Dice, Jobright and the employer sites they lead to — https pages only.
-    if (!/^https:\/\//i.test(wc.getURL())) throw new Error('Not a secure page.');
-    // Development/testing only: exercise the scripted fallback.
-    if (!app.isPackaged && process.env.APPLYFLOW_NO_TRUSTED) throw new Error('Real input is switched off.');
-    return diceInput.handle(req);
+    if (e.sender !== dice?.webContents) throw new Error('Not allowed.');
+    return trustedFromPage(req);
   });
-  ipcMain.on('af:event', (e, evt: { type: string }) => {
+  ipcMain.on('af:event', (e, evt: { type?: string }) => {
     if (e.sender !== dice?.webContents) return;
-    if (evt?.type === 'AF_READY') {
-      diceReady = true;
-      send('dice:state', browserState());
-      return;
-    }
-    send('dice:event', evt);
+    acceptPageEvent(evt);
   });
 }
 
-// ---------------- reminders ----------------
+function acceptPageResponse(r: { id: number; result?: unknown; error?: string }): void {
+  const p = pending.get(r.id);
+  if (!p) return;
+  clearTimeout(p.timer);
+  pending.delete(r.id);
+  if (r.error !== undefined) p.reject(new Error(r.error));
+  else p.resolve(r.result);
+}
+
+function acceptPageEvent(evt: { type?: string }): void {
+  if (evt?.type === 'AF_READY') {
+    diceReady = true;
+    send('dice:state', browserState());
+    return;
+  }
+  send('dice:event', evt);
+}
+
+async function trustedFromPage(req: TrustedRequest): Promise<unknown> {
+  const wc = dice?.webContents;
+  if (!wc || !diceInput) throw new Error('Not allowed.');
+  if (!/^https:\/\//i.test(wc.getURL())) throw new Error('Not a secure page.');
+  if (req.op === 'pageHelper') {
+    if (!mainWorldScript || diceMonitor?.onChallengePage(wc) || isSignInUrl(wc.getURL())) return false;
+    await wc.executeJavaScript(mainWorldScript, false);
+    return true;
+  }
+  if (!app.isPackaged && process.env.APPLYFLOW_NO_TRUSTED) throw new Error('Real input is switched off.');
+  return diceInput.handle(req);
+}
+
 const liveNotifications = new Set<Notification>();
 function checkReminders(): void {
   const all = (store.kvGet(REMINDERS_KEY) as Record<string, { whenIso: string; label: string }> | undefined) ?? {};
@@ -597,7 +658,6 @@ function checkReminders(): void {
   if (changed) store.kvSet(REMINDERS_KEY, all);
 }
 
-// ---------------- window ----------------
 function createWindow(): void {
   win = new BrowserWindow({
     width: 1480,
@@ -619,8 +679,8 @@ function createWindow(): void {
   });
   win.once('ready-to-show', () => win?.show());
   win.webContents.setWindowOpenHandler(({ url }) => {
-    // Links from the panel (employer sites, job pages) open in the built-in browser.
     if (/^https?:/i.test(url)) {
+      tabs?.activateJobs();
       void dice?.webContents.loadURL(url);
       send('app:navigate', { view: 'apply' });
     }
@@ -630,32 +690,41 @@ function createWindow(): void {
     if (!url.startsWith('app://')) e.preventDefault();
   });
 
-  dice = createDiceView();
-  win.contentView.addChildView(dice);
-  layoutDice();
-  void dice.webContents.loadURL(JOBRIGHT_HOME);
+  diceMonitor = monitorSession(DICE_PARTITION, browserDiagnostics);
+  tabs = new BrowserTabs({
+    window: () => win,
+    monitor: diceMonitor,
+    emit: (state) => send('browser:tabs', state),
+    openWeb: (url) => chromeHost?.openWeb(url) ?? null,
+  });
+  if (MOCK_DICE) mountElectronJobs();
+  else {
+    void mountChromeJobs().catch((error: unknown) => {
+      const message = error instanceof Error ? error.message : 'Google Chrome did not start.';
+      dialog.showErrorBox('Google Chrome', `${message}\n\nApplyFlow will use its built-in browser for this session.`);
+      if (!dice) mountElectronJobs();
+    });
+  }
 
   void win.loadURL('app://applyflow/index.html');
-  // Closing the window keeps ApplyFlow running in the tray / menu bar. Quit there (or File ▸ Exit, ⌘Q) to exit.
   win.on('close', (e) => {
     if (quitting) return;
     e.preventDefault();
     win?.hide();
     showTrayHint();
   });
-  // Windows doesn't send before-quit on shutdown or sign-out; never hold those up.
   win.on('session-end', () => {
     quitting = true;
   });
   win.on('closed', () => {
+    tabs?.dispose();
+    tabs = null;
     win = null;
     dice = null;
   });
 }
 
-// ---------------- tray / menu bar ----------------
 function trayImage(): Electron.NativeImage {
-  // Small sizes drawn for each display scale, so the icon stays sharp at 100–300%.
   const img = nativeImage.createEmpty();
   for (const [size, scaleFactor] of [[16, 1], [24, 1.5], [32, 2], [48, 3]] as const) {
     const file = resolve(here, `../build/icons/${size}x${size}.png`);
@@ -675,11 +744,9 @@ function createTray(): void {
       { label: `Quit ${APP_NAME}`, click: () => app.quit() },
     ]),
   );
-  // Windows/Linux: a left click opens the window (right click shows the menu). macOS: a click shows the menu.
   if (process.platform !== 'darwin') tray.on('click', focusWindow);
 }
 
-/** The first time the window is closed, say where ApplyFlow went. */
 function showTrayHint(): void {
   if (store.kvGet(TRAY_HINT_KEY) || !Notification.isSupported()) return;
   store.kvSet(TRAY_HINT_KEY, true);
@@ -716,13 +783,14 @@ function buildMenu(): void {
           { type: 'separator' },
           { label: 'Find an application…', accelerator: 'CmdOrCtrl+F', click: () => send('app:navigate', { view: 'applications', search: true }) },
           { type: 'separator' },
-          { label: 'Reload Dice page', accelerator: 'F5', click: () => dice?.webContents.reload() },
+          { label: 'Reload page', accelerator: 'F5', click: () => tabs?.contents()?.reload() },
+          { label: 'New browser tab', accelerator: 'CmdOrCtrl+T', click: () => { send('app:navigate', { view: 'apply' }); tabs?.open(); } },
           { role: 'resetZoom' },
           { role: 'zoomIn' },
           { role: 'zoomOut' },
           { type: 'separator' },
           { role: 'togglefullscreen' },
-          ...(app.isPackaged ? [] : [{ role: 'toggleDevTools' as const }, { label: 'Dice page DevTools', click: () => dice?.webContents.openDevTools({ mode: 'detach' }) }]),
+          ...(app.isPackaged ? [] : [{ role: 'toggleDevTools' as const }, { label: 'Page DevTools', click: () => tabs?.contents()?.openDevTools({ mode: 'detach' }) }]),
         ],
       },
       { role: 'windowMenu' },
@@ -731,13 +799,10 @@ function buildMenu(): void {
 }
 
 app.on('second-instance', focusWindow);
-// macOS: clicking the Dock icon brings the hidden window back.
 app.on('activate', focusWindow);
-// Every real exit (tray Quit, File ▸ Exit, ⌘Q, macOS shutdown) passes through here.
 app.on('before-quit', () => {
   quitting = true;
-  // The hidden Claude.ai windows can stall a normal close (their page never finishes unloading), which
-  // would cancel the quit and leave ApplyFlow running with no window. Destroy them first.
+  chromeHost?.close();
   claudeChat?.dispose();
 });
 
@@ -756,8 +821,6 @@ app.whenReady().then(() => {
     return net.fetch(pathToFileURL(file).toString());
   });
 
-  // Claude requests go straight from the ApplyFlow window to api.anthropic.com. Its page origin is
-  // app://applyflow, so make sure the browser's CORS check accepts the API's answers.
   session.defaultSession.webRequest.onHeadersReceived({ urls: ['https://api.anthropic.com/*'] }, (details, cb) => {
     const headers = { ...(details.responseHeaders ?? {}) };
     for (const k of Object.keys(headers)) if (/^access-control-allow-/i.test(k)) delete headers[k];
@@ -771,18 +834,21 @@ app.whenReady().then(() => {
   registerIpc();
   buildMenu();
   createWindow();
-  claudeChat = startClaudeChat({ getWindow: () => win, emit: (status) => send('claudeChat:status', status) });
+  claudeChat = startClaudeChat({
+    getWindow: () => win,
+    emit: (status) => send('claudeChat:status', status),
+    diagnostics: browserDiagnostics,
+    onChallengeLoop: (signIn) => void claudeCheckLoopDialog(signIn),
+  });
   createTray();
   setInterval(checkReminders, 60_000);
   setTimeout(checkReminders, 5_000);
-  // When a recruiter calls: this shortcut brings ApplyFlow to the front with search ready.
   globalShortcut.register(FIND_SHORTCUT, () => {
     focusWindow();
     send('app:navigate', { view: 'applications', search: true });
   });
 });
 
-// Only reached when quitting (closing the window just hides it).
 app.on('window-all-closed', () => {
   app.quit();
 });
@@ -796,6 +862,5 @@ app.on('will-quit', () => {
   try {
     store?.close();
   } catch {
-    /* already closed */
   }
 });

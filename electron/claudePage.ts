@@ -1,11 +1,3 @@
-/**
- * Helpers injected into the signed-in claude.ai page.
- * They type into the composer, read the reply, and rename the chat.
- * They do not solve CAPTCHAs or click through sign-in checks.
- *
- * claudeChat.ts runs them in an isolated world: they share the page's DOM, but the page's own
- * scripts (claude.ai's and Cloudflare's) can't see their globals or wrap the functions they call.
- */
 export const CLAUDE_PAGE_API = `
 globalThis.__afClaude = (function () {
   function sleep(ms) { return new Promise(function (resolve) { setTimeout(resolve, ms); }); }

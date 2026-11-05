@@ -1,7 +1,3 @@
-/**
- * Automatic, conservative fixes for validator issues: always move the resume
- * back toward the master's facts, never toward new claims.
- */
 import type { AtsPlan, CareerProfile, MasterResume, TailoredResume, ValidationIssue } from '@/types';
 import { allowedCorpus, allowedResume } from '@/services/resume/facts';
 import { findSkills, mentionsSkill } from '@/services/skills/extract';
@@ -67,7 +63,6 @@ export function applyAutoFixes(
             findUnsupportedSkills(b, corpus, extra).length > 0 ||
             bulletProblems(b, jobText, corpus, forbidden, formsOf).length > 0;
           if (!bad) return b;
-          // Back to this job's own closest original bullet.
           const o = closestOriginal(b, originals, used);
           if (o) used.add(o);
           return o;
@@ -86,7 +81,6 @@ export function applyAutoFixes(
     next.skills = next.skills.filter(okSkill);
     if (next.skillGroups) next.skillGroups = next.skillGroups.map((g) => ({ ...g, skills: g.skills.filter(okSkill) })).filter((g) => g.skills.length);
 
-    // Summary: drop only the sentences with unsupported claims; fall back to the master summary.
     const badSentence = (x: string) =>
       findInventedMetrics(x, corpus).length > 0 ||
       findUnsupportedSkills(x, corpus, extra).length > 0 ||
@@ -102,7 +96,6 @@ export function applyAutoFixes(
       next.headline = plan ? [plan.targetTitle, topKeywords(plan, 3).join(', ')].filter(Boolean).join(' | ') : a.headline || a.experience[0]?.title || '';
     }
     next.additional = next.additional.filter((x) => !badSentence(x));
-    // Project bullets go back to that project's own wording.
     next.projects = next.projects.map((p) => {
       const mp = a.projects.find((x) => x.name.trim().toLowerCase() === p.name.trim().toLowerCase());
       if (!mp) return p;

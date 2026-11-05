@@ -152,7 +152,6 @@ export function ResumeCompare({ master, tailored, changes }: { master: ParsedRes
   );
 }
 
-/** "Languages: Swift, Kotlin" lines → skill groups and the flat list. */
 export function parseSkillText(text: string): Pick<TailoredResume, 'skills' | 'skillGroups'> {
   const groups = text
     .split('\n')
@@ -167,7 +166,6 @@ export function parseSkillText(text: string): Pick<TailoredResume, 'skills' | 's
   return { skills: groups.flatMap((g) => g.skills), skillGroups: named ? groups : undefined };
 }
 
-/** Structured editor: fields map 1:1 to the resume, so employer/title/dates stay read-only. */
 export function ResumeEditor({ resume, onSave, onCancel }: { resume: TailoredResume; onSave: (r: TailoredResume) => void; onCancel: () => void }) {
   const [headline, setHeadline] = useState(resume.headline);
   const [summary, setSummary] = useState(resume.summary);

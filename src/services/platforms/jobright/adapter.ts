@@ -1,16 +1,3 @@
-/**
- * Jobright.ai adapter. Jobright is where you find and read jobs; the application itself happens on
- * the employer's site (Greenhouse, Lever, Ashby, Workday…), which Jobright's "Apply" opens.
- *
- * Job pages: https://jobright.ai/jobs/info/<id> — a Next.js page. Title tag: "<Title> @ <Company> | Jobright.ai".
- * Sections: Overview (summary + tags), Responsibilities, Qualification (skill tags, Required, Preferred),
- * Benefits, then company information (Company, Funding, Recent News) which is not part of the job.
- * Lists: /jobs/recommend, /jobs/search?…, /jobs/liked, /jobs/applied.
- *
- * Extraction order: JSON-LD JobPosting → the page's Next.js data (job fields and the original
- * posting's address) → the visible page. Referral roles ("Send My Profile", no employer application)
- * and closed jobs are reported instead of guessed at.
- */
 import type { ExtractionResult, ExtractionSource, FieldConfidence, JobPosting, PageBlocker, PageType } from '@/types';
 import { uniqCaseInsensitive } from '@/utils/text';
 import { htmlToText } from '@/services/extraction/htmlToText';
@@ -45,7 +32,6 @@ export function isJobrightListUrl(url: string): boolean {
   }
 }
 
-// ---------------------------------------------------------------- structured data
 
 interface Found {
   title?: string;
@@ -88,7 +74,6 @@ function readJsonLd(doc: Document): Found | null {
         };
       }
     } catch {
-      /* not JSON */
     }
   }
   return null;
@@ -97,11 +82,6 @@ function readJsonLd(doc: Document): Found | null {
 const str = (v: unknown): string | undefined => (typeof v === 'string' && v.trim() ? v.trim() : undefined);
 const strs = (v: unknown): string[] | undefined => (Array.isArray(v) ? v.map((x) => (typeof x === 'string' ? x : str((x as Record<string, unknown>)?.name) ?? str((x as Record<string, unknown>)?.text) ?? '')).filter(Boolean) : undefined);
 
-/**
- * Jobright's own title strings carry extras: "Experienced Data Science AI Engineer Job Details | Gainwell
- * Technologies LLC", "[Remote] …". The job title is the part before " Job Details"; the part after "|" is
- * the employer's legal name.
- */
 export function cleanJobTitle(t: string | undefined): { title?: string; company?: string } {
   if (!t) return {};
   const s = t.replace(/^\s*\[(remote|hybrid|onsite|on-site)\]\s*/i, '').trim();
@@ -112,18 +92,12 @@ export function cleanJobTitle(t: string | undefined): { title?: string; company?
   return { title: s };
 }
 
-/** An http(s) address of the employer's posting (never a Jobright page). */
 function externalUrl(v: unknown): string | undefined {
   const s = str(v);
   if (!s || !/^https?:\/\//i.test(s)) return undefined;
   return JOBRIGHT_HOSTS.test(hostOf(s)) ? undefined : s;
 }
 
-/**
- * The job object in the page's Next.js data: the object with a job title and a description or summary.
- * Inside Jobright's signed-in app, opening a job from a list doesn't reload the page, so the page data can
- * belong to the page first loaded (another job, or the list): only data for this job (`jobId`) is used.
- */
 function readNextData(doc: Document, jobId?: string | null): Found | null {
   const el = doc.getElementById('__NEXT_DATA__');
   if (!el?.textContent) return null;
@@ -154,7 +128,6 @@ function readNextData(doc: Document, jobId?: string | null): Found | null {
   const cleaned = cleanJobTitle(str(j.jobTitle) ?? str(j.title));
   return {
     title: str(j.jobNlpTitle) ?? cleaned.title,
-    // The brand name (companyResult) before the legal name after "Job Details |".
     company: str(j.companyName) ?? str(c.companyName) ?? str((j.company as Record<string, unknown> | undefined)?.name) ?? cleaned.company,
     location: str(j.jobLocation) ?? str(j.location),
     description: str(j.jobDescription) ? htmlToText(str(j.jobDescription)!) : str(j.description) ? htmlToText(str(j.description)!) : str(j.jobSummary),
@@ -170,9 +143,7 @@ function readNextData(doc: Document, jobId?: string | null): Found | null {
   };
 }
 
-// ---------------------------------------------------------------- the visible page
 
-/** "<Title> Job Details | <Company LLC> @ <Company> | Jobright.ai", or "<Title> @ <Company> | Jobright.ai". */
 function fromDocumentTitle(t: string): { title?: string; company?: string } {
   const s = t.replace(/\s*\|\s*Jobright(\.ai| AI)?\s*$/i, '');
   if (!/ @ | Job Details/i.test(s)) return {};
@@ -181,7 +152,6 @@ function fromDocumentTitle(t: string): { title?: string; company?: string } {
   return { title: c.title, company: right?.trim() || c.company };
 }
 
-/** The job's heading on the page: the public page's h1, or the signed-in app's title element ("<Title> @ <Company>"). */
 function headingTitle(doc: Document): { title?: string; company?: string } {
   const el =
     deepQueryAll<HTMLElement>(doc, 'h1, [class*="job-title" i], [class*="jobTitle" i], [class*="job_title" i]', 20).find((e) => isVisible(e) && !isPageChrome(e) && visibleText(e, 300).length > 3) ?? null;
@@ -191,7 +161,6 @@ function headingTitle(doc: Document): { title?: string; company?: string } {
 const JOB_SECTIONS = /^(overview|job description|about (the|this) (role|job|position)|summary|why join us|responsibilities|what you(['’]ll| will) do|qualifications?|requirements|required|preferred|nice to have|benefits|perks)\b/i;
 const STOP_SECTIONS = /^(company|about (the )?company|funding|recent news|similar jobs|people also viewed|invite-only|insider connection|h1b sponsorship|leadership team)\b/i;
 
-/** The job's own sections, from the first job heading up to the company information. */
 function readSections(doc: Document): { text: string; byHeading: Record<string, string[]>; skills: string[] } {
   const main = doc.querySelector('main') ?? doc.body;
   const sections: { h: Element; name: string; include: boolean }[] = [];
@@ -207,11 +176,10 @@ function readSections(doc: Document): { text: string; byHeading: Record<string, 
     started ||= include;
     sections.push({ h, name, include });
   }
-  // The section an element belongs to: the last heading before it.
   const owner = (el: Element) => {
     let found: (typeof sections)[number] | null = null;
     for (const s of sections) {
-      if (s.h.compareDocumentPosition(el) & 4 /* FOLLOWING */) found = s;
+      if (s.h.compareDocumentPosition(el) & 4 ) found = s;
       else break;
     }
     return found;
@@ -260,7 +228,6 @@ export function extractJobrightJob(doc: Document, url: string): ExtractionResult
   const id = jobrightJobId(url);
   const heading = headingTitle(doc);
   const nd = readNextData(doc, id);
-  // JSON-LD can also be left over from the first page loaded: only when it names this job.
   const ldRaw = readJsonLd(doc);
   const same = (a?: string, b?: string) => Boolean(a && b && (a.toLowerCase().includes(b.toLowerCase()) || b.toLowerCase().includes(a.toLowerCase())));
   const ld = ldRaw && (same(ldRaw.title, nd?.title) || same(ldRaw.title, heading.title) || (!nd && !heading.title)) ? ldRaw : null;
@@ -286,7 +253,6 @@ export function extractJobrightJob(doc: Document, url: string): ExtractionResult
   const required = nd?.required ?? lineFor(sec.byHeading, /^required|^requirements|^qualification/);
   const preferred = nd?.preferred ?? lineFor(sec.byHeading, /preferred|nice to have/);
   const benefits = lineFor(sec.byHeading, /benefit|perks/);
-  // The richest description available: structured text, else the job's sections as shown.
   const structured = [ld?.description, nd?.description].filter(Boolean).sort((a, b) => b!.length - a!.length)[0] ?? '';
   const assembled = [
     structured,
@@ -354,7 +320,6 @@ export function extractJobrightJob(doc: Document, url: string): ExtractionResult
   return { ok: true, job, confidence, sources: Array.from(sources.size ? sources : new Set<ExtractionSource>(['heuristics'])), uncertain, warnings };
 }
 
-/** "Gainwell Technologies · 43 minutes ago" above the title. */
 function companyNearTitle(doc: Document): string | undefined {
   for (const el of deepQueryAll<HTMLElement>(doc, 'h2, h3, [class*="company" i]', 40)) {
     const t = visibleText(el, 120);
@@ -364,11 +329,6 @@ function companyNearTitle(doc: Document): string | undefined {
   return undefined;
 }
 
-/**
- * Inside Jobright's signed-in app the job opens without a page load, so the page may not carry this
- * job's data. Then ApplyFlow reads the job's own page (same address, as Jobright serves it on a fresh
- * load) and uses that.
- */
 export async function extractJobrightJobAsync(doc: Document, url: string, fetcher: (u: string) => Promise<string> = defaultFetch): Promise<ExtractionResult> {
   const here = extractJobrightJob(doc, url);
   const id = jobrightJobId(url);
@@ -381,7 +341,6 @@ export async function extractJobrightJobAsync(doc: Document, url: string, fetche
     if (!readNextData(parsed, id)?.title && !readJsonLd(parsed)) return here;
     const fresh = extractJobrightJob(parsed, url);
     if (!fresh.ok) return here;
-    // Keep what the live page shows when the fresh page lacks it.
     const merged = { ...fresh.job!, location: fresh.job!.location || here.job?.location || '', salary: fresh.job!.salary ?? here.job?.salary ?? null };
     return { ...fresh, job: merged, warnings: fresh.warnings };
   } catch {
@@ -395,22 +354,14 @@ async function defaultFetch(u: string): Promise<string> {
   return r.text();
 }
 
-// ---------------------------------------------------------------- page kind, Apply, sign-in
 
 const APPLY = /^(apply|apply now|apply on (the )?(company|employer)(['’]s)? (site|website|page)|apply externally|apply with autofill|easy apply|apply on company site|continue to apply|go to application)$/i;
-/**
- * What to press when Jobright asks before sending you to the employer — e.g. its "Customize Your Resume
- * in 10 seconds" offer ("Fix My Resume Now" / "Apply Without Customizing"). ApplyFlow already tailored
- * your resume, so it continues without Jobright's customization; it never ticks "Do not remind me again".
- */
 const DIALOG_APPLY = /^(apply without customi[sz]ing|apply without (changes|optimi[sz]ing|tailoring|autofill)|apply manually|continue (to apply|without customi[sz]ing)|skip( and apply| for now)?|apply anyway|apply directly|no,? (thanks|just apply)|go to (the )?(company|employer)('s)? (site|website)|apply on (the )?(company|employer)('s)? (site|website))$/i;
-/** Jobright’s post-apply tracker: “Did you apply?” with Yes / No. Not an Apply control. */
 const APPLIED_PROMPT = /did you apply\??/i;
 const APPLIED_YES = /^(yes,? i applied!?|i applied!?)$/i;
 const APPLIED_NO = /^(no,? i (didn['’]?t|did not) apply!?)$/i;
 const DIALOG = '[role="dialog"], [aria-modal="true"], .ant-modal, [class*="modal" i]';
 
-/** "APPLY WITH AUTOFILL ↗" → "APPLY WITH AUTOFILL". */
 const words = (t: string) => t.replace(/[^\p{L}\p{N}'’ ]+/gu, ' ').replace(/\s+/g, ' ').trim();
 
 function dialogButtons(d: HTMLElement): HTMLElement[] {
@@ -425,7 +376,6 @@ function pickInnermost(hits: HTMLElement[]): HTMLElement | null {
   return hit ? hit.closest<HTMLElement>('a, button, [role="button"], [role="link"]') ?? hit : null;
 }
 
-/** Jobright’s “Did you apply?” tracker dialog, when it’s on screen. */
 export function appliedConfirmDialog(doc: Document): { root: HTMLElement; yes: HTMLElement | null; no: HTMLElement | null } | null {
   for (const d of deepQueryAll<HTMLElement>(doc, DIALOG, 20).filter(isVisible)) {
     if (!APPLIED_PROMPT.test(visibleText(d, 800))) continue;
@@ -439,7 +389,6 @@ export function appliedConfirmDialog(doc: Document): { root: HTMLElement; yes: H
   return null;
 }
 
-/** “Yes, I applied!” / “I Applied” — only after a verified employer submission. */
 export function confirmAppliedControl(doc: Document): HTMLElement | null {
   const dialog = appliedConfirmDialog(doc);
   if (dialog?.yes) return dialog.yes;
@@ -451,14 +400,11 @@ export function confirmAppliedControl(doc: Document): HTMLElement | null {
 
 export function dialogChoice(doc: Document): HTMLElement | null {
   for (const d of deepQueryAll<HTMLElement>(doc, DIALOG, 20).filter(isVisible)) {
-    // Never treat Jobright’s “Did you apply?” tracker as an Apply step.
     if (APPLIED_PROMPT.test(visibleText(d, 800))) continue;
-    // The link may be a plain <a>, <span> or <div> without a role: match by its own text.
     const hits = dialogButtons(d).filter((el) => {
       const t = words(el.innerText ?? el.textContent ?? '');
       return DIALOG_APPLY.test(t) || APPLY.test(t);
     });
-    // The innermost one: a click on it reaches handlers on it and on everything around it.
     const hit = pickInnermost(hits);
     if (hit) return hit;
   }
@@ -466,13 +412,11 @@ export function dialogChoice(doc: Document): HTMLElement | null {
 }
 
 function applyControl(doc: Document): HTMLElement | null {
-  // A question Jobright asked in a dialog comes first.
   const choice = dialogChoice(doc);
   if (choice) return choice;
   const els = deepQueryAll<HTMLElement>(doc, 'a[href], button, [role="button"]', 800).filter(
     (el) => isVisible(el) && !isPageChrome(el) && !couldSubmit(el) && !el.closest(DIALOG) && APPLY.test(words(controlLabel(el))),
   );
-  // The one for this job: the first after the job's title (lists of similar jobs come later on the page).
   const title = deepQueryAll<HTMLElement>(doc, 'h1, [class*="job-title" i], [class*="jobTitle" i]', 5)[0] ?? null;
   return (title ? els.find((el) => title.compareDocumentPosition(el) & 4) : null) ?? els[0] ?? null;
 }
@@ -490,7 +434,6 @@ function loginRequired(doc: Document): boolean {
   const dialogs = deepQueryAll<HTMLElement>(doc, '[role="dialog"], [aria-modal="true"], [class*="modal" i], [class*="login" i], [class*="signin" i]', 20).filter(isVisible);
   return dialogs.some((d) => {
     const t = visibleText(d, 2000);
-    // e.g. Jobright's "Sign Up to Apply": "Sign up with Google", an "Email" box, "Already a member? Sign in now".
     const asks = /\b(sign (in|up)( now| to apply)?|log ?in|create (an |your )?account|already a member|(continue|sign (in|up)|log ?in) with (google|linkedin|email|apple))\b/i.test(t);
     const email = d.querySelector('input[type="password"], input[type="email"], input[name*="mail" i], input[placeholder*="mail" i], input[aria-label*="mail" i], input[autocomplete="email"]');
     return asks && (Boolean(email) || /\b(continue|sign (in|up)|log ?in) with google\b/i.test(t));
@@ -528,7 +471,6 @@ export const jobrightAdapter: JobSiteAdapter = {
     const href = raw && /^https?:\/\//i.test(raw) ? raw : null;
     return { element: el, label: words(controlLabel(el) || el.textContent || '') || 'Apply', external: true, href };
   },
-  // Jobright never hosts the form itself.
   pendingChoice: (doc) => {
     const el = dialogChoice(doc);
     return el ? words(controlLabel(el) || el.textContent || '') || 'Continue' : null;
@@ -537,7 +479,6 @@ export const jobrightAdapter: JobSiteAdapter = {
   findSubmitControl: () => ({ match: null, reason: 'Applications happen on the employer’s site.' }),
   successPatterns: [],
   blocker,
-  // The employer's posting, when the page data names it (used if Jobright's Apply button doesn't open it).
   applicationUrl: (doc) => readJsonLd(doc)?.applyUrl ?? readNextData(doc)?.applyUrl ?? null,
   canSubmit: false,
   captchaVisible: visibleCaptcha,

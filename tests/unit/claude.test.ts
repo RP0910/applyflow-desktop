@@ -133,7 +133,7 @@ describe('Claude API client', () => {
     expect(r.data.explanation).toBe('Done');
     const a = JSON.parse(String((f.mock.calls[0] as unknown as [string, RequestInit])[1].body)).max_tokens;
     const b = JSON.parse(String((f.mock.calls[1] as unknown as [string, RequestInit])[1].body)).max_tokens;
-    expect(a).toBeGreaterThanOrEqual(4000); // never the old 2,000 that cut letters off
+    expect(a).toBeGreaterThanOrEqual(4000);
     expect(b).toBe(a * 2);
   });
 

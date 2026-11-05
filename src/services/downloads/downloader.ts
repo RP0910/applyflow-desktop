@@ -1,12 +1,7 @@
-/**
- * chrome.downloads wrapper. Downloads go to <browser download folder>/<relative path>;
- * Chrome does not let extensions write anywhere else (see docs/KNOWN_LIMITATIONS.md).
- */
 import type { SavedFile } from '@/types';
 import type { PlannedFile } from './planner';
 import { bridge } from '@/platform/bridge';
 
-/** Desktop app: files are written straight into the save folder (Documents/ApplyFlow/… by default). */
 async function saveToDisk(files: PlannedFile[], conflictAction: 'uniquify' | 'overwrite'): Promise<SavedFile[]> {
   const b = bridge()!;
   const out: SavedFile[] = [];
@@ -70,7 +65,6 @@ export async function downloadFiles(files: PlannedFile[], api: DownloadsApi | nu
   return results;
 }
 
-/** Opens the folder containing a saved file in the OS file manager. */
 export async function showInFolder(files: SavedFile[], api: DownloadsApi | null | undefined = undefined): Promise<{ ok: boolean; message: string }> {
   const b = bridge();
   if (api === undefined && b) {

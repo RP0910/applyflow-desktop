@@ -1,14 +1,3 @@
-/**
- * Quick Apply runner: walks Dice's application wizard step by step.
- *
- *   open the application → per step: attach the tailored resume / cover letter, fill safe
- *   profile fields and answers the user saved → stop for questions only the user can answer →
- *   press Next → … → stop at the step that has Dice's Submit button.
- *
- * It never presses Submit. Submitting is a separate, explicit user action (the panel's
- * "Submit application" button, after the review summary), with a one-time token.
- * Independent of React and chrome.* so it can be tested against the content controller.
- */
 import type { CareerProfile, FieldProposal, FieldSemantic, FillInstruction, JobSession, PageBlocker, PageState, Settings, SiteCredential } from '@/types';
 import type { ContentResponseMap, FilePayload, PanelToContent, ScanResponse } from '@/types/messages';
 import { markAnswerUsed, proposeFieldValues, rememberAnswer, toScreeningControl } from '@/services/forms/mapper';
@@ -23,9 +12,7 @@ export interface AttachState {
   state: 'pending' | 'done' | 'unverified' | 'failed' | 'skipped' | 'not_offered';
   fileName: string | null;
   message?: string;
-  /** How many times ApplyFlow tried to attach it on the current page. */
   tries?: number;
-  /** Attached on Dice by the user rather than by ApplyFlow. */
   byUser?: boolean;
 }
 
@@ -33,28 +20,19 @@ export type RunStatus = 'idle' | 'working' | 'questions' | 'attention' | 'ready'
 
 export interface ApplyRunState {
   status: RunStatus;
-  /** What ApplyFlow is doing right now, or what it needs. */
   label: string;
   stages: Record<StageKey, StageState>;
-  /** Required questions only the user can answer (shown as one-tap cards). */
   questions: FieldProposal[];
-  /** Optional questions left blank. */
   optional: FieldProposal[];
   attachments: { resume: AttachState; coverLetter: AttachState };
-  /** Message from Dice or ApplyFlow when status is 'attention'. */
   message: string | null;
   externalUrl: string | null;
   step: { current: number; total: number } | null;
-  /** `${url}#${step}` of the last step the runner processed. */
   lastStepKey: string | null;
   submittedConfirmed: boolean;
-  /** File names Dice showed before ApplyFlow changed anything (your profile resume). */
   originalFiles: { resume: string | null; coverLetter: string | null };
-  /** What the user needs to do when status is 'attention'. */
   need: 'resume' | null;
-  /** The user chose to send the resume already on Dice instead of the tailored one. */
   allowOriginalResume: boolean;
-  /** The application form this run opened (formKeyFor its address). Other forms are never filled or submitted. */
   formKey: string | null;
 }
 
@@ -84,9 +62,7 @@ export interface RunnerIO {
   saveSession: (s: JobSession) => Promise<void>;
   settings: Settings;
   profile: CareerProfile;
-  /** Persist profile updates (screening answers reused across applications). */
   saveProfile?: (p: CareerProfile) => Promise<CareerProfile>;
-  /** Load or create stored login for the current employer host. */
   ensureSiteCredential?: (url: string, email: string) => Promise<SiteCredential | null>;
   payload: (kind: 'resume' | 'cover_letter') => Promise<FilePayload | null>;
   fileName: (kind: 'resume' | 'cover_letter') => string | null;
@@ -94,7 +70,6 @@ export interface RunnerIO {
   aborted: () => boolean;
   state: () => ApplyRunState;
   report: (next: ApplyRunState) => void;
-  /** Polls while waiting for Dice (page loads, step changes). */
   pollMs?: number;
 }
 
@@ -118,7 +93,6 @@ async function safe<T>(p: Promise<T>): Promise<T | null> {
 
 export const stepKey = (url: string, step: { current: number } | null | undefined) => `${url}#${step?.current ?? '-'}`;
 
-/** Stop for a page that can't be applied on; 'external' when the documents are all the user needs. */
 function stopFor(io: RunnerIO, b: PageBlocker): 'external' | 'stopped' {
   if (b.kind === 'unsupported' || b.kind === 'referral') {
     stage(io, 'open', 'skipped');
@@ -131,7 +105,6 @@ function stopFor(io: RunnerIO, b: PageBlocker): 'external' | 'stopped' {
 
 const siteOf = (s: Pick<PageState, 'siteName'> | null | undefined) => s?.siteName || 'the site';
 
-/** The form is open: tie the run to it, or stop if it's a different application than the one this run opened. */
 function formOpened(io: RunnerIO, st: PageState): 'open' | 'stopped' {
   const key = formKeyFor(st.url);
   const prev = io.state().formKey;
@@ -143,11 +116,6 @@ function formOpened(io: RunnerIO, st: PageState): 'open' | 'stopped' {
   return 'open';
 }
 
-/**
- * Make sure the application form is on screen. On Dice: Dice's Apply button. From Jobright it can take
- * a few hops — Jobright's Apply → the employer's job page (or a careers page with the form in a frame)
- * → the form — so each new page gets its own "open the application" step until a form appears.
- */
 export async function ensureApplicationOpen(io: RunnerIO): Promise<'open' | 'external' | 'stopped'> {
   const poll = io.pollMs ?? 400;
   let st = await safe(io.send({ type: 'AF_GET_PAGE_STATE' }));
@@ -159,9 +127,7 @@ export async function ensureApplicationOpen(io: RunnerIO): Promise<'open' | 'ext
   const settleMs = Math.min(2500, poll * 6);
   let direct = false;
   let lastPressed = '';
-  /** URL where ApplyFlow already submitted stored credentials — don't loop forever on a failed login. */
   let signedInAt = '';
-  /** Presses on Jobright that led nowhere, by label: the same one twice means ApplyFlow is going in circles. */
   const idle = new Map<string, number>();
   for (let hop = 0; hop < (multiHop ? 6 : 1); hop++) {
     if (io.aborted()) return 'stopped';
@@ -175,7 +141,6 @@ export async function ensureApplicationOpen(io: RunnerIO): Promise<'open' | 'ext
         patch(io, { status: 'external', label: 'Applies on the employer’s site', message: open.message, externalUrl: open.externalUrl ?? null });
         return 'external';
       }
-      // Jobright without a usable Apply button: go straight to the employer's posting when the page names it.
       if (st?.site === 'jobright' && !direct) {
         direct = true;
         continue;
@@ -184,7 +149,6 @@ export async function ensureApplicationOpen(io: RunnerIO): Promise<'open' | 'ext
       return attention(io, open.message);
     }
     if (multiHop) patch(io, { label: open.message });
-    // Wait for the form — or for a new page (the employer's) that needs its own step.
     let movedAt = 0;
     let lastUrl = before;
     const started = Date.now();
@@ -192,7 +156,7 @@ export async function ensureApplicationOpen(io: RunnerIO): Promise<'open' | 'ext
       if (io.aborted()) return 'stopped';
       await io.sleep(poll);
       const s = await safe(io.send({ type: 'AF_GET_PAGE_STATE' }));
-      if (!s) continue; // the page is loading
+      if (!s) continue;
       st = s;
       if (s.loginRequired) {
         if (signedInAt === s.url) {
@@ -217,11 +181,8 @@ export async function ensureApplicationOpen(io: RunnerIO): Promise<'open' | 'ext
         movedAt = Date.now();
         continue;
       }
-      // A new page without a form, settled: open the application from there.
       if (movedAt && Date.now() - movedAt >= settleMs) break;
-      // Jobright asked something in a dialog ("Customize your resume?"): answer it now.
       if (s.pendingChoice && s.site === 'jobright' && Date.now() - started >= poll * 2) break;
-      // Nothing happened after pressing Apply (Jobright): use the employer's posting address next.
       if (!movedAt && Date.now() - started >= Math.max(settleMs * 2, poll * 12)) {
         if (s.site === 'jobright') direct = true;
         break;
@@ -239,7 +200,6 @@ export async function ensureApplicationOpen(io: RunnerIO): Promise<'open' | 'ext
         );
       }
     }
-    // Same address: go on only if the page offered a new step (e.g. Workday's "Apply" → "Autofill with Resume").
     if (!movedAt && !direct && st?.site !== 'jobright') {
       if (open.message === lastPressed) break;
       lastPressed = open.message;
@@ -249,7 +209,6 @@ export async function ensureApplicationOpen(io: RunnerIO): Promise<'open' | 'ext
   return attention(io, st?.site === 'dice' || !multiHop ? 'Dice didn’t open its application form. Click Dice’s Apply button, then press Continue.' : `ApplyFlow couldn’t reach the application form on ${siteOf(st)}. Open it on the page (its Apply button), then press Continue.`);
 }
 
-/** Sign in with stored job-site credentials (profile email + saved/default password). */
 async function trySignIn(io: RunnerIO, s: PageState): Promise<'signed' | 'stopped' | 'manual'> {
   const email = io.profile.email.trim();
   if (!email || !io.ensureSiteCredential) return 'manual';
@@ -266,7 +225,6 @@ async function trySignIn(io: RunnerIO, s: PageState): Promise<'signed' | 'stoppe
   return 'signed';
 }
 
-/** Newer scans win, except that a field ApplyFlow or the user answered stays recorded as answered (a rescan sees it as "already filled"). */
 export function mergeProposals(prev: FieldProposal[], next: FieldProposal[]): FieldProposal[] {
   const answered = (p: FieldProposal | undefined) => Boolean(p && (p.status === 'filled' || p.status === 'user-completed'));
   const merged = next.map((p) => {
@@ -276,7 +234,6 @@ export function mergeProposals(prev: FieldProposal[], next: FieldProposal[]): Fi
   return [...prev.filter((x) => !next.some((p) => p.fieldId === x.fieldId)), ...merged];
 }
 
-/** Attach documents, fill what's safe, and decide what this step needs next. 'moved' = Dice went to another step. */
 export async function processStep(io: RunnerIO): Promise<'ready' | 'next' | 'moved' | 'stopped'> {
   const s0 = io.session();
   if (!s0) return attention(io, 'Open the Dice job first.');
@@ -306,13 +263,11 @@ export async function processStep(io: RunnerIO): Promise<'ready' | 'next' | 'mov
   if (!scan.ok) return attention(io, scan.error ?? 'Dice changed this page layout, so I could not safely identify the application fields.');
   const here = stepKey(scan.pageUrl, scan.step);
   if (io.state().lastStepKey !== here) {
-    // New page: earlier failed attempts may succeed here.
     const a = io.state().attachments;
     patch(io, { attachments: { resume: { ...a.resume, tries: 0 }, coverLetter: { ...a.coverLetter, tries: 0 } } });
   }
   patch(io, { step: scan.step, lastStepKey: here });
 
-  // ---- documents ----
   const slots: { kind: 'resume' | 'cover_letter'; key: 'resume' | 'coverLetter' }[] = [
     { kind: 'resume', key: 'resume' },
     { kind: 'cover_letter', key: 'coverLetter' },
@@ -333,7 +288,6 @@ export async function processStep(io: RunnerIO): Promise<'ready' | 'next' | 'mov
     if (!name) continue;
     const shown = target.currentFileName;
     const st = io.state();
-    // Remember what Dice showed before ApplyFlow changed anything (the profile resume).
     if (shown && shown !== name && !st.originalFiles[key] && st.attachments[key].state === 'pending') {
       patch(io, { originalFiles: { ...st.originalFiles, [key]: shown } });
     }
@@ -341,17 +295,15 @@ export async function processStep(io: RunnerIO): Promise<'ready' | 'next' | 'mov
       if (io.state().attachments[key].state !== 'done') setSlot({ state: 'done', fileName: name });
       continue;
     }
-    // The user replaced it on Dice themselves (e.g. with the copy in Downloads).
     if (kind === 'resume' && io.state().allowOriginalResume) continue;
     const prev = io.state().attachments[key];
-    if ((prev.tries ?? 0) >= 3 && prev.state === 'failed') continue; // retry a few times across DOM variants
+    if ((prev.tries ?? 0) >= 3 && prev.state === 'failed') continue;
     stage(io, 'attach', 'active');
     patch(io, { label: kind === 'resume' ? 'Replacing your resume with the tailored one…' : 'Attaching your cover letter…' });
     const payload = await io.payload(kind);
     if (!payload) continue;
     attempted = true;
     let res = await safe(io.send({ type: 'AF_UPLOAD_DOCUMENT', kind, file: payload }));
-    // One immediate retry when the first attempt fails without navigating (dynamic upload widgets).
     if (res && !res.ok && !res.navigated && (prev.tries ?? 0) < 2) {
       await io.sleep(600);
       res = (await safe(io.send({ type: 'AF_UPLOAD_DOCUMENT', kind, file: payload }))) ?? res;
@@ -370,7 +322,6 @@ export async function processStep(io: RunnerIO): Promise<'ready' | 'next' | 'mov
     const a = io.state().attachments;
     stage(io, 'attach', a.resume.state === 'failed' || a.coverLetter.state === 'failed' ? 'error' : 'done');
     if (scan.parsesResume && a.resume.state !== 'failed') {
-      // Lever (and many other employer forms) read the resume and fill fields themselves: let them finish first.
       patch(io, { label: `Waiting for ${site} to read your resume…` });
       await io.sleep(Math.min(3500, (io.pollMs ?? 400) * 9));
     }
@@ -380,7 +331,6 @@ export async function processStep(io: RunnerIO): Promise<'ready' | 'next' | 'mov
     stage(io, 'attach', 'done');
   }
 
-  // ---- fields ----
   patch(io, { label: 'Filling in your details…' });
   const ctx = {
     profile: io.profile,
@@ -390,8 +340,6 @@ export async function processStep(io: RunnerIO): Promise<'ready' | 'next' | 'mov
     resumeFileName: io.fileName('resume'),
     coverLetterFileName: io.fileName('cover_letter'),
     useSavedAnswers: io.settings.autoFillSavedAnswers,
-    // Sites that read the resume may have filled these wrongly: your profile wins.
-    // Only right after attaching on this pass — later passes must never undo your own edits.
     overwrite: scan.parsesResume && attempted ? (['first_name', 'last_name', 'full_name', 'email', 'phone'] as FieldSemantic[]) : undefined,
   };
   let proposals = proposeFieldValues(scan.fields, ctx).map((p) => ({ ...p, stepUrl: scan!.pageUrl }));
@@ -419,7 +367,6 @@ export async function processStep(io: RunnerIO): Promise<'ready' | 'next' | 'mov
     const r = await safe(io.send({ type: 'AF_ANSWER_FIELD', fieldId: p.fieldId, value: p.proposedValue }));
     proposals = proposals.map((x) => (x.fieldId === p.fieldId ? { ...x, status: r?.ok ? 'filled' : 'failed', error: r?.ok ? undefined : r?.error } : x));
   }
-  // Persist reused screening answers (usage stats) so similar questions rank better next time.
   if (io.saveProfile) {
     const answered = proposals.filter((p) => p.action === 'answer' && p.status === 'filled' && p.proposedValue.trim() && p.sensitive !== 'legal_consent');
     if (answered.length) {
@@ -428,7 +375,6 @@ export async function processStep(io: RunnerIO): Promise<'ready' | 'next' | 'mov
       for (const p of answered) {
         const category = p.sensitive ?? 'general';
         answers = markAnswerUsed(answers, p.proposedValue, category, now);
-        // Also upsert by question label so rephrased matches stay linked to this answer.
         if (p.label.trim()) {
           answers = rememberAnswer(
             answers,
@@ -456,14 +402,12 @@ export async function processStep(io: RunnerIO): Promise<'ready' | 'next' | 'mov
   return decide(io, scan, proposals, false);
 }
 
-/** What the step still needs after ApplyFlow did its part. */
 function decide(io: RunnerIO, scan: ScanResponse, proposals: FieldProposal[], includeOptional: boolean): 'ready' | 'next' | 'stopped' {
   const empty = scan.fields.filter((f) => !f.currentValue.trim() && f.control !== 'file');
   const byId = (id: string) => proposals.find((p) => p.fieldId === id);
   const asQuestion = (f: ScanResponse['fields'][number]): FieldProposal =>
     ({ ...(byId(f.fieldId) ?? { fieldId: f.fieldId, label: f.label, control: f.control, semantic: 'unknown', action: 'manual', proposedValue: '', source: 'You', confidence: 'low', required: f.required, sensitive: f.sensitive, reason: '', approvedSuggestion: null, status: 'pending' }), options: f.options.length ? f.options : undefined, required: f.required || includeOptional });
   const questions = empty.filter((f) => f.required || includeOptional).map(asQuestion);
-  // Optional questions left blank on earlier steps stay listed for the review.
   const here = new Set(scan.fields.map((f) => f.label));
   const earlier = io.state().optional.filter((o) => !here.has(o.label));
   const optional = [...earlier, ...(includeOptional ? [] : empty.filter((f) => !f.required).map(asQuestion))];
@@ -478,14 +422,12 @@ function decide(io: RunnerIO, scan: ScanResponse, proposals: FieldProposal[], in
     return 'stopped';
   }
   if (io.state().stages.questions === 'active') stage(io, 'questions', 'done');
-  // Never move on (or submit) while Dice still holds the old resume on this step.
   const r = io.state();
   if (scan.uploads.resume.method && r.attachments.resume.state === 'failed' && !r.allowOriginalResume) {
     stage(io, 'attach', 'error');
     return attention(io, r.attachments.resume.message ?? `ApplyFlow couldn’t attach your resume on ${scan.siteName || 'the page'} automatically.`, 'Attach your tailored resume', 'resume');
   }
   if (scan.submitControlFound && scan.canSubmit === false) {
-    // Best-effort sites: ApplyFlow filled what it could; the person reviews and submits there.
     if (io.state().stages.questions === 'todo') stage(io, 'questions', 'skipped');
     const st = io.state();
     io.report({
@@ -501,7 +443,6 @@ function decide(io: RunnerIO, scan: ScanResponse, proposals: FieldProposal[], in
   if (scan.submitControlFound) {
     if (io.state().stages.questions === 'todo') stage(io, 'questions', 'skipped');
     const st = io.state();
-    // Dice offered no upload slot on any step: say so in the review rather than claim it was attached.
     const notOffered = (a: AttachState): AttachState => (a.state === 'pending' ? { ...a, state: 'not_offered' } : a);
     io.report({
       ...st,
@@ -517,7 +458,6 @@ function decide(io: RunnerIO, scan: ScanResponse, proposals: FieldProposal[], in
   return attention(io, `ApplyFlow can’t find the Next or Submit button on this step. Continue on the page — ApplyFlow picks up on the next step.`);
 }
 
-/** Wait until the tab shows an application form again (after a full page load). */
 async function waitForForm(io: RunnerIO): Promise<boolean> {
   const poll = io.pollMs ?? 400;
   for (let i = 0; i < Math.ceil(12000 / poll); i++) {
@@ -529,7 +469,6 @@ async function waitForForm(io: RunnerIO): Promise<boolean> {
   return false;
 }
 
-/** Run the wizard from the current step until it needs the user or reaches Submit. */
 export async function runSteps(io: RunnerIO): Promise<'ready' | 'stopped'> {
   for (let i = 0; i < 12; i++) {
     if (io.aborted()) return 'stopped';
@@ -546,13 +485,11 @@ export async function runSteps(io: RunnerIO): Promise<'ready' | 'stopped'> {
     patch(io, { status: 'working', label: 'Going to the next step…' });
     const nx = await safe(io.send({ type: 'AF_NEXT_STEP' }));
     if (!nx) {
-      // The tab reloaded while moving on (full navigation): wait for the next step to appear.
       if (!(await waitForForm(io))) return attention(io, 'The next step is loading. Press Continue when it’s on screen.');
       continue;
     }
     if (!nx.ok) return attention(io, nx.message);
     if (!nx.advanced) {
-      // Dice refused to move on: show every empty question on the step, with Dice's own message.
       const scan = await safe(io.send({ type: 'AF_SCAN_FIELDS' }));
       if (scan?.ok && scan.formFound) {
         const s = io.session();

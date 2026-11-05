@@ -1,10 +1,3 @@
-// Builds ApplyFlow Desktop:
-//   1. the window (React)                      → dist/renderer/
-//   2. Electron main process                   → dist-electron/main.cjs
-//   3. window preload (bridge)                 → dist-electron/preload.cjs
-//   4. Dice page helper preload                → dist-electron/dice-preload.cjs
-//   5. Dice page-world file-chooser helper     → dist-electron/main-world.js
-//   6. command-line resume renderer (no AI)    → dist-cli/applyflow-render.mjs
 import { build } from 'vite';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -20,11 +13,11 @@ const pkgVersion = JSON.parse(readFileSync(resolve(root, 'package.json'), 'utf8'
 const srcVersion = readFileSync(resolve(root, 'src/version.ts'), 'utf8').match(/APP_VERSION = '([^']+)'/)?.[1];
 if (srcVersion !== pkgVersion) throw new Error(`src/version.ts (${srcVersion}) doesn't match package.json (${pkgVersion}).`);
 
-/** A single-file CommonJS bundle for Electron (main or a sandboxed preload). */
-const electronBundle = (entry, fileName, target = 'node22') =>
+const electronBundle = (entry, fileName, target = 'node22', define = {}) =>
   build({
     configFile: false,
     logLevel: 'warn',
+    define,
     resolve: { alias },
     publicDir: false,
     build: {
@@ -42,9 +35,22 @@ async function run() {
   if (!only || only === 'renderer') await build({ configFile: resolve(root, 'vite.config.ts'), logLevel: 'warn' });
   if (!only || only === 'electron') {
     rmSync(resolve(root, 'dist-electron'), { recursive: true, force: true });
-    await electronBundle('electron/main.ts', 'main.cjs');
-    await electronBundle('electron/preload.ts', 'preload.cjs');
-    await electronBundle('electron/dicePreload.ts', 'dice-preload.cjs', 'chrome140');
+    await electronBundle('electron/main.ts', 'main.cjs', 'node22', { __AF_CHROME__: 'false' });
+    await electronBundle('electron/preload.ts', 'preload.cjs', 'node22', { __AF_CHROME__: 'false' });
+    await electronBundle('electron/dicePreload.ts', 'dice-preload.cjs', 'chrome140', { __AF_CHROME__: 'false' });
+    await build({
+      configFile: false,
+      logLevel: 'warn',
+      define: { __AF_CHROME__: 'true' },
+      resolve: { alias },
+      publicDir: false,
+      build: {
+        outDir: resolve(root, 'dist-electron'),
+        emptyOutDir: false,
+        target: 'chrome140',
+        lib: { entry: resolve(root, 'electron/dicePreload.ts'), formats: ['iife'], name: 'ApplyFlowDicePage', fileName: () => 'dice-page.js' },
+      },
+    });
     await build({
       configFile: false,
       logLevel: 'warn',

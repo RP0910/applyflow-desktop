@@ -5,7 +5,6 @@ export function newId(prefix = ''): string {
   return prefix ? `${prefix}_${raw}` : raw;
 }
 
-/** One-time token used to authorize a single submit click after user confirmation. */
 export function newToken(): string {
   const bytes = new Uint8Array(16);
   crypto.getRandomValues(bytes);

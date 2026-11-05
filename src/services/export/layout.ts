@@ -1,9 +1,7 @@
-/** Shared resume layout helpers for every export format. */
 import type { ResumeFormat, SkillGroup, TailoredResume } from '@/types';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-/** One date in the chosen style: "02/2023" ↔ "Feb 2023". Anything unrecognized is kept as written. */
 export function formatDate(d: string, style: ResumeFormat['dateStyle']): string {
   const t = d.trim();
   if (!t || style === 'as_written') return t;
@@ -24,7 +22,6 @@ export function formatDate(d: string, style: ResumeFormat['dateStyle']): string 
   return style === 'mon_yyyy' ? `${MONTHS[month]} ${year}` : `${String(month + 1).padStart(2, '0')}/${year}`;
 }
 
-/** "02/2023 – 05/2026" in the chosen style; ranges inside education dates too. */
 export function formatRange(start: string, end: string, style: ResumeFormat['dateStyle']): string {
   if (!start) return end ? formatDate(end, style) : '';
   return `${formatDate(start, style)} – ${formatDate(end || 'Present', style)}`;
@@ -41,7 +38,6 @@ export function contactParts(t: Pick<TailoredResume, 'contact'>): string[] {
   return [c.location, c.phone, c.email, ...c.links.map((l) => l.replace(/^https?:\/\/(www\.)?/, ''))].filter(Boolean);
 }
 
-/** Skill groups for the Skills section ("Languages: Swift, Kotlin"); one plain group if none. */
 export function skillLines(t: Pick<TailoredResume, 'skills' | 'skillGroups'>): SkillGroup[] {
   if (t.skillGroups?.length) return t.skillGroups.filter((g) => g.skills.length);
   return t.skills.length ? [{ name: '', skills: t.skills }] : [];

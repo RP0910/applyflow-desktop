@@ -1,8 +1,3 @@
-/**
- * The submit gate. "Submit application" is enabled only when Dice's final step is on screen
- * and nothing below blocks it. Pressing that button — after the review summary — is the
- * user's final confirmation; ApplyFlow then clicks Dice's Submit button exactly once.
- */
 import type { JobSession, ValidationIssue } from '@/types';
 import type { ApplyRunState } from './applyRunner';
 
@@ -17,7 +12,6 @@ export interface GateInput {
   duplicateApplied: boolean;
 }
 
-/** Reasons the application can't be submitted yet. Empty = ready. */
 export function submitBlockers({ session, run, duplicateApplied }: GateInput): string[] {
   const out: string[] = [];
   if (!session) return ['Open a Dice job first.'];

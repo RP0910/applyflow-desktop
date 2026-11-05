@@ -1,8 +1,3 @@
-/**
- * Replacing the resume on Dice's "Resume & Cover Letter" step — the shapes of Dice's resume card
- * that made ApplyFlow 2.1.0 leave the "…" menu open without replacing anything (2.1.1 fix).
- * The same shapes run in real Chromium in scripts/e2e-replace.mjs (tests/fixtures/dice/wizard-realistic.html).
- */
 import { beforeAll, describe, expect, it } from 'vitest';
 import { installFileChooserInterceptor, INTERCEPT_ATTR } from '@/content/fileChooserInterceptor';
 import { findWizardRoot } from '@/services/platforms/dice/wizard';
@@ -14,17 +9,12 @@ const pdf = (name: string): FilePayload => ({ name, mime: 'application/pdf', bas
 const NEW_NAME = 'Grant-Howard-Resume-SAIC-Engineering-Technician-III-v3.pdf';
 
 interface Opts {
-  /** Menu item markup: icon SVG with a <title>, or an icon-font ligature before the label. */
   icon?: 'svg-title' | 'ligature' | 'plain';
-  /** Event that opens the "…" menu. */
   openOn?: 'click' | 'mousedown';
-  /** Links and list items before the menu (Dice's mega-menu and footer). */
   filler?: number;
-  /** Replace removes the file, re-renders the card, then clicks the input (like a React effect). */
   async?: boolean;
 }
 
-/** A Dice-like step 1: resume card with "File options" menu (portal at the end of <body>) and a cover letter drop area. */
 function mountRealisticWizard(doc: Document, opts: Opts = {}) {
   const state = { resume: 'Grant-Howard-FlowCV-Resume-20251222.pdf' as string | null, replaceClicks: 0, deleteClicks: 0, menuOpen: false };
   const icon = (title: string, ligature: string) =>
@@ -39,7 +29,6 @@ function mountRealisticWizard(doc: Document, opts: Opts = {}) {
     `<footer class="site-footer">${filler.replace(/<\/?li>/g, '')}</footer>`;
   const main = doc.querySelector('main')!;
   const card = doc.getElementById('resume-card')!;
-  // Dice keeps the resume uploader's input at the application level, with a generated id.
   const input = doc.createElement('input');
   input.type = 'file';
   input.id = ':r1a:';
@@ -69,7 +58,7 @@ function mountRealisticWizard(doc: Document, opts: Opts = {}) {
     doc.body.appendChild(menu);
     menu.querySelector('.replace')!.addEventListener('click', () => {
       state.replaceClicks++;
-      state.resume = null; // Replace removes the current file at once
+      state.resume = null;
       closeMenu();
       render();
       const open = () => input.click();
@@ -125,7 +114,6 @@ describe('replacing the resume through Dice’s “File options” menu', () => 
 
   it('never clicks the menu as a whole (it holds Delete too)', async () => {
     const { doc, state, root } = newDoc({ icon: 'svg-title' });
-    // Make the menu's own text look like "Replace…" to a naive matcher.
     const clicks: string[] = [];
     doc.addEventListener('click', (e) => clicks.push((e.target as Element).getAttribute('role') ?? (e.target as Element).tagName), true);
     await uploadDocument(doc, root, 'resume', pdf(NEW_NAME), testUploadDeps);
@@ -141,11 +129,6 @@ describe('replacing the resume through Dice’s “File options” menu', () => 
 });
 
 describe('with real input (desktop app)', () => {
-  /**
-   * Stands in for electron/diceInput.ts: "real" clicks become element.click() (jsdom has no layout,
-   * so point-clicks report unavailable and the gesture click is used), and while armed, an input
-   * the page clicks is answered with the file the way the browser answers a file chooser.
-   */
   function fakeTrusted(doc: Document) {
     const log: string[] = [];
     let armed: { file: FilePayload; handled: boolean } | null = null;
@@ -163,7 +146,6 @@ describe('with real input (desktop app)', () => {
         log.push('arm');
         proto.click = function (this: HTMLInputElement) {
           if (this.type !== 'file' || !armed) return pageClick.call(this);
-          // The page must be left alone while real input answers the chooser.
           log.push(`chooser intercept-attr=${doc.documentElement.hasAttribute(INTERCEPT_ATTR)}`);
           const f = new File(['%PDF'], armed.file.name, { type: armed.file.mime });
           Object.defineProperty(this, 'files', { configurable: true, value: [f] });

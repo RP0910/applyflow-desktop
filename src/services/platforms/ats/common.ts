@@ -1,8 +1,3 @@
-/**
- * Shared logic for employer application forms (Greenhouse, Lever, Ashby and best-effort sites).
- * These are one-page forms: contact details, resume/cover letter, the employer's questions,
- * voluntary self-identification, and one Submit button.
- */
 import type { PageBlocker } from '@/types';
 import type { UploadTarget } from '@/types/messages';
 import { controlLabel, deepQueryAll, isPageChrome, isVisible, visibleText } from '../dom';
@@ -27,32 +22,23 @@ export function pathOf(url: string): string {
   }
 }
 
-/** The page's visible text (bounded), for status checks such as "no longer accepting applications". */
 export function pageText(doc: Document, max = 30000): string {
   return visibleText(doc.body, max);
 }
 
-// ---------------------------------------------------------------- CAPTCHA
 
 const CAPTCHA_FRAME = /recaptcha|hcaptcha|challenges\.cloudflare\.com|turnstile|arkoselabs|funcaptcha/i;
 
-/**
- * A CAPTCHA the person must solve is on screen. Employer forms load invisible reCAPTCHA/hCaptcha
- * on every page (and reCAPTCHA's small corner badge); those don't count — only a visible
- * challenge or checkbox widget does.
- */
 export function visibleCaptcha(doc: Document): boolean {
   const isJsdom = typeof navigator !== 'undefined' && /jsdom/i.test(navigator.userAgent);
   const frames = deepQueryAll<HTMLIFrameElement>(doc, 'iframe', 200).filter((f) => CAPTCHA_FRAME.test(f.getAttribute('src') ?? '') || /captcha|challenge/i.test(f.getAttribute('title') ?? ''));
   for (const f of frames) {
     if (f.closest('.grecaptcha-badge, [data-size="invisible"]')) continue;
     if (!isVisible(f)) continue;
-    // Hidden inline (e.g. an invisible hCaptcha's frame), even where styles can't be computed.
     let hidden = false;
     for (let el: HTMLElement | null = f; el && !hidden; el = el.parentElement) hidden = el.style?.display === 'none' || el.style?.visibility === 'hidden';
     if (hidden) continue;
     if (isJsdom) {
-      // No layout in tests: a frame marked as a challenge or a widget counts.
       if (/challenge|bframe|checkbox|anchor/i.test(`${f.getAttribute('src') ?? ''} ${f.getAttribute('title') ?? ''}`)) return true;
       continue;
     }
@@ -62,7 +48,6 @@ export function visibleCaptcha(doc: Document): boolean {
   return false;
 }
 
-// ---------------------------------------------------------------- status texts
 
 export const CLOSED_PATTERNS = [
   /no longer (?:open|available|accepting (?:new )?applications|taking applications)/i,
@@ -82,7 +67,6 @@ export const ATS_SUCCESS_PATTERNS = [
   /your application (?:is on its way|has been submitted|was submitted)/i,
 ];
 
-/** Closed / already-applied messages, but only while no application form is on the page. */
 export function statusBlocker(doc: Document, hasForm: boolean): PageBlocker | null {
   const text = pageText(doc, 12000);
   if (APPLIED_PATTERNS.some((p) => p.test(text))) return { kind: 'applied', message: 'The employer’s site says you already applied to this job.' };
@@ -90,9 +74,7 @@ export function statusBlocker(doc: Document, hasForm: boolean): PageBlocker | nu
   return null;
 }
 
-// ---------------------------------------------------------------- the form
 
-/** The application form: the first visible match of `selectors`, else a form with a file input and an email field. */
 export function findForm(doc: Document, selectors: string[]): Element | null {
   for (const sel of selectors) {
     const hit = deepQueryAll(doc, sel, 5).find((el) => isVisible(el) && !isPageChrome(el));
@@ -101,7 +83,6 @@ export function findForm(doc: Document, selectors: string[]): Element | null {
   return guessApplicationForm(doc);
 }
 
-/** A form that looks like a job application: a file input or an email field, plus a few other fields; never search or sign-in forms. */
 export function guessApplicationForm(doc: Document): Element | null {
   const forms = deepQueryAll<HTMLFormElement>(doc, 'form', 30).filter((f) => isVisible(f) && !isPageChrome(f) && !f.querySelector('input[type="password"]') && f.getAttribute('role') !== 'search');
   const score = (f: Element) => {
@@ -114,7 +95,6 @@ export function guessApplicationForm(doc: Document): Element | null {
   return best?.f ?? null;
 }
 
-/** The one Submit button of a one-page form. */
 export function findAtsSubmit(root: Element): { match: { element: HTMLElement; label: string } | null; reason: string | null } {
   const labelled = clickables(root, 200).filter((b) => navKind(b) === 'submit' || /^(submit|submit application|submit your application|send application|apply|apply now|submit my application)$/i.test(controlLabel(b).trim()));
   let pool = labelled;
@@ -128,10 +108,8 @@ export function findAtsSubmit(root: Element): { match: { element: HTMLElement; l
   return { match: null, reason: 'No Submit button was found on this page.' };
 }
 
-/** Nothing to press between steps: these forms are one page. */
 export const noNextControl = (): { el: HTMLElement | null; reason: string | null } => ({ el: null, reason: null });
 
-/** The field container around an input (its label, button and the attached file's name). */
 export function fieldContainer(input: Element, root: Element): Element {
   let cur: Element = input;
   for (let i = 0; i < 5 && cur.parentElement && cur.parentElement !== root; i++) {
@@ -141,7 +119,6 @@ export function fieldContainer(input: Element, root: Element): Element {
   return cur;
 }
 
-/** The file name a field shows after a file was attached. */
 export function attachedName(container: Element | null): string | null {
   if (!container) return null;
   const leaf = deepQueryAll<HTMLElement>(container, 'a, span, p, div, strong, li, button', 200).find((el) => {
@@ -151,18 +128,12 @@ export function attachedName(container: Element | null): string | null {
   return leaf ? (visibleText(leaf, 200).match(FILE_NAME_RE)?.[0] ?? null) : null;
 }
 
-/**
- * File inputs by slot. `ids` match the input's id/name exactly or as a word; inputs inside
- * "autofill from resume" helpers (Ashby, Greenhouse) are never used for the resume itself.
- */
-/** Label text that marks a resume / cover-letter section when the file input is still hidden. */
 const SECTION_LABEL: Record<'resume' | 'cover_letter', RegExp> = {
   resume: /\b(add\s+)?(resume|cv|curriculum\s+vitae)\b/i,
   cover_letter: /\b(add\s+)?cover[\s_-]?letter\b/i,
 };
 const UPLOAD_CONTROL = /^(select|select file|choose( a)? file|browse( files)?|attach|upload|add file|replace)$/i;
 
-/** A document section found by its heading/label and an upload-like control (Jobvite SELECT, etc.). */
 export function findDocumentSection(root: Element, kind: 'resume' | 'cover_letter'): Element | null {
   const re = SECTION_LABEL[kind];
   const other = SECTION_LABEL[kind === 'resume' ? 'cover_letter' : 'resume'];
@@ -218,7 +189,6 @@ export function atsUploadTargets(locator: DocumentLocator) {
       const fromInput = input?.files?.[0]?.name ?? null;
       const shown = fromInput ?? attachedName(card);
       if (input) return { method: 'input', currentFileName: shown };
-      // Custom upload widgets (Jobvite SELECT, Workday attach) expose a card before the file input.
       if (card) return { method: 'dropzone', currentFileName: shown };
       return { method: null, currentFileName: null };
     };
@@ -226,7 +196,6 @@ export function atsUploadTargets(locator: DocumentLocator) {
   };
 }
 
-/** Validation messages on the form, plus fields the page marked invalid. */
 export function atsPageErrors(root: Element): string[] {
   const out = new Set(wizardPageErrors(root));
   deepQueryAll<HTMLElement>(root, '[aria-invalid="true"]', 20).forEach((el) => {
@@ -247,19 +216,12 @@ export function atsForms(locator: DocumentLocator): Partial<FormSupport> {
   };
 }
 
-/** A button or link labelled like "Apply for this job". */
-/** A control inside a form with fields, or a submit button: pressing it could send an application. */
 export function couldSubmit(el: Element): boolean {
   if (el.matches('button[type="submit"], input[type="submit"], button:not([type])') && el.closest('form')) return true;
   const form = el.closest('form');
   return Boolean(form && form.querySelector('input:not([type="hidden"]):not([type="search"]), textarea, select'));
 }
 
-/**
- * The page's one "Apply" control (never a form's submit button). A choice the site just asked in a
- * dialog ("Apply Manually") comes first. Several different Apply controls (a careers list) → none:
- * ApplyFlow won't guess which job.
- */
 export function findApplyButton(doc: Document, labels: RegExp): HTMLElement | null {
   const all = deepQueryAll<HTMLElement>(doc, 'a[href], button, [role="button"], input[type="button"]', 600).filter(
     (el) => isVisible(el) && !isPageChrome(el) && !couldSubmit(el) && labels.test(controlLabel(el).replace(/\s+/g, ' ').trim()),
@@ -270,7 +232,6 @@ export function findApplyButton(doc: Document, labels: RegExp): HTMLElement | nu
   return targets.size === 1 ? pool[0]! : null;
 }
 
-/** An employer form embedded in a frame on a company careers page (Greenhouse, Lever, Ashby). */
 export function embeddedFormUrl(doc: Document): string | null {
   for (const f of deepQueryAll<HTMLIFrameElement>(doc, 'iframe[src]', 50)) {
     const src = f.getAttribute('src') ?? '';

@@ -47,7 +47,6 @@ describe('SQLite store', () => {
     const r1 = db.saveApplication(recordFromSession(s1, 'Applied'));
     const r2 = db.saveApplication(recordFromSession(s2, 'Applied'));
 
-    // Contacts in the posting were picked up automatically; the salary range was not taken for a phone.
     expect(db.listContacts(r1.id).map((c) => c.phone || c.email)).toEqual(['(312) 555-0147', 'dana@meridian-example.com']);
     expect(db.listContacts(r2.id)).toEqual([]);
 
@@ -61,17 +60,13 @@ describe('SQLite store', () => {
     expect(db.search('connected tv')[0]!.application.id).toBe(r2.id);
     expect(db.search('dana@meridian')[0]!.matchedOn).toContain('email');
 
-    // A recruiter added by hand is found by name and by their own number.
     db.saveContact({ id: '', applicationId: r2.id, name: 'Priya Natarajan', role: 'Recruiter', phone: '646.555.0199', email: '', source: 'you', createdAt: '' });
     expect(db.search('priya')[0]!.application.id).toBe(r2.id);
     expect(db.search('6465550199')[0]!.application.id).toBe(r2.id);
 
-    // Notes are searchable too ("who called and why").
     db.saveApplication(addNote(db.getApplication(r2.id)!, 'Phone screen with hiring manager on Friday'));
     expect(db.search('hiring manager')[0]!.application.id).toBe(r2.id);
-    // Empty query: most recent first.
     expect(db.search('').length).toBe(2);
-    // Odd input never throws.
     expect(() => db.search('"(*^')).not.toThrow();
   });
 
@@ -80,7 +75,6 @@ describe('SQLite store', () => {
     const s = db.saveSession(session('Acme', 'Engineer', 'x', 'dice:9'));
     db.upsertDocument({ applicationId: null, jobKey: s.jobKey, kind: 'resume', version: 1, json: '{"v":1}', engine: 'claude', model: 'claude-sonnet-5-5' });
     db.upsertDocument({ applicationId: null, jobKey: s.jobKey, kind: 'resume', version: 2, json: '{"v":2}', engine: 'claude', model: 'claude-sonnet-5-5' });
-    // Saving the file later fills in the path without losing the JSON.
     db.upsertDocument({ applicationId: null, jobKey: s.jobKey, kind: 'resume', version: 2, json: '{"v":2}', engine: null, model: null, filePath: 'C:/x/resume_tailored.pdf', format: 'pdf' });
     const rec = db.saveApplication(recordFromSession(s, 'Applied'));
     db.markSent(rec.id, s.jobKey);
@@ -117,7 +111,6 @@ describe('SQLite store — history safety', () => {
     db.upsertDocument({ applicationId: rec.id, jobKey: s.jobKey, kind: 'resume', version: 1, json: '{"a":1}', engine: 'local', model: null });
     db.upsertDocument({ applicationId: rec.id, jobKey: s.jobKey, kind: 'cover_letter', version: 1, json: '{"c":1}', engine: 'local', model: null });
     db.markSent(rec.id, s.jobKey, { resume: 1, cover_letter: null });
-    // Version numbering restarted (resume switched): the sent v1 stays, the new one becomes v2.
     const d = db.upsertDocument({ applicationId: rec.id, jobKey: s.jobKey, kind: 'resume', version: 1, json: '{"a":2}', engine: 'local', model: null });
     expect(d.version).toBe(2);
     const docs = db.listDocuments({ applicationId: rec.id });

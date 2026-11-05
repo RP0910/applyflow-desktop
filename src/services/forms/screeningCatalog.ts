@@ -1,7 +1,3 @@
-/**
- * Built-in catalog of common ATS screening questions (Greenhouse, Lever, Ashby, Workday, Dice, etc.).
- * Pure data — no AI. Users review these on Screening Q&A and save their own answers locally.
- */
 import type { ApprovedAnswer, ScreeningControl, SensitiveCategory } from '@/types';
 
 export type ScreeningCatalogGroup =
@@ -29,24 +25,18 @@ export const SCREENING_GROUP_LABELS: Record<ScreeningCatalogGroup, string> = {
 
 export interface ScreeningCatalogQuestion {
   id: string;
-  /** Primary wording shown in the UI. */
   prompt: string;
-  /** Other wordings that mean the same thing on real forms. */
   aliases: string[];
   group: ScreeningCatalogGroup;
   category: SensitiveCategory | 'general';
   control: ScreeningControl;
-  /** Typical choice labels (sites vary; used as suggestions when answering). */
   options?: string[];
-  /** Short help shown under the prompt. */
   hint?: string;
 }
 
 const YN = ['Yes', 'No'] as const;
 
-/** Curated from recurring ATS / employer application forms. */
 export const SCREENING_CATALOG: ScreeningCatalogQuestion[] = [
-  // —— Eligibility ——
   {
     id: 'work_auth_us',
     prompt: 'Are you legally authorized to work in the United States?',
@@ -106,7 +96,6 @@ export const SCREENING_CATALOG: ScreeningCatalogQuestion[] = [
     options: [...YN, 'Prefer not to say'],
   },
 
-  // —— Logistics ——
   {
     id: 'relocate',
     prompt: 'Are you willing to relocate for this role?',
@@ -157,7 +146,6 @@ export const SCREENING_CATALOG: ScreeningCatalogQuestion[] = [
     control: 'text',
   },
 
-  // —— Compensation & timing ——
   {
     id: 'salary_expectation',
     prompt: 'What are your salary expectations?',
@@ -197,7 +185,6 @@ export const SCREENING_CATALOG: ScreeningCatalogQuestion[] = [
     control: 'text',
   },
 
-  // —— Background ——
   {
     id: 'criminal',
     prompt: 'Have you ever been convicted of a felony?',
@@ -264,7 +251,6 @@ export const SCREENING_CATALOG: ScreeningCatalogQuestion[] = [
     options: [...YN],
   },
 
-  // —— Experience ——
   {
     id: 'years_total',
     prompt: 'How many years of professional experience do you have?',
@@ -328,7 +314,6 @@ export const SCREENING_CATALOG: ScreeningCatalogQuestion[] = [
     control: 'textarea',
   },
 
-  // —— Source ——
   {
     id: 'hear_about',
     prompt: 'How did you hear about this job?',
@@ -355,7 +340,6 @@ export const SCREENING_CATALOG: ScreeningCatalogQuestion[] = [
     control: 'text',
   },
 
-  // —— EEO ——
   {
     id: 'gender',
     prompt: 'Gender (voluntary)',
@@ -430,7 +414,6 @@ export const SCREENING_CATALOG: ScreeningCatalogQuestion[] = [
     options: ['he/him', 'she/her', 'they/them', 'Prefer not to say'],
   },
 
-  // —— Consent ——
   {
     id: 'privacy_consent',
     prompt: 'I agree to the privacy policy / data processing terms',
@@ -465,7 +448,6 @@ export const SCREENING_CATALOG: ScreeningCatalogQuestion[] = [
     hint: 'Never auto-applied — you confirm this on every application.',
   },
 
-  // —— Other ——
   {
     id: 'contact_employer',
     prompt: 'May we contact your current employer?',
@@ -513,7 +495,6 @@ export function catalogGroups(): ScreeningCatalogGroup[] {
   );
 }
 
-/** Find a saved answer that already covers this catalog question. */
 export function savedForCatalog(answers: ApprovedAnswer[], q: ScreeningCatalogQuestion): ApprovedAnswer | undefined {
   const byId = answers.find((a) => a.catalogId === q.id);
   if (byId) return byId;

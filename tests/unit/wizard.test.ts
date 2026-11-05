@@ -1,8 +1,3 @@
-/**
- * Dice's real application wizard: finding the application (not the site's search bar),
- * attaching documents through hidden inputs and the "…" → Replace menu, step navigation,
- * and answering questions with values the user chose.
- */
 import { beforeAll, describe, expect, it } from 'vitest';
 import { createContentController } from '@/content/controller';
 import { installFileChooserInterceptor } from '@/content/fileChooserInterceptor';
@@ -24,7 +19,6 @@ function wizardTab() {
 }
 
 beforeAll(() => {
-  // What the page-world script does on dice.com (manifest "world": "MAIN").
   installFileChooserInterceptor(HTMLInputElement.prototype);
 });
 
@@ -37,7 +31,6 @@ describe('finding the application on Dice', () => {
     expect(root.contains(doc.querySelector('.site-header'))).toBe(false);
     expect(isPageChrome(doc.querySelector('input[name=q]')!)).toBe(true);
     expect(isPageChrome(doc.querySelector('.site-footer a')!)).toBe(true);
-    // The wizard's own footer with Back/Next is not site chrome.
     expect(isPageChrome(doc.querySelector('.btn-next')!)).toBe(false);
     expect(wizardStep(doc)).toEqual({ current: 1, total: 3 });
   });
@@ -80,7 +73,7 @@ describe('attaching documents on Dice', () => {
     expect(res).toMatchObject({ ok: true, verified: true, method: 'replace-menu', fileName: 'Jordan-Rivera-Resume.pdf' });
     expect(wiz.state.resume).toBe('Jordan-Rivera-Resume.pdf');
     expect(wiz.state.nativePickerOpened).toBe(0);
-    expect(doc.documentElement.hasAttribute('data-applyflow-intercept')).toBe(false); // switched off again
+    expect(doc.documentElement.hasAttribute('data-applyflow-intercept')).toBe(false);
     expect(doc.querySelector('.file-link')!.textContent).toBe('Jordan-Rivera-Resume.pdf');
   });
 
@@ -94,11 +87,9 @@ describe('attaching documents on Dice', () => {
 
   it('fails safely, with instructions, when the page-world helper is missing', async () => {
     const { doc, wiz } = wizardTab();
-    // Simulate the helper not running: the menu's input.click() is never intercepted.
     const proto = HTMLInputElement.prototype;
     const patched = proto.click;
     proto.click = function () {
-      /* chooser blocked: no user gesture */
     };
     try {
       const res = await uploadDocument(doc, findWizardRoot(doc)!, 'resume', pdf('Jordan-Rivera-Resume.pdf'), testUploadDeps);
@@ -137,7 +128,6 @@ describe('moving through steps and answering questions', () => {
     expect(by(/sponsorship/)).toMatchObject({ required: true, sensitive: 'sponsorship' });
     expect(by(/years/)).toMatchObject({ control: 'text', required: true, sensitive: 'years_experience' });
     expect(by(/hear/)).toMatchObject({ control: 'select', required: false, sensitive: null });
-    // None of the site's search inputs leak in.
     expect(fields.some((f) => /keyword|location/i.test(f.label))).toBe(false);
   });
 

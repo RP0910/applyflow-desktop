@@ -1,13 +1,8 @@
-/**
- * Local (no-AI) job analysis. Always runs — it is the transparent baseline that
- * Claude's analysis is merged into, and the fallback when no API key is set.
- */
 import type { CareerProfile, JobAnalysis, JobPosting, MasterResume, RiskWarning, SkillEvidence } from '@/types';
 import { findSkills, findSoftSkills, canonicalSkill } from '@/services/skills/extract';
 import { SKILL_BY_NAME } from '@/services/skills/taxonomy';
 import { uniqCaseInsensitive, truncate as clip } from '@/utils/text';
 
-/** Quote a sentence inside our own sentence without doubling its final period. */
 const truncate = (s: string, n: number) => clip(s.trim().replace(/[.\s]+$/, ''), n);
 import { nowIso } from '@/utils/dates';
 import { newId } from '@/utils/id';
@@ -126,7 +121,6 @@ export function analyzeJobLocally(job: JobPosting, resume: MasterResume | null, 
   };
 }
 
-/** Missing qualifications = required skills without evidence + hard requirements flagged as risks. */
 export function missingQualifications(evidence: SkillEvidence[], risks: RiskWarning[]): string[] {
   return [
     ...evidence.filter((e) => e.importance === 'required' && (e.status === 'none' || e.status === 'conflict')).map((e) => e.skill),

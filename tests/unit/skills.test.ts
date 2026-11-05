@@ -84,8 +84,8 @@ describe('skill evidence classification', () => {
       ],
       allowedCorpus(base),
     );
-    expect(merged.find((e) => e.skill === 'Databricks')!.status).toBe('none'); // invented quote ignored
-    expect(merged.find((e) => e.skill === 'Event streaming')!.status).toBe('partial'); // verified
-    expect(merged.find((e) => e.skill === 'Kotlin')!.status).toBe('needs_confirmation'); // unverified
+    expect(merged.find((e) => e.skill === 'Databricks')!.status).toBe('none');
+    expect(merged.find((e) => e.skill === 'Event streaming')!.status).toBe('partial');
+    expect(merged.find((e) => e.skill === 'Kotlin')!.status).toBe('needs_confirmation');
   });
 });

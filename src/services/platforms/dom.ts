@@ -1,4 +1,3 @@
-/** DOM helpers that also look inside open shadow roots (Dice uses web components). */
 
 export function deepQueryAll<T extends Element = Element>(root: ParentNode, selector: string, limit = 500): T[] {
   const out: T[] = [];
@@ -24,7 +23,6 @@ export function firstMatch<T extends Element = Element>(root: ParentNode, select
       const el = deepQuery<T>(root, sel);
       if (el) return { el, selector: sel };
     } catch {
-      /* invalid selector on this engine — skip */
     }
   }
   return null;
@@ -34,7 +32,6 @@ export function cleanText(el: Element | null | undefined): string {
   return (el?.textContent ?? '').replace(/\s+/g, ' ').trim();
 }
 
-/** Visible to the user right now (not display:none / hidden / zero-size). jsdom has no layout, so size checks are skipped there. */
 export function isVisible(el: Element): boolean {
   const h = el as HTMLElement;
   if (h.hidden || h.closest('[hidden],[aria-hidden="true"]')) return false;
@@ -59,14 +56,8 @@ export function controlLabel(el: HTMLElement): string {
   return (el.getAttribute('aria-label') || el.textContent || (el as HTMLInputElement).value || '').replace(/\s+/g, ' ').trim();
 }
 
-/**
- * True for elements in the site's own header, navigation, search or footer. A <header> or
- * <footer> inside the application itself (e.g. a wizard footer holding "Next") does not count.
- */
 export function isPageChrome(el: Element): boolean {
   if (el.closest('nav, [role="navigation"], [role="search"], [role="banner"], [role="contentinfo"], form[role="search"]')) return true;
-  // A <header>/<footer> is site furniture only when it looks like one (navigation, search, many links).
-  // Dice's wizard keeps its own Back/Next buttons in a footer, which must stay usable.
   const hf = el.closest('header, footer');
   if (
     hf &&

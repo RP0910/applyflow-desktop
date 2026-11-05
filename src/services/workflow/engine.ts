@@ -1,8 +1,3 @@
-/**
- * Workflow engine: analysis, tailoring and cover letters, using Claude when configured
- * and the local engine otherwise (or as a fallback when Claude fails).
- * Every output passes through the truthfulness validator.
- */
 import type {
   AtsPlan, AtsReport, CareerProfile, CoverLetter, CoverLetterAction, CoverLetterTone, JobAnalysis, JobPosting, JobSession, MasterResume,
   MatchScore, ParseCheck, ProgressPhase, RiskWarning, Settings, SkillEvidence, TailoredResume,
@@ -34,12 +29,9 @@ import type { CompanyResearchReply } from '@/prompts/companyResearch';
 export interface EngineDeps {
   settings: Settings;
   apiKey: string | null;
-  /** Injected in tests. */
   providerFactory?: (apiKey: string, settings: Settings) => ClaudeProvider;
   signal?: AbortSignal;
-  /** Receives the tokens each Claude request used. */
   onUsage?: UsageReporter;
-  /** Tests inject this instead of the desktop Claude.ai session. */
   chatComplete?: (req: ChatCompleteRequest) => Promise<{ text: string; model: string }>;
 }
 
@@ -58,7 +50,6 @@ function useClaude(deps: EngineDeps): boolean {
   return deps.settings.engine === 'claude' && Boolean(deps.apiKey);
 }
 
-/** Resume JSON can come from the API or from a signed-in Claude.ai chat. Other Claude calls stay on the API. */
 function useResumeModel(deps: EngineDeps): boolean {
   return deps.settings.engine === 'claude' && (deps.settings.resumeGenerationMethod === 'chat' || Boolean(deps.apiKey));
 }
@@ -78,7 +69,6 @@ function fallbackNotice(e: unknown, what: string): string {
   return `${msg} ${what} used the local engine instead.`;
 }
 
-/** What Claude sees of the job — the full text only if the user allows it. */
 export function jobForPrompt(job: JobPosting, sendFull: boolean) {
   const base = { title: job.title, company: job.company, location: job.location, remoteStatus: job.remoteStatus, employmentType: job.employmentType, salary: job.salary };
   if (sendFull) return { ...base, description: job.description };
@@ -171,7 +161,6 @@ export interface AnalysisResult {
   atsMaster: AtsReport | null;
 }
 
-/** ATS keywords, plan and a scan of the master resume, for the job. */
 export function planAts(job: JobPosting, analysis: JobAnalysis, master: MasterResume, profile: CareerProfile | undefined, length: Settings['defaultResumeLength']): { plan: AtsPlan; master: AtsReport } {
   const keywords = extractJobKeywords(job, analysis);
   const plan = buildAtsPlan(job, master, profile, keywords, length, analysis.requiredYears);
@@ -195,7 +184,6 @@ export async function runAnalysis(
   let analysis = analyzeJobLocally(job, resume, profile, extractionUncertain);
   let notice: string | null = null;
   let claudeEvidence: AnalyzeJobReply['skillEvidence'] = [];
-  // The local analysis is instant and drives the score; Claude analysis is opt-in (slower, costs tokens).
   if (useClaude(deps) && resume && deps.settings.deepAnalysisWithClaude) {
     try {
       const r = await provider(deps).analyzeJob(jobForPrompt(job, deps.settings.sendFullJobDescription), candidateFactsForPrompt(resume, profile), deps.signal);
@@ -230,11 +218,9 @@ export interface TailorResult {
   atsPlan: AtsPlan;
   atsMaster: AtsReport;
   atsTailored: AtsReport;
-  /** The cover letter Claude wrote in the same request, when one was asked for. */
   letter: { text: string; model: string } | null;
 }
 
-/** Validate, auto-fix model mistakes back toward the master's facts, and record what changed. */
 function checkTruthfulness(t: TailoredResume, master: MasterResume, profile: CareerProfile | undefined, ctx: Parameters<typeof validateTailoredResume>[1], supported: string[]): TailoredResume {
   let issues = validateTailoredResume(t, ctx);
   let out = t;
@@ -257,16 +243,6 @@ export interface LetterRequest {
   maxWords: number;
 }
 
-/**
- * The ATS resume engine:
- *   1. plan — job keywords, which ones the master resume backs, headline title, years, bullets per job (local)
- *   2. write — ONE Claude request returns the resume content (and the cover letter) as compact JSON;
- *      without a key the local engine writes from the same plan
- *   3. assemble — employers, titles, dates, education and contact details come from the master resume (local)
- *   4. optimize + verify — supported keywords guaranteed, anything not backed by the facts reverted (local)
- *   5. scan — ATS score; an optional refine request (off by default) fixes what the scan found
- * The PDF is drawn later from the resulting JSON by ApplyFlow's own renderer — no AI.
- */
 export async function runTailoring(
   session: JobSession,
   master: MasterResume,
@@ -311,7 +287,6 @@ export async function runTailoring(
   tailored = finish(tailored);
   let atsTailored = scanTailored(tailored, plan, master, deps.settings);
 
-  // Optional ATS refine pass (a second request): keep the result only if it scores higher and stays truthful.
   const findings = refineFindings(tailored, atsTailored, plan);
   if (tailored.engine === 'claude' && deps.settings.atsRefinePass && findings.length && atsTailored.score < 98) {
     try {
@@ -320,7 +295,6 @@ export async function runTailoring(
       const shortFindings = findings.map((f) => f.replace(/exp:([\w-]+)/g, (m, id: string) => toShort[id] ?? m));
       const r = await provider(deps).refineApplication(facts, { draft: draftFromTailored(tailored, facts.jobIds), findings: shortFindings, plan: cPlan, forbidden, job: cJob }, deps.signal);
       const assembled = assembleFromClaude(toTailorReply(r.data, facts.jobIds), master, profile, version, r.model, plan);
-      // The refine pass only fixes findings; the first draft's project selection stays.
       const refined = finish({ ...assembled, projects: r.data.projects?.length ? assembled.projects : tailored.projects, certifications: tailored.certifications, changes: [...tailored.changes] });
       const refinedScan = scanTailored(refined, plan, master, deps.settings);
       const criticalBefore = tailored.issues.filter((i) => i.severity === 'critical').length;
@@ -332,7 +306,6 @@ export async function runTailoring(
       }
     } catch (e: unknown) {
       if (e instanceof ClaudeError && e.code === 'aborted') throw e;
-      // The first draft is complete and verified; the refine pass is a bonus.
     }
   }
   onPhase('validating');
@@ -400,7 +373,6 @@ export async function runCoverLetter(
   };
 }
 
-/** Re-validate after the user edits the resume by hand. */
 export function revalidateEdited(t: TailoredResume, session: JobSession, master: MasterResume, profile: CareerProfile | undefined, length: Settings['defaultResumeLength']): TailoredResume {
   if (t.contentSource === 'cv-generate') return { ...t, editedByUser: true, version: t.version + 1, generatedAt: nowIso() };
   const issues = validateTailoredResume(t, { master, profile, job: session.job, evidence: session.evidence, length, plan: session.atsPlan ?? null });
@@ -413,19 +385,12 @@ export function revalidateLetter(text: string, cl: CoverLetter, session: JobSess
   return { ...cl, text, wordCount: wordCount(text), issues, editedByUser: true };
 }
 
-/** A cover letter from text Claude already wrote (in the application request). */
 export function letterFromText(text: string, model: string, session: JobSession, master: MasterResume, profile: CareerProfile | undefined, tone: CoverLetterTone): CoverLetter {
   const version = (session.coverLetter?.version ?? 0) + 1;
   const issues = validateCoverLetter(text, { master, profile, job: session.job, evidence: session.evidence, minWords: COVER_LETTER_WORDS.min, maxWords: COVER_LETTER_WORDS.max });
   return { version, tone, text, wordCount: wordCount(text), issues, engine: 'claude', model, generatedAt: nowIso(), editedByUser: false };
 }
 
-/**
- * Resume and cover letter together via two separate Claude requests:
- *   1. company research only (must finish successfully first)
- *   2. CV Generate using researched employer names already written into CANDIDATE.jobs
- * CV generate never starts until research returns usable companies.
- */
 export async function runDocuments(
   session: JobSession,
   master: MasterResume,
@@ -438,7 +403,6 @@ export async function runDocuments(
   if (!useResumeModel(deps)) throw new Error(resumeModelError(deps));
   const baseFacts = compactFacts(master, profile);
   if (!Object.keys(baseFacts.jobIds).length) throw new Error('Add employer names and dates in Profile settings.');
-  // Token savings: prefer structured lists; cap full description when the user allows it.
   const job = compactJob(session.job, deps.settings.sendFullJobDescription, 12000);
   const tech = [
     ...session.analysis.requiredSkills,
@@ -491,7 +455,6 @@ export async function runDocuments(
     notices.push('Researched employer names already matched Profile; those names and HQs were kept for CV generate.');
   }
   notices.push('Verify generated claims before submitting. Scores describe draft coverage, not verified experience.');
-  // Bounded improvement: one extra refine at most (saves tokens); never fabricate the measured score.
   for (let pass = 0; pass < 1 && (measured.ats.score <= 95 || measured.match.total <= 95); pass++) {
     const missing = measured.ats.keywords.filter((k) => k.found === 'missing').map((k) => k.term).slice(0, 16);
     const revision = JSON.stringify({

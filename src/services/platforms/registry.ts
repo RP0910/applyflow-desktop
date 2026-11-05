@@ -7,10 +7,6 @@ import { ashbyAdapter } from './ats/ashby';
 import { jobviteAdapter } from './ats/jobvite';
 import { genericAdapter, siteNameFor } from './ats/generic';
 
-/**
- * Job boards (where jobs are found and read) and employer application systems (where you apply).
- * Order matters: the best-effort adapter for other employer sites matches any https page, so it is last.
- */
 export const ADAPTERS: JobSiteAdapter[] = [diceAdapter, jobrightAdapter, greenhouseAdapter, leverAdapter, ashbyAdapter, jobviteAdapter];
 
 export function adapterForUrl(url: string): JobSiteAdapter | null {
@@ -24,17 +20,12 @@ export function adapterForUrl(url: string): JobSiteAdapter | null {
   }
 }
 
-/** "Dice", "Jobright", "Greenhouse"… or a name for the employer's site ("Workday", "careers.acme.com"). */
 export function siteName(url: string): string {
   const a = adapterForUrl(url);
   if (!a) return 'this site';
   return a.id === 'generic' ? siteNameFor(url) : a.displayName;
 }
 
-/**
- * Which application a page belongs to: the site's job id (Dice job, Greenhouse token, Lever/Ashby posting),
- * else the site's address. A run is tied to the form it opened; a different key is a different application.
- */
 export function formKeyFor(url: string): string {
   try {
     const a = adapterForUrl(url);
