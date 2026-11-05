@@ -44,13 +44,18 @@ class FakeTab implements ClaudeTab {
   close() { this.closed++; }
   onClosed() {}
 
+  /** 'late': the page arrives but its load event never fires in time; 'stuck': the navigation never happens. */
+  loadTrouble: 'late' | 'stuck' | null = null;
+
   async load(url: string) {
     this.loads.push(url);
+    if (this.loadTrouble === 'stuck') throw new Error('Could not open Claude.ai before the time limit.');
     this.url = url === 'https://claude.ai/' ? NEW_CHAT : url;
     this.composerText = '';
     this.polls = -1;
     this.onScreen = this.chats.get(this.url) ?? '';
     this.onLoad?.();
+    if (this.loadTrouble === 'late') throw new Error('Could not open Claude.ai before the time limit.');
   }
 
   async run(code: string): Promise<unknown> {
@@ -160,6 +165,25 @@ describe('Claude.ai Chat job runner', () => {
     expect(seen.map((s) => s.state)).not.toContain('connecting');
     expect(seen.map((s) => s.state)).not.toContain('checking');
     expect(chat.status()).toMatchObject({ state: 'ready', detail: 'Connected' });
+  });
+
+  it('starts the resume chat when /new is usable even though its load event came late', async () => {
+    await settle(chat.complete({ requestId: 'r1', prompt: 'Research employers. Reply with JSON.', title: 'Research — Progyny — Analyst', timeoutMs: 60_000 }));
+    tab.loadTrouble = 'late';
+    const res = await settle(chat.complete({ requestId: 'r2', prompt: 'Write resume JSON for this role.', title: 'Progyny — Analyst', timeoutMs: 60_000 }));
+    expect(res).toMatchObject({ ok: true, text: REPLY });
+    expect(tab.composerText).toBe('Write resume JSON for this role.');
+  });
+
+  it('never sends the resume prompt into the research chat when /new did not open', async () => {
+    await settle(chat.complete({ requestId: 'r1', prompt: 'Research employers. Reply with JSON.', title: 'Research — Progyny — Analyst', timeoutMs: 60_000 }));
+    const researchChat = tab.url;
+    tab.composerText = '';
+    tab.loadTrouble = 'stuck';
+    const res = await settle(chat.complete({ requestId: 'r2', prompt: 'Write resume JSON for this role.', title: 'Progyny — Analyst', timeoutMs: 60_000 }));
+    expect(res.ok).toBe(false);
+    expect(tab.url).toBe(researchChat);
+    expect(tab.composerText).toBe('');
   });
 
   it('records where a failed job stopped and why, for the diagnostics report', async () => {

@@ -1,3 +1,7 @@
+# 2.2.18
+
+Fixed: Claude.ai Chat continues when the page is already open even if the browser load event is late, and does not send the resume prompt into the research chat if the new conversation never opened. A page that failed to load is retried; only a security check still needs you. See RELEASE-2.2.18.md.
+
 # 2.2.17
 
 Changed: Tailor & Apply runs one CV pass by default; optional “Optimize with Claude” on the ATS card for a measured second revision. Fixed: Claude.ai background tab timeouts, stuck-page recycle, and clearer retry/failure status. See RELEASE-2.2.17.md.

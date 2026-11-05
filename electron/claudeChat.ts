@@ -159,7 +159,33 @@ export function startClaudeChat(opts: {
   const sessionNotReady = (): Failure => {
     const detail = current.detail || 'Claude.ai is not connected. Click the sidebar indicator and wait until it says Connected, then tailor again.';
     if (current.state === 'signed_out') return { ok: false, code: 'signed_out', detail };
+    // A page that didn't load or answer is worth another try; only a security check needs the user.
+    if (current.state === 'error') return { ok: false, code: 'input', detail: `Claude.ai didn’t respond: ${detail}` };
     return { ok: false, code: 'challenge', detail };
+  };
+
+  /**
+   * Open a claude.ai page. Its "load" event waits for every resource (analytics and other third-party
+   * scripts included), so it can be minutes late while the page is already usable. A late load is not a
+   * failure while the tab is on claude.ai: the caller then waits for the message box itself.
+   */
+  const openPage = async (wc: ClaudeTab, url: string, timeoutMs: number): Promise<void> => {
+    try {
+      await wc.load(url, timeoutMs);
+    } catch (e) {
+      const at = wc.getURL();
+      // Only when the tab really reached that page: a navigation that never happened leaves it on the
+      // previous chat, and a prompt sent there would land in the wrong conversation.
+      const arrived = url === HOME ? isClaudeUrl(at) : samePath(at, url);
+      if (e instanceof StuckError || !arrived || wc.onChallengePage()) throw e;
+      diagnostics.record({
+        partition: browser?.partition ?? CLAUDE_PARTITION,
+        source: 'claude chat',
+        kind: 'navigation-error',
+        url: redactChatUrl(at),
+        detail: `Page load event late (${e instanceof Error ? e.message : 'timeout'}); continuing because the tab is on claude.ai`,
+      });
+    }
   };
 
   const checkStatus = async () => {
@@ -173,7 +199,7 @@ export function startClaudeChat(opts: {
       const stale = Date.now() - lastLoad > 10 * 60_000;
       if (!isClaudeUrl(url) || stale) {
         if (showWait) emit({ state: 'connecting', detail: 'Opening Claude.ai…', checkedAt: current.checkedAt });
-        await wc.load(HOME, 45_000);
+        await openPage(wc, HOME, 45_000);
         lastLoad = Date.now();
       }
       const snap = await readAuth(wc, 12_000, CHALLENGE_GRACE_MS);
@@ -322,25 +348,25 @@ export function startClaudeChat(opts: {
       let reused = false;
       if (wc.onChallengePage()) {
         step('Starting a new Claude.ai chat…');
-        await wc.load(NEW_CHAT, 60_000);
+        await openPage(wc, NEW_CHAT, 25_000);
         lastLoad = Date.now();
         composerDirty = false;
       } else if (savedChat && isExistingChatUrl(savedChat)) {
         step(research ? 'Continuing company research chat on Claude.ai…' : 'Continuing CV generation chat on Claude.ai…');
-        if (wc.getURL() !== savedChat) await wc.load(savedChat, 60_000);
+        if (wc.getURL() !== savedChat) await openPage(wc, savedChat, 30_000);
         reused = true;
         lastLoad = Date.now();
         composerDirty = false;
       } else if (research) {
         if (!isNewChatUrl(wc.getURL()) || composerDirty) {
           step('Starting a new Claude.ai chat…');
-          await wc.load(NEW_CHAT, 60_000);
+          await openPage(wc, NEW_CHAT, 25_000);
           lastLoad = Date.now();
         }
         composerDirty = false;
       } else {
         step('Starting a new Claude.ai chat…');
-        await wc.load(NEW_CHAT, 60_000);
+        await openPage(wc, NEW_CHAT, 25_000);
         lastLoad = Date.now();
         composerDirty = false;
       }
@@ -625,6 +651,16 @@ function parses(json: string): boolean {
 
 function redactChatUrl(url: string): string {
   return url.replace(/\/chat\/[0-9a-f-]{36}/i, '/chat/…');
+}
+
+function samePath(a: string, b: string): boolean {
+  try {
+    const x = new URL(a);
+    const y = new URL(b);
+    return x.origin === y.origin && x.pathname.replace(/\/$/, '') === y.pathname.replace(/\/$/, '');
+  } catch {
+    return false;
+  }
 }
 
 function isExistingChatUrl(url: string): boolean {
