@@ -169,7 +169,7 @@ globalThis.__afClaude = (function () {
     for (var i = nodes.length - 1; i >= 0; i--) {
       if (insideUser(nodes[i]) || !afterLastUser(nodes[i])) continue;
       var t = (nodes[i].innerText || '').trim();
-      if (t.charAt(0) === '{' && /"companies"|"company_name"/.test(t)) return clip(t);
+      if (t.charAt(0) === '{' && /"companies"|"company_name"|"roles"/.test(t)) return clip(t);
     }
     return '';
   }
@@ -188,7 +188,7 @@ globalThis.__afClaude = (function () {
     if (code) return code;
     var parts = assistantParts();
     for (var j = parts.length - 1; j >= 0; j--) {
-      if (/\"companies\"|\"company_name\"/.test(parts[j])) return clip(parts[j]);
+      if (/\"companies\"|\"company_name\"|\"roles\"/.test(parts[j])) return clip(parts[j]);
     }
     if (parts.length) return clip(parts[parts.length - 1]);
     var users = queryAll('[data-testid="user-message"], [data-testid*="user-message"]');

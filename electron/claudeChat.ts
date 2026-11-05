@@ -179,6 +179,7 @@ export function startClaudeChat(opts: {
    * failure while the tab is on claude.ai: the caller then waits for the message box itself.
    */
   const openPage = async (wc: ClaudeTab, url: string, timeoutMs: number): Promise<void> => {
+    if (!samePath(wc.getURL(), url)) await wc.prepareForNavigation().catch(() => undefined);
     try {
       await wc.load(url, timeoutMs);
     } catch (e) {
@@ -452,7 +453,10 @@ export function startClaudeChat(opts: {
       // A short JSON reply (job titles) parses while Claude.ai is still writing. Leaving a chat mid-reply trips its
       // "leave site?" guard, and the next job's navigation then never happens.
       await finishWriting(wc, FINISH_WRITING_MS);
-      void renameChat(wc, title);
+      // Rename before the next step. A rename still running would sit on this chat while
+      // job titles tries to open /new, and that navigation never commits.
+      await renameChat(wc, title);
+      await wc.prepareForNavigation().catch(() => undefined);
       emit({ state: 'ready', detail: 'Connected', checkedAt: new Date().toISOString() });
       return { ok: true, text: reply.text, model: reply.model, renamed: false };
     } catch (e) {
@@ -690,6 +694,7 @@ function guardTab(tab: ClaudeTab): ClaudeTab {
     isDestroyed: () => tab.isDestroyed(),
     onChallengePage: () => tab.onChallengePage(),
     load: (url, timeoutMs) => limit(tab.load(url, timeoutMs), timeoutMs + 5_000, 'Claude.ai did not finish loading.'),
+    prepareForNavigation: () => limit(tab.prepareForNavigation(), 5_000, 'Claude.ai did not release the current chat.').catch(() => undefined),
     run: (code, userGesture) => limit(tab.run(code, userGesture), RUN_LIMIT_MS, 'The Claude.ai page stopped responding.'),
     focus: () => tab.focus(),
     close: () => tab.close(),

@@ -8,6 +8,8 @@ export interface ClaudeTab {
   isDestroyed(): boolean;
   onChallengePage(): boolean;
   load(url: string, timeoutMs: number): Promise<void>;
+  /** Drop the page's "leave site?" handler so the next chat can open. */
+  prepareForNavigation(): Promise<void>;
   run(code: string, userGesture?: boolean): Promise<unknown>;
   focus(): void;
   close(): void;
@@ -58,6 +60,10 @@ export function electronClaudeBrowser(opts: { getWindow: () => BrowserWindow | n
       isDestroyed: () => win.isDestroyed() || wc.isDestroyed(),
       onChallengePage: () => mon.onChallengePage(wc),
       load: (url, timeoutMs) => loadElectron(wc, url, timeoutMs),
+      prepareForNavigation: () => {
+        if (wc.isDestroyed()) return Promise.resolve();
+        return wc.executeJavaScript('window.onbeforeunload=null;window.addEventListener("beforeunload",function(e){e.stopImmediatePropagation();},true);true').then(() => undefined);
+      },
       run: (code, userGesture = false) => wc.executeJavaScriptInIsolatedWorld(HELPER_WORLD, [{ code }], userGesture),
       focus: () => {
         if (win.isDestroyed()) return;
@@ -99,6 +105,8 @@ export function electronClaudeBrowser(opts: { getWindow: () => BrowserWindow | n
       };
       wc.on('will-navigate', block);
       wc.on('will-redirect', block);
+      // A streaming reply arms beforeunload. Accept the leave so the next chat can open.
+      wc.on('will-prevent-unload', (event) => event.preventDefault());
       worker.setOpacity(0);
       worker.setIgnoreMouseEvents(true);
       worker.showInactive();

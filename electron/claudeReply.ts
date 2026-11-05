@@ -13,13 +13,14 @@ export function claudeReplyBody(assistant: string, prompt: string): string {
   return text;
 }
 
-/** Outermost complete JSON object that looks like research or resume output. */
+/** Last complete JSON object that looks like research, role titles, or resume output. */
 export function extractClaudeJson(body: string): string | null {
   const cleaned = body.replace(/```(?:json)?/gi, '');
   let depth = 0;
   let start = -1;
   let inStr = false;
   let esc = false;
+  let last: string | null = null;
   for (let i = 0; i < cleaned.length; i++) {
     const ch = cleaned[i]!;
     if (inStr) {
@@ -36,12 +37,12 @@ export function extractClaudeJson(body: string): string | null {
       depth--;
       if (depth === 0 && start >= 0) {
         const slice = cleaned.slice(start, i + 1);
-        if (JSON_MARKERS.test(slice)) return slice;
+        if (JSON_MARKERS.test(slice)) last = slice;
         start = -1;
       }
     }
   }
-  return null;
+  return last;
 }
 
 export function claudeReplyReady(body: string): boolean {

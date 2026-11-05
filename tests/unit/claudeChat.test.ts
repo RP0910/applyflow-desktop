@@ -53,6 +53,11 @@ describe('Claude.ai chat resume generation', () => {
     expect(claudeChatTitle('A'.repeat(200), 'Role').length).toBeLessThanOrEqual(120);
   });
 
+  it('reads the role-title JSON when an earlier companies object is still in the text', () => {
+    const text = '{"companies":[{"name":"Penske Logistics, LLC"}]}\n{"roles":[{"periodIndex":0,"role_title":"Warehouse Logistics Manager"}]}';
+    expect(parseClaudeChatJson<{ roles: { role_title: string }[] }>(text).roles[0]?.role_title).toBe('Warehouse Logistics Manager');
+  });
+
   it('reads resume JSON out of a fenced chat reply', () => {
     const text = `Here is the draft.\n\`\`\`json\n${JSON.stringify(reply)}\n\`\`\`\nDone.`;
     expect(parseClaudeChatJson<CvReply>(text).company_name).toBe('Hiring Co');

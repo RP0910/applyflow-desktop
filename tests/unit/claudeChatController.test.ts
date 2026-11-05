@@ -46,9 +46,20 @@ class FakeTab implements ClaudeTab {
 
   /** 'late': the page arrives but its load event never fires in time; 'stuck': the navigation never happens. */
   loadTrouble: 'late' | 'stuck' | null = null;
+  /** When set, leaving a /chat page for /new fails until prepareForNavigation runs. */
+  blockLeave = false;
+  prepared = false;
+
+  async prepareForNavigation() {
+    this.prepared = true;
+    this.blockLeave = false;
+  }
 
   async load(url: string) {
     this.loads.push(url);
+    if (this.blockLeave && /\/chat\//.test(this.url) && /\/new\/?$/.test(new URL(url).pathname)) {
+      throw new Error('Could not open Claude.ai before the time limit.');
+    }
     if (this.loadTrouble === 'stuck') throw new Error('Could not open Claude.ai before the time limit.');
     this.url = url === 'https://claude.ai/' ? NEW_CHAT : url;
     this.composerText = '';
@@ -309,6 +320,22 @@ describe('Claude.ai Chat job runner', () => {
     expect(tab.url).not.toBe(oldUrl);
   });
 
+  it('opens the job-titles chat after company research once the leave-site guard is cleared', async () => {
+    await settle(chat.complete({ requestId: 'r1', prompt: '{"task":"company_research"} Reply with JSON.', title: 'Research — Nebius — Warehouse Logistics 3PL Manager', timeoutMs: 60_000 }));
+    const researchUrl = tab.url;
+    expect(researchUrl).toMatch(/\/chat\//);
+    tab.blockLeave = true;
+    tab.prepared = false;
+    tab.loads = [];
+    const roles = '{"roles":[{"periodIndex":0,"role_title":"Warehouse Logistics Manager"}]}';
+    tab.reply = roles;
+    const res = await settle(chat.complete({ requestId: 'r2', prompt: '{"task":"suggest_role_titles"} Reply with JSON.', title: 'Titles — Nebius — Warehouse Logistics 3PL Manager', timeoutMs: 60_000 }));
+    expect(res).toMatchObject({ ok: true, text: roles });
+    expect(tab.prepared).toBe(true);
+    expect(tab.loads[0]).toBe(NEW_CHAT);
+    expect(tab.url).not.toBe(researchUrl);
+  });
+
   it('opens a new chat for CV generation even after company research in another thread', async () => {
     const researchTitle = 'Research — Dandy — Senior Accountant';
     const resumeTitle = 'Dandy — Senior Accountant';
@@ -384,6 +411,12 @@ describe('Claude.ai reply readiness', () => {
     expect(claudeReplyReady(REPLY)).toBe(true);
     expect(claudeReplyReady(`Here it is:\n${REPLY}\nCopy`)).toBe(true);
     expect(claudeReplyReady('{"companies": "a } inside a string')).toBe(false);
+  });
+
+  it('keeps the role-title JSON when the prompt example comes first', () => {
+    const example = '{"roles":[{"periodIndex":0,"role_title":""}]}';
+    const answer = '{"roles":[{"periodIndex":0,"role_title":"Warehouse Logistics Manager"}]}';
+    expect(extractClaudeJson(`${example}\n${answer}`)).toBe(answer);
   });
 
   it('extracts research JSON even when Claude adds UI text after it', () => {

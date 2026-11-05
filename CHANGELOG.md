@@ -1,3 +1,7 @@
+# 2.3.1
+
+Fixed: Claude.ai Chat clears the leave-site prompt so job titles can open after company research, and reads the titles JSON when an earlier companies reply is still on the page. Dice and Jobright buttons open in the tab you are on. See RELEASE-2.3.1.md.
+
 # 2.3.0
 
 Fixed: Claude.ai Chat waits for a short JSON reply to finish writing (then presses Stop) before leaving the chat, so the next Tailor step is not blocked by Claude.ai’s leave-site prompt. See RELEASE-2.3.0.md.

@@ -366,6 +366,10 @@ class SignInSession implements ClaudeTab {
     return this.page.load(url, timeoutMs);
   }
 
+  prepareForNavigation(): Promise<void> {
+    return this.page.prepareForNavigation();
+  }
+
   run(code: string, userGesture?: boolean): Promise<unknown> {
     return this.page.run(code, userGesture);
   }
@@ -435,17 +439,31 @@ class ChromeTab implements ClaudeTab {
     return !this.isDestroyed() && (this.challenge || isChallengeTitle(this.title));
   }
 
-  navigate(url: string): Promise<void> {
+  navigate(url: string): Promise<boolean> {
     return this.command<{ errorText?: string }>('Page.navigate', { url }).then((r) => {
-      if (r?.errorText && !/ERR_ABORTED/i.test(r.errorText)) throw new Error(r.errorText);
+      const errorText = r?.errorText ?? '';
+      if (errorText && !/ERR_ABORTED/i.test(errorText)) throw new Error(errorText);
+      return /ERR_ABORTED/i.test(errorText);
     });
+  }
+
+  /** Main world: a streaming reply's beforeunload lives there, not in the helper world. */
+  prepareForNavigation(): Promise<void> {
+    if (this.closed || !/^https:\/\/([^/]+\.)?claude\.ai\//i.test(this.url)) return Promise.resolve();
+    return this.command('Runtime.evaluate', {
+      expression: 'window.onbeforeunload=null;window.addEventListener("beforeunload",function(e){e.stopImmediatePropagation();},true);true',
+      returnByValue: true,
+      userGesture: true,
+    }).then(() => undefined);
   }
 
   load(url: string, timeoutMs: number): Promise<void> {
     const reload = this.samePage(url);
+    const started = this.url;
     return new Promise((resolve, reject) => {
       let settled = false;
       let armed = false;
+      let retried = false;
       const finish = (error?: Error) => {
         if (settled) return;
         settled = true;
@@ -454,16 +472,26 @@ class ChromeTab implements ClaudeTab {
         if (error) reject(error);
         else resolve();
       };
+      // A cancelled leave fires "stopped loading" while the tab is still on the old chat.
+      // That is not the new page. Only a committed navigation (or a reload) counts.
+      const committed = () => reload || this.samePage(url) || this.url !== started;
       const onLoad = (error?: Error) => {
         if (error) finish(error);
-        else if (armed) finish();
+        else if (armed && committed()) finish();
       };
       const timer = setTimeout(() => finish(new Error('Could not open Claude.ai before the time limit.')), timeoutMs);
       this.loadWaiters.add(onLoad);
-      this.navigate(url).then(() => {
-        armed = true;
-        if (!reload && this.samePage(url)) finish();
-      }).catch((e: unknown) => finish(e instanceof Error ? e : new Error('Could not open Claude.ai.')));
+      const go = () => {
+        this.navigate(url).then((aborted) => {
+          armed = true;
+          if (!reload && this.samePage(url)) finish();
+          else if (aborted && !retried) {
+            retried = true;
+            setTimeout(() => { if (!settled) void go(); }, 500);
+          }
+        }).catch((e: unknown) => finish(e instanceof Error ? e : new Error('Could not open Claude.ai.')));
+      };
+      void go();
     });
   }
 
@@ -586,6 +614,7 @@ class ChromeTab implements ClaudeTab {
         this.settleLoad();
         return;
       case 'Page.javascriptDialogOpening':
+        // beforeunload accept means Leave, so the titles chat (and the CV chat) can open.
         if (this.source === 'claude background') void this.command('Page.handleJavaScriptDialog', { accept: p.type === 'beforeunload' }).catch(() => undefined);
         return;
       case 'Page.frameRequestedNavigation':

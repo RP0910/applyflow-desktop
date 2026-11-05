@@ -36,6 +36,12 @@ describe('Claude.ai page helper', () => {
     expect(page('<button>Stop sharing</button>').snapshot().stop).toBe(false);
   });
 
+  it('reads a role-title code block, not an earlier companies reply', () => {
+    const roles = '{"roles":[{"periodIndex":0,"role_title":"Warehouse Logistics Manager"}]}';
+    const html = `<div data-testid="user-message">suggest titles</div><div data-testid="assistant-message"><pre>${roles}</pre></div>`;
+    expect(page(html).snapshot().assistant).toBe(roles);
+  });
+
   it('reads the reply after the user message, not the prompt', () => {
     const api = page('<div id="t"><div data-testid="user-message">PROMPT TEXT</div><div data-testid="assistant-message">{"companies":[]}</div></div>');
     expect(api.snapshot().assistant).toBe('{"companies":[]}');

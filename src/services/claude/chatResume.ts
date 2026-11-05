@@ -266,7 +266,8 @@ function pickPayload(parsed: unknown[]): unknown | undefined {
   const objs = parsed.filter((v): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v));
   const resume = [...objs].reverse().find((o) => typeof o.company_name === 'string' && Array.isArray(o.experience));
   if (resume) return resume;
-  const research = [...objs].reverse().find((o) => Array.isArray(o.companies));
-  if (research) return research;
+  // The later object wins: a titles reply follows company research when both are on the page.
+  const keyed = [...objs].reverse().find((o) => Array.isArray(o.roles) || Array.isArray(o.companies));
+  if (keyed) return keyed;
   return objs.length ? objs[objs.length - 1] : undefined;
 }

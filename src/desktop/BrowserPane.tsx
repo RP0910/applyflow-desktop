@@ -128,6 +128,12 @@ export function BrowserPane({ visible }: { visible: boolean }) {
     else if (onJobs) void b()?.invoke('dice.reload');
     else void b()?.invoke('browser.reload', id);
   };
+  // A site button opens in the tab you are on: the Jobs tab, or the web tab you just opened.
+  const openSite = (url: string) => {
+    if (!onJobs && active) void b()?.invoke('browser.navigate', active.id, url);
+    else void b()?.invoke('dice.navigate', url);
+  };
+  const siteHint = onJobs ? 'Jobs tab' : 'this tab';
   const newTab = async () => {
     await b()?.invoke('browser.newTab');
     setTimeout(() => addressRef.current?.focus(), 0);
@@ -184,10 +190,10 @@ export function BrowserPane({ visible }: { visible: boolean }) {
         <button type="button" className="btn icon-btn" onClick={reloadOrStop} aria-label={loading ? 'Stop' : 'Reload'} title={loading ? 'Stop loading' : 'Reload (F5)'}>
           {loading ? <Icon name="stop" /> : <Icon name="refresh" />}
         </button>
-        <button type="button" className="btn btn-sm site-btn" onClick={() => void b()?.invoke('dice.navigate', 'https://jobright.ai/jobs/recommend')} title="Your Jobright job recommendations (Jobs tab)">
+        <button type="button" className="btn btn-sm site-btn" onClick={() => openSite('https://jobright.ai/jobs/recommend')} title={`Your Jobright job recommendations (${siteHint})`}>
           Jobright
         </button>
-        <button type="button" className="btn btn-sm site-btn" onClick={() => void b()?.invoke('dice.navigate', 'https://www.dice.com/')} title="Dice home (Jobs tab)">
+        <button type="button" className="btn btn-sm site-btn" onClick={() => openSite('https://www.dice.com/')} title={`Dice home (${siteHint})`}>
           Dice
         </button>
         {onJobs ? (

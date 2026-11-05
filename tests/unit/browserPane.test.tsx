@@ -66,6 +66,20 @@ describe('built-in browser tabs', () => {
     expect(invoke).toHaveBeenCalledWith('browser.navigate', 2, 'example.org');
   });
 
+  it('opens the Dice and Jobright buttons in the tab you are on, a new tab included', async () => {
+    render(<BrowserPane visible />);
+    await screen.findByRole('tablist');
+    await userEvent.click(screen.getByRole('button', { name: 'Dice' }));
+    expect(invoke).toHaveBeenLastCalledWith('dice.navigate', 'https://www.dice.com/');
+    push({ ...tabsState, activeId: 2 });
+    await screen.findByPlaceholderText('Search the web or type an address');
+    await userEvent.click(screen.getByRole('button', { name: 'Dice' }));
+    expect(invoke).toHaveBeenLastCalledWith('browser.navigate', 2, 'https://www.dice.com/');
+    await userEvent.click(screen.getByRole('button', { name: 'Jobright' }));
+    expect(invoke).toHaveBeenLastCalledWith('browser.navigate', 2, 'https://jobright.ai/jobs/recommend');
+    expect(invoke).not.toHaveBeenCalledWith('dice.navigate', 'https://jobright.ai/jobs/recommend');
+  });
+
   it('offers the system browser when a security check keeps coming back, without retrying by itself', async () => {
     render(<BrowserPane visible />);
     await screen.findByRole('tablist');
