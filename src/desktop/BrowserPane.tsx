@@ -168,7 +168,7 @@ export function BrowserPane({ visible }: { visible: boolean }) {
       <div className="browser-host" ref={hostRef}>
         {!state.ready ? (
           <div className="browser-wait">
-            <span className="spinner spinner-dark" aria-hidden="true" /> Loading Dice…
+            <span className="spinner spinner-dark" aria-hidden="true" /> Loading Jobright…
           </div>
         ) : null}
         {dialogOpen ? <div className="browser-wait">The Dice page is hidden while a dialog is open.</div> : null}

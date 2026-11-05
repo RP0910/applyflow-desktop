@@ -1,3 +1,7 @@
+# 2.2.7
+
+Changed: ApplyFlow opens Jobright recommendations (`https://jobright.ai/jobs/recommend`) when it starts. The Dice button still opens Dice. Claude.ai Chat now presents the signed-in session the way Chrome does (user agent and client hints) and leaves Cloudflare's security check for the user to finish. See RELEASE-2.2.7.md.
+
 # 2.2.6
 
 Added: Claude.ai Chat as a resume generation method. Sign in once from the sidebar indicator and ApplyFlow writes each job in its own Claude.ai conversation, titled with the company and role, then validates the JSON and renders the PDF with the existing PDF Studio path. The Claude API method is unchanged. See RELEASE-2.2.6.md.

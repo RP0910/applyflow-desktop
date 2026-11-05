@@ -4,15 +4,37 @@
  * The user signs in once in a normal window. Resume jobs then reuse that
  * persistent profile: one hidden window, one conversation per job, no CAPTCHA bypass.
  * Jobs are queued so two applications cannot type into the same chat.
+ *
+ * Claude.ai sits behind Cloudflare's bot check ("Just a moment…"). ApplyFlow never clicks it,
+ * and stays out of its way so it can pass on its own or with the user's one click:
+ * - the session identifies itself like Chrome, client hints included (browserIdentity.ts);
+ * - nothing is run inside a security-check page or a sign-in provider's page, and the page
+ *   helper runs in an isolated world that the site's own scripts can't see;
+ * - the check runs in one window at a time: the hidden window leaves Claude.ai while the
+ *   sign-in window is open, and stops reloading a check that is waiting for the user.
  */
 import { BrowserWindow, session, type WebContents } from 'electron';
 import type { ClaudeChatCompleteRequest, ClaudeChatCompleteResult, ClaudeChatStatus } from '../src/platform/bridge';
+import { presentAsChrome } from './browserIdentity';
 import { CLAUDE_PAGE_API } from './claudePage';
+import { HIGH_ENTROPY_HINTS } from './clientHints';
 
 const PARTITION = 'persist:applyflow-claude';
 const HOME = 'https://claude.ai/';
 const NEW_CHAT = 'https://claude.ai/new';
-const CHALLENGE = 'Claude.ai is asking you to confirm it’s you. Finish that in the sign-in window. ApplyFlow will not bypass it.';
+/** The page helper's JavaScript world. The page shares the DOM with it, but not globals or functions. */
+const HELPER_WORLD = 4271;
+/** How long a security check may take to clear on its own (ApplyFlow never clicks it) before the user is asked. */
+const CHALLENGE_GRACE_MS = 20_000;
+/** After a check that needs the user, background status checks stop reloading it for this long. */
+const CHALLENGE_PAUSE_MS = 15 * 60_000;
+const CHALLENGE = 'Claude.ai wants a quick security check. Click the Claude.ai indicator and finish it in the window that opens. ApplyFlow will not bypass it.';
+const CHALLENGE_IN_WINDOW = 'Claude.ai is running a security check. If it asks, confirm you’re human in the sign-in window. ApplyFlow will not bypass it.';
+const SIGN_IN = 'Finish signing in to Claude.ai. ApplyFlow will not complete a CAPTCHA or security check for you.';
+const SIGN_IN_HOSTS = /(^|\.)(accounts\.google\.com|login\.microsoftonline\.com|login\.live\.com|appleid\.apple\.com)$/i;
+
+/** webContents ids whose current page is a Cloudflare security check. */
+const challengePages = new Set<number>();
 
 interface PageSnap {
   href: string;
@@ -26,6 +48,8 @@ interface PageSnap {
   usageLimited: boolean;
   chatId: string | null;
 }
+
+type Failure = Extract<ClaudeChatCompleteResult, { ok: false }>;
 
 export interface ClaudeChatController {
   status: () => ClaudeChatStatus;
@@ -44,11 +68,13 @@ export function startClaudeChat(opts: {
   let worker: BrowserWindow | null = null;
   let login: BrowserWindow | null = null;
   let lastLoad = 0;
+  /** When the hidden window last hit a security check it couldn't pass without the user (0 = none pending). */
+  let challengeAt = 0;
   let tail: Promise<void> = Promise.resolve();
   const cancelled = new Set<string>();
   let checkTimer: ReturnType<typeof setInterval> | null = null;
   let startupTimer: ReturnType<typeof setTimeout> | null = null;
-  let userAgentSet = false;
+  let identity: Promise<void> | null = null;
 
   const emit = (status: ClaudeChatStatus) => {
     current = status;
@@ -61,13 +87,25 @@ export function startClaudeChat(opts: {
     return run;
   };
 
-  const claudeSession = () => {
-    const ses = session.fromPartition(PARTITION);
-    if (!userAgentSet) {
-      ses.setUserAgent(chromeUserAgent());
-      userAgentSet = true;
-    }
-    return ses;
+  const loginOpen = () => !!login && !login.isDestroyed();
+
+  /**
+   * Chrome's user agent and client hints on the Claude.ai session. Call it before creating a window on
+   * the session (the user agent is set at once, and only applies to windows created after it), and
+   * wait for it before loading a page (the client hints follow a moment later).
+   */
+  const prepare = (): Promise<void> => {
+    identity ??= presentAsChrome(session.fromPartition(PARTITION), {
+      // Cloudflare's check on claude.ai asks for these (Accept-CH and Critical-CH). Chrome would retry the
+      // first request with them; Electron can't, so send them from the start, as Chrome does on a return visit.
+      remember: { [HOME]: HIGH_ENTROPY_HINTS },
+      onPageResponse: ({ webContentsId, challenge }) => {
+        if (webContentsId === undefined) return;
+        if (challenge) challengePages.add(webContentsId);
+        else challengePages.delete(webContentsId);
+      },
+    }).catch(() => undefined);
+    return identity;
   };
 
   const prefs = () => ({
@@ -81,7 +119,7 @@ export function startClaudeChat(opts: {
 
   const ensureWorker = (): WebContents => {
     if (worker && !worker.isDestroyed()) return worker.webContents;
-    claudeSession();
+    void prepare();
     worker = new BrowserWindow({
       show: false,
       width: 1360,
@@ -109,24 +147,53 @@ export function startClaudeChat(opts: {
     return wc;
   };
 
+  /** The hidden window leaves Claude.ai (no request is made), so a security check never runs in two windows at once. */
+  const stepAside = async () => {
+    lastLoad = 0;
+    if (!worker || worker.isDestroyed()) return;
+    const wc = worker.webContents;
+    if (!isClaudeUrl(safeUrl(wc))) return;
+    try {
+      await loadUrl(wc, 'about:blank', 5_000);
+    } catch {
+      /* the next check loads Claude.ai again either way */
+    }
+  };
+
+  /** The hidden window met a security check it couldn't pass by itself: stop and ask the user. */
+  const needUser = async (): Promise<Failure> => {
+    challengeAt = Date.now();
+    await stepAside();
+    emit({ state: 'error', detail: CHALLENGE, checkedAt: new Date().toISOString() });
+    return { ok: false, code: 'challenge', detail: CHALLENGE };
+  };
+
   const scheduleCheck = () => {
     void enqueue(() => checkStatus());
   };
 
   const checkStatus = async () => {
-    if (login && !login.isDestroyed()) return;
+    if (loginOpen()) return;
+    // Reloading a check that is waiting for the user would only repeat it, and repeated checks get stricter.
+    if (challengeAt && Date.now() - challengeAt < CHALLENGE_PAUSE_MS) return;
     const showWait = current.state !== 'ready';
     if (showWait) emit({ state: 'checking', detail: 'Checking Claude.ai…', checkedAt: current.checkedAt });
     try {
+      await prepare();
       const wc = ensureWorker();
       const url = wc.getURL();
       const stale = Date.now() - lastLoad > 10 * 60_000;
-      if (!/^https:\/\/([^/]+\.)?claude\.ai\//i.test(url) || stale) {
+      if (!isClaudeUrl(url) || stale) {
         if (showWait) emit({ state: 'connecting', detail: 'Opening Claude.ai…', checkedAt: current.checkedAt });
         await loadUrl(wc, HOME, 45_000);
         lastLoad = Date.now();
       }
-      const snap = await readAuth(wc, 12_000);
+      const snap = await readAuth(wc, 12_000, CHALLENGE_GRACE_MS);
+      if (snap.challenge) {
+        await needUser();
+        return;
+      }
+      challengeAt = 0;
       emit(statusFromSnap(snap));
     } catch (e) {
       emit({ state: 'error', detail: e instanceof Error ? e.message : 'Could not reach Claude.ai.', checkedAt: new Date().toISOString() });
@@ -140,8 +207,9 @@ export function startClaudeChat(opts: {
       return;
     }
     const closeWhenReady = current.state !== 'ready';
-    emit({ state: 'connecting', detail: 'Finish signing in to Claude.ai. ApplyFlow will not complete a CAPTCHA or security check for you.', checkedAt: current.checkedAt });
-    claudeSession();
+    challengeAt = 0;
+    emit({ state: 'connecting', detail: SIGN_IN, checkedAt: current.checkedAt });
+    const ready = prepare();
     const parent = opts.getWindow() ?? undefined;
     login = new BrowserWindow({
       width: 1100,
@@ -170,7 +238,11 @@ export function startClaudeChat(opts: {
       if (login === win) login = null;
       scheduleCheck();
     });
-    void win.loadURL(NEW_CHAT);
+    // The hidden window steps aside (after a job in progress) so the check runs only here.
+    void enqueue(stepAside);
+    void ready.then(() => {
+      if (!win.isDestroyed()) void win.loadURL(NEW_CHAT);
+    });
     void watchLogin(win, closeWhenReady);
   };
 
@@ -183,7 +255,8 @@ export function startClaudeChat(opts: {
         snap = null;
       }
       if (win.isDestroyed()) return;
-      if (snap?.composer && !snap.signedOut && !snap.challenge && /claude\.ai/i.test(snap.href)) {
+      if (snap?.composer && !snap.signedOut && !snap.challenge && isClaudeUrl(snap.href)) {
+        challengeAt = 0;
         emit({ state: 'ready', detail: 'Connected', checkedAt: new Date().toISOString() });
         if (closeWhenReady) {
           await delay(900);
@@ -191,18 +264,21 @@ export function startClaudeChat(opts: {
         }
         return;
       }
-      if (snap?.challenge) emit({ state: 'error', detail: CHALLENGE, checkedAt: new Date().toISOString() });
-      else emit({ state: 'connecting', detail: 'Finish signing in to Claude.ai. ApplyFlow will not complete a CAPTCHA or security check for you.', checkedAt: current.checkedAt });
+      emit({ state: 'connecting', detail: snap?.challenge ? CHALLENGE_IN_WINDOW : SIGN_IN, checkedAt: current.checkedAt });
       await delay(1500);
     }
   };
 
   const signOut = () => enqueue(async () => {
     emit({ state: 'checking', detail: 'Signing out of Claude.ai…', checkedAt: current.checkedAt });
-    await claudeSession().clearStorageData();
+    await session.fromPartition(PARTITION).clearStorageData();
     lastLoad = 0;
+    challengeAt = 0;
     if (worker && !worker.isDestroyed()) {
-      try { await loadUrl(worker.webContents, 'https://claude.ai/login', 30_000); } catch { /* the next check reports signed out */ }
+      try {
+        await prepare();
+        await loadUrl(worker.webContents, 'https://claude.ai/login', 30_000);
+      } catch { /* the next check reports signed out */ }
     }
     emit({ state: 'signed_out', detail: 'Signed out of Claude.ai. Click the indicator to sign in again.', checkedAt: new Date().toISOString() });
   });
@@ -211,8 +287,8 @@ export function startClaudeChat(opts: {
     if (!requestId) return;
     cancelled.add(requestId);
     const wc = worker && !worker.isDestroyed() ? worker.webContents : null;
-    if (!wc) return;
-    void wc.executeJavaScript('globalThis.__afClaude && globalThis.__afClaude.clickStop()').catch(() => undefined);
+    if (!wc || !isClaudeUrl(safeUrl(wc)) || onChallengePage(wc)) return;
+    void inPage(wc, 'globalThis.__afClaude && globalThis.__afClaude.clickStop()').catch(() => undefined);
   };
 
   const complete = (req: ClaudeChatCompleteRequest) => enqueue(() => runJob(req));
@@ -224,28 +300,30 @@ export function startClaudeChat(opts: {
     const timeoutMs = Math.min(10 * 60_000, Math.max(30_000, Number(req?.timeoutMs) || 180_000));
     if (!prompt.trim()) return { ok: false, code: 'input', detail: 'The prompt was empty.' };
     if (cancelled.has(requestId)) return { ok: false, code: 'cancelled', detail: 'Cancelled.' };
+    // Loading Claude.ai here too would start a second security check next to the one in the sign-in window.
+    if (loginOpen() && current.state !== 'ready') return { ok: false, code: 'signed_out', detail: 'Finish signing in to Claude.ai in the sign-in window, then try again.' };
     emit({ state: 'connecting', detail: `Writing “${title}” in Claude.ai…`, checkedAt: new Date().toISOString() });
     try {
+      await prepare();
       const wc = ensureWorker();
       await loadUrl(wc, NEW_CHAT, 60_000);
       lastLoad = Date.now();
       if (cancelled.has(requestId)) return { ok: false, code: 'cancelled', detail: 'Cancelled.' };
       const opened = await waitForComposer(wc, requestId);
-      if (opened) return opened;
-      const inserted = await wc.executeJavaScript(`globalThis.__afPrompt = ${JSON.stringify(prompt)}; globalThis.__afClaude.insert()`, true);
-      if (inserted !== true) return { ok: false, code: 'input', detail: 'Claude.ai did not accept the prompt in the message box.' };
-      let sent = await wc.executeJavaScript('globalThis.__afClaude.clickSend()', true);
+      if (opened) return await settleFailure(opened);
+      await ensureApi(wc);
+      const inserted = await inPage(wc, `globalThis.__afPrompt = ${JSON.stringify(prompt)}; globalThis.__afClaude.insert()`, true);
+      if (inserted !== true) return await settleFailure({ ok: false, code: 'input', detail: 'Claude.ai did not accept the prompt in the message box.' });
+      let sent = await inPage(wc, 'globalThis.__afClaude.clickSend()', true);
       if (sent !== true) {
         await delay(600);
-        sent = await wc.executeJavaScript('globalThis.__afClaude.clickSend()', true);
+        sent = await inPage(wc, 'globalThis.__afClaude.clickSend()', true);
       }
-      if (sent !== true) return { ok: false, code: 'input', detail: 'Claude.ai did not enable Send. Sign in again from the sidebar if the session expired.' };
+      if (sent !== true) return await settleFailure({ ok: false, code: 'input', detail: 'Claude.ai did not enable Send. Sign in again from the sidebar if the session expired.' });
       const before = (await snap(wc)).assistant;
       const reply = await waitForReply(wc, requestId, timeoutMs, before, prompt);
-      if (!reply.ok) {
-        applyFailure(reply);
-        return reply;
-      }
+      if (!reply.ok) return await settleFailure(reply);
+      challengeAt = 0;
       const renamed = await renameChat(wc, title);
       emit({
         state: 'ready',
@@ -254,7 +332,7 @@ export function startClaudeChat(opts: {
       });
       return { ok: true, text: reply.text, model: reply.model, renamed };
     } catch (e) {
-      if (cancelled.has(requestId)) return { ok: false, code: 'cancelled', detail: 'Cancelled.' };
+      if (cancelled.has(requestId)) return await settleFailure({ ok: false, code: 'cancelled', detail: 'Cancelled.' });
       const detail = e instanceof Error ? e.message : 'Could not reach Claude.ai.';
       emit({ state: 'error', detail, checkedAt: new Date().toISOString() });
       return { ok: false, code: /timeout/i.test(detail) ? 'timeout' : 'input', detail };
@@ -263,15 +341,23 @@ export function startClaudeChat(opts: {
     }
   };
 
-  const waitForComposer = async (wc: WebContents, requestId: string): Promise<ClaudeChatCompleteResult | null> => {
+  const waitForComposer = async (wc: WebContents, requestId: string): Promise<Failure | null> => {
     const deadline = Date.now() + 45_000;
     let signedOutPolls = 0;
+    let challengeSince = 0;
     while (Date.now() < deadline) {
       if (cancelled.has(requestId)) return { ok: false, code: 'cancelled', detail: 'Cancelled.' };
       const s = await snap(wc);
-      if (s.challenge) return { ok: false, code: 'challenge', detail: CHALLENGE };
+      if (s.challenge) {
+        // Leave the check alone for a moment: it often clears by itself. Give up at once if the sign-in window opened.
+        challengeSince ||= Date.now();
+        if (Date.now() - challengeSince >= CHALLENGE_GRACE_MS || loginOpen()) return { ok: false, code: 'challenge', detail: CHALLENGE };
+        await delay(500);
+        continue;
+      }
+      challengeSince = 0;
       if (s.usageLimited) return { ok: false, code: 'limit', detail: 'Claude.ai reported a usage limit on this account.' };
-      if (s.composer && !s.signedOut && /claude\.ai/i.test(s.href)) return null;
+      if (s.composer && !s.signedOut && isClaudeUrl(s.href)) return null;
       if (s.signedOut) {
         signedOutPolls += 1;
         if (signedOutPolls >= 3) return { ok: false, code: 'signed_out', detail: 'Claude.ai is signed out. Sign in from the sidebar indicator.' };
@@ -281,7 +367,7 @@ export function startClaudeChat(opts: {
     return { ok: false, code: 'input', detail: 'Claude.ai did not show the message box. Sign in from the sidebar indicator and try again.' };
   };
 
-  const waitForReply = async (wc: WebContents, requestId: string, timeoutMs: number, before: string, prompt: string): Promise<Extract<ClaudeChatCompleteResult, { ok: true }> | Extract<ClaudeChatCompleteResult, { ok: false }>> => {
+  const waitForReply = async (wc: WebContents, requestId: string, timeoutMs: number, before: string, prompt: string): Promise<Extract<ClaudeChatCompleteResult, { ok: true }> | Failure> => {
     const deadline = Date.now() + timeoutMs;
     let last = '';
     let stable = 0;
@@ -289,7 +375,7 @@ export function startClaudeChat(opts: {
     let sawStop = false;
     while (Date.now() < deadline) {
       if (cancelled.has(requestId)) {
-        await wc.executeJavaScript('globalThis.__afClaude && globalThis.__afClaude.clickStop()', true).catch(() => undefined);
+        await inPage(wc, 'globalThis.__afClaude && globalThis.__afClaude.clickStop()', true).catch(() => undefined);
         return { ok: false, code: 'cancelled', detail: 'Cancelled.' };
       }
       const s = await snap(wc);
@@ -316,9 +402,11 @@ export function startClaudeChat(opts: {
     const deadline = Date.now() + 8_000;
     while (Date.now() < deadline) {
       try {
-        await ensureApi(wc);
-        const ok = await wc.executeJavaScript(`globalThis.__afTitle = ${JSON.stringify(title)}; globalThis.__afClaude.rename()`, true);
-        if (ok === true) return true;
+        if (isClaudeUrl(safeUrl(wc)) && !onChallengePage(wc)) {
+          await ensureApi(wc);
+          const ok = await inPage(wc, `globalThis.__afTitle = ${JSON.stringify(title)}; globalThis.__afClaude.rename()`, true);
+          if (ok === true) return true;
+        }
       } catch {
         /* the page may still be navigating to the new conversation */
       }
@@ -327,9 +415,13 @@ export function startClaudeChat(opts: {
     return false;
   };
 
-  const applyFailure = (res: Extract<ClaudeChatCompleteResult, { ok: false }>) => {
-    if (res.code === 'signed_out') emit({ state: 'signed_out', detail: res.detail, checkedAt: new Date().toISOString() });
-    else if (res.code === 'challenge') emit({ state: 'error', detail: res.detail, checkedAt: new Date().toISOString() });
+  /** Shows a failed job in the indicator, then returns it. */
+  const settleFailure = async (res: Failure): Promise<Failure> => {
+    if (res.code === 'challenge') await needUser();
+    else if (res.code === 'signed_out') emit({ state: 'signed_out', detail: res.detail, checkedAt: new Date().toISOString() });
+    // Anything else says nothing about the session; let a check after this job say where it stands.
+    else scheduleCheck();
+    return res;
   };
 
   startupTimer = setTimeout(scheduleCheck, 2_500);
@@ -352,12 +444,27 @@ export function startClaudeChat(opts: {
   };
 }
 
-function chromeUserAgent(): string {
-  const chrome = process.versions.chrome || '140.0.0.0';
-  const base = `AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${chrome} Safari/537.36`;
-  if (process.platform === 'darwin') return `Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) ${base}`;
-  if (process.platform === 'linux') return `Mozilla/5.0 (X11; Linux x86_64) ${base}`;
-  return `Mozilla/5.0 (Windows NT 10.0; Win64; x64) ${base}`;
+function isClaudeUrl(url: string): boolean {
+  return /^https:\/\/([^/]+\.)?claude\.ai\//i.test(url);
+}
+
+/** Cloudflare's "Just a moment…" page, known from its response header or, failing that, its title. */
+function onChallengePage(wc: WebContents): boolean {
+  if (challengePages.has(wc.id)) return true;
+  try {
+    return /^just a moment/i.test(wc.getTitle());
+  } catch {
+    return false;
+  }
+}
+
+function onSignInPage(href: string): boolean {
+  try {
+    const u = new URL(href);
+    return /\/login|\/magic-link/i.test(u.pathname) || SIGN_IN_HOSTS.test(u.hostname);
+  } catch {
+    return false;
+  }
 }
 
 function workerAllowed(url: string): boolean {
@@ -379,35 +486,49 @@ function workerAllowed(url: string): boolean {
 function statusFromSnap(snap: PageSnap): ClaudeChatStatus {
   const checkedAt = new Date().toISOString();
   if (snap.challenge) return { state: 'error', detail: CHALLENGE, checkedAt };
-  if (snap.composer && !snap.signedOut && /claude\.ai/i.test(snap.href)) return { state: 'ready', detail: 'Connected', checkedAt };
+  if (snap.composer && !snap.signedOut && isClaudeUrl(snap.href)) return { state: 'ready', detail: 'Connected', checkedAt };
   if (snap.signedOut) return { state: 'signed_out', detail: 'Signed out. Click to sign in to Claude.ai.', checkedAt };
   return { state: 'error', detail: 'Could not confirm the Claude.ai session. Click the indicator to sign in.', checkedAt };
 }
 
-async function readAuth(wc: WebContents, budgetMs: number): Promise<PageSnap> {
-  const deadline = Date.now() + budgetMs;
-  let last = blankSnap(wc.getURL());
-  while (Date.now() < deadline) {
-    last = await snap(wc);
-    if (last.challenge || last.signedOut || (last.composer && /claude\.ai/i.test(last.href))) return last;
+/**
+ * Polls the page until it shows the message box or a sign-in page, for up to `budgetMs`.
+ * A security check is waited out (never touched) for up to `challengeGraceMs`, then returned as is.
+ */
+async function readAuth(wc: WebContents, budgetMs: number, challengeGraceMs = 0): Promise<PageSnap> {
+  const start = Date.now();
+  for (;;) {
+    const last = await snap(wc);
+    const elapsed = Date.now() - start;
+    if (last.signedOut || (last.composer && isClaudeUrl(last.href))) return last;
+    if (last.challenge ? elapsed >= challengeGraceMs : elapsed >= budgetMs) return last;
     await delay(400);
   }
-  return last;
 }
 
 async function snap(wc: WebContents): Promise<PageSnap> {
+  const href = safeUrl(wc);
+  // Security checks fingerprint the page they run in, so nothing is run there.
+  if (onChallengePage(wc)) return { ...blankSnap(href), challenge: true };
+  // Only claude.ai gets the helper; sign-in providers' pages (Google, Microsoft, Apple) are left alone.
+  if (!isClaudeUrl(href)) return blankSnap(href);
   try {
     await ensureApi(wc);
-    return normalizeSnap(await wc.executeJavaScript('globalThis.__afClaude.snapshot()'), wc.getURL());
+    return normalizeSnap(await inPage(wc, 'globalThis.__afClaude.snapshot()'), href);
   } catch {
-    return blankSnap(safeUrl(wc));
+    return blankSnap(href);
   }
 }
 
+/** Runs the page helper's code in its own isolated world. */
+function inPage(wc: WebContents, code: string, userGesture = false): Promise<unknown> {
+  return wc.executeJavaScriptInIsolatedWorld(HELPER_WORLD, [{ code }], userGesture);
+}
+
 async function ensureApi(wc: WebContents): Promise<void> {
-  const ready = await wc.executeJavaScript('typeof globalThis.__afClaude==="object"&&typeof globalThis.__afClaude.snapshot==="function"').catch(() => false);
+  const ready = await inPage(wc, 'typeof globalThis.__afClaude==="object"&&typeof globalThis.__afClaude.snapshot==="function"').catch(() => false);
   if (ready === true) return;
-  await wc.executeJavaScript(CLAUDE_PAGE_API);
+  await inPage(wc, CLAUDE_PAGE_API);
 }
 
 function normalizeSnap(raw: unknown, href: string): PageSnap {
@@ -427,7 +548,7 @@ function normalizeSnap(raw: unknown, href: string): PageSnap {
 }
 
 function blankSnap(href: string): PageSnap {
-  return { href, composer: false, sendEnabled: false, stop: false, assistant: '', model: 'claude.ai', challenge: false, signedOut: /\/login/i.test(href), usageLimited: false, chatId: null };
+  return { href, composer: false, sendEnabled: false, stop: false, assistant: '', model: 'claude.ai', challenge: false, signedOut: onSignInPage(href), usageLimited: false, chatId: null };
 }
 
 function safeUrl(wc: WebContents): string {

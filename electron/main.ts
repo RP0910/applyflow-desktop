@@ -22,6 +22,8 @@ import type { SiteCredential } from '../src/types';
 
 const APP_NAME = 'ApplyFlow';
 const DICE_HOME = 'https://www.dice.com/';
+/** First page when ApplyFlow opens. Same destination as the Jobright button. */
+const JOBRIGHT_HOME = 'https://jobright.ai/jobs/recommend';
 const DICE_PARTITION = 'persist:dice';
 const SECRET_KEY = 'applyflow.secret.anthropicApiKey.enc';
 const REMINDERS_KEY = 'applyflow.reminders';
@@ -631,7 +633,7 @@ function createWindow(): void {
   dice = createDiceView();
   win.contentView.addChildView(dice);
   layoutDice();
-  void dice.webContents.loadURL(DICE_HOME);
+  void dice.webContents.loadURL(JOBRIGHT_HOME);
 
   void win.loadURL('app://applyflow/index.html');
   // Closing the window keeps ApplyFlow running in the tray / menu bar. Quit there (or File ▸ Exit, ⌘Q) to exit.
