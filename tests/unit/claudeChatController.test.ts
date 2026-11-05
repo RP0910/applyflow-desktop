@@ -37,7 +37,11 @@ class FakeTab implements ClaudeTab {
   isDestroyed() { return false; }
   onChallengePage() { return false; }
   focus() {}
-  close() {}
+  closed = 0;
+  /** Page scripts that never answer (a frozen page): the next N snapshot calls hang. */
+  hangSnapshots = 0;
+  workers = 0;
+  close() { this.closed++; }
   onClosed() {}
 
   async load(url: string) {
@@ -50,6 +54,10 @@ class FakeTab implements ClaudeTab {
   }
 
   async run(code: string): Promise<unknown> {
+    if (this.hangSnapshots > 0 && code.includes('snapshot()')) {
+      this.hangSnapshots--;
+      return new Promise(() => undefined);
+    }
     if (code.startsWith('typeof globalThis.__afClaude')) return true;
     if (code.includes('__afClaude.insert()')) {
       const m = /globalThis\.__afPrompt = ("(?:[^"\\]|\\.)*")/.exec(code);
@@ -105,7 +113,10 @@ function fakeBrowser(tab: FakeTab): ClaudeBrowser {
     kind: 'chrome',
     partition: 'test',
     alive: () => true,
-    openWorker: async () => tab,
+    openWorker: async () => {
+      tab.workers++;
+      return tab;
+    },
     openLogin: async () => tab,
     onMainResponse: () => () => undefined,
     reset: async () => undefined,
@@ -113,7 +124,8 @@ function fakeBrowser(tab: FakeTab): ClaudeBrowser {
   };
 }
 
-const diagnostics = { record: () => undefined } as unknown as BrowserDiagnostics;
+const recorded: { kind: string; detail?: string }[] = [];
+const diagnostics = { record: (e: { kind: string; detail?: string }) => void recorded.push(e) } as unknown as BrowserDiagnostics;
 
 async function settle<T>(p: Promise<T>): Promise<T> {
   let done = false;
@@ -148,6 +160,30 @@ describe('Claude.ai Chat job runner', () => {
     expect(seen.map((s) => s.state)).not.toContain('connecting');
     expect(seen.map((s) => s.state)).not.toContain('checking');
     expect(chat.status()).toMatchObject({ state: 'ready', detail: 'Connected' });
+  });
+
+  it('records where a failed job stopped and why, for the diagnostics report', async () => {
+    recorded.length = 0;
+    tab.sendWorks = false;
+    const res = await settle(chat.complete({ requestId: 'r1', prompt: 'Research employers. Reply with JSON.', title: 'Research — Acme — Engineer', timeoutMs: 60_000 }));
+    expect(res.ok).toBe(false);
+    expect(recorded.filter((e) => e.kind === 'chat-failed').map((e) => e.detail)).toEqual([
+      'Sending company research to Claude.ai → input: Claude.ai did not enable Send. Sign in again from the sidebar if the session expired.',
+    ]);
+  });
+
+  it('a frozen Claude.ai page ends the job with a clear error, and the retry gets a fresh tab', async () => {
+    const before = tab.workers;
+    tab.hangSnapshots = 1;
+    const started = Date.now();
+    const res = await settle(chat.complete({ requestId: 'r1', prompt: 'Research employers. Reply with JSON.', title: 'Research — Medasource — Salesforce Administrator', timeoutMs: 180_000 }));
+    expect(res).toMatchObject({ ok: false, code: 'input' });
+    expect(res.ok ? '' : res.detail).toMatch(/stopped responding.*fresh Claude\.ai tab/);
+    expect(Date.now() - started).toBeLessThan(60_000);
+    expect(tab.closed).toBe(1);
+    const retry = await settle(chat.complete({ requestId: 'r2', prompt: 'Research employers. Reply with JSON.', title: 'Research — Medasource — Salesforce Administrator', timeoutMs: 180_000 }));
+    expect(retry).toMatchObject({ ok: true, text: REPLY });
+    expect(tab.workers).toBe(before + 1);
   });
 
   it('reads the reply from the conversation when the page text cannot be parsed', async () => {

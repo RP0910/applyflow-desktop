@@ -126,4 +126,31 @@ describe('Claude.ai chat resume generation', () => {
     await expect(provider.researchCompanies(compactFacts(master, profile), { company: 'Acme', title: 'Engineer' }, ['TypeScript'])).rejects.toThrow(/signed out/);
     expect(chatComplete).toHaveBeenCalledTimes(1);
   });
+
+  it('says in the panel why a Claude.ai attempt is retried, instead of leaving the old step showing', async () => {
+    const reply = JSON.stringify({ companies: [1, 2, 3, 4].map((n) => ({ name: `Company ${n}, Inc.`, activeYears: '2015-present', techFit: 'Relevant platform work', hq: 'Austin, TX' })) });
+    let calls = 0;
+    const chatComplete = vi.fn(async () => {
+      calls++;
+      if (calls === 1) throw new ClaudeError('truncated', { retryable: true, detail: 'Claude.ai did not show the message box. Sign in from the sidebar indicator and try again.' });
+      return { text: reply, model: 'claude.ai' };
+    });
+    const lines: string[] = [];
+    const provider = new ClaudeChatProvider({
+      settings: { ...DEFAULT_SETTINGS, resumeGenerationMethod: 'chat' },
+      apiKey: null,
+      chatComplete,
+      onStatus: (line) => lines.push(line),
+    });
+    vi.useFakeTimers();
+    try {
+      const done = provider.researchCompanies(compactFacts(master, profile), { company: 'Acme', title: 'Engineer' }, ['TypeScript']);
+      await vi.advanceTimersByTimeAsync(2_000);
+      await done;
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(chatComplete).toHaveBeenCalledTimes(2);
+    expect(lines).toEqual(['Claude.ai try 1 of 3 didn’t work: Claude.ai did not show the message box. Sign in from the sidebar indicator and try again. Trying again…']);
+  });
 });

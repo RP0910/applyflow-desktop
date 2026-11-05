@@ -329,14 +329,14 @@ export function useWorkflow(inputs: WorkflowInputs, deps: WorkflowDeps) {
     });
   }, [setStep]);
 
-  const makeDocuments = useCallback(async (masterOverride?: MasterResume): Promise<boolean> => {
+  const makeDocuments = useCallback(async (masterOverride?: MasterResume, opts: { optimize?: boolean } = {}): Promise<boolean> => {
     let s = sessionRef.current;
     const master = masterOverride ?? masterFromProps;
     if (!s || !master) return false;
     setStep('Preparing tailored resume and cover letter…');
     const d = await engineDeps();
     if (!s.analysis || s.resumeId !== master.id || masterOverride) s = await analyzeSession(s, master);
-    const r = await runDocuments(s, master, profileRef.current, d, tone, setPhase);
+    const r = await runDocuments(s, master, profileRef.current, d, tone, setPhase, opts);
     let resume = r.resume;
     if (resume.issues.some((i) => i.severity === 'critical')) {
       const fixed = applyAutoFixes(resume, master, profileRef.current, resume.issues, supportedKeywords(s.evidence), r.atsPlan);
@@ -795,6 +795,24 @@ export function useWorkflow(inputs: WorkflowInputs, deps: WorkflowDeps) {
     }
   }, [makeDocuments, notify]);
 
+  /** One measured Claude revision of the current draft (no longer automatic, to keep Tailor & Apply fast). */
+  const optimizeResume = useCallback(async () => {
+    if (runningRef.current || !sessionRef.current?.resume) return;
+    runningRef.current = true;
+    abortRef.current = new AbortController();
+    try {
+      setStep('Optimizing the resume on Claude.ai…');
+      await makeDocuments(undefined, { optimize: true });
+      setLastResult('Optimization finished.');
+    } catch (e: unknown) {
+      notify('critical', errText(e, 'The optimization failed. Your current draft is unchanged.'));
+    } finally {
+      runningRef.current = false;
+      setStatusLine('');
+      setPhase('idle');
+    }
+  }, [makeDocuments, notify, setStep]);
+
   const updateResume = useCallback(async (t: TailoredResume) => {
     const s = sessionRef.current;
     if (!s || !master || !s.analysis) return;
@@ -941,7 +959,7 @@ export function useWorkflow(inputs: WorkflowInputs, deps: WorkflowDeps) {
     view, setView, tone, setTone, run, fileName,
     leftApplication, returnToApplication, leaveApplication,
     detect, quickApply, continueRun, answerQuestion, submit, recordManualSubmit, keepDiceResume, cancel, diagnose,
-    selectResume, regenerate, updateResume, autoFixResume, confirmSkills, coverLetterAction, saveLetterText, patchSession, editJob, downloadNow, openFolder,
+    selectResume, regenerate, optimizeResume, updateResume, autoFixResume, confirmSkills, coverLetterAction, saveLetterText, patchSession, editJob, downloadNow, openFolder,
   };
 }
 

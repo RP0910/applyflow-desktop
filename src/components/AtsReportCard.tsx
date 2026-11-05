@@ -40,9 +40,11 @@ export interface AtsReportCardProps {
   expanded?: boolean;
   busy?: boolean;
   onConfirmSkills?: (terms: string[]) => void;
+  /** One more Claude revision of the tailored draft, aimed at the findings below. */
+  onOptimize?: () => void;
 }
 
-export function AtsReportCard({ report, before, expanded = false, busy = false, onConfirmSkills }: AtsReportCardProps) {
+export function AtsReportCard({ report, before, expanded = false, busy = false, onConfirmSkills, onOptimize }: AtsReportCardProps) {
   const [open, setOpen] = useState(expanded);
   const [picked, setPicked] = useState<string[]>([]);
   const groups = useMemo(() => {
@@ -115,6 +117,14 @@ export function AtsReportCard({ report, before, expanded = false, busy = false, 
         </div>
       ) : null}
 
+      {onOptimize && tailored && report.score <= 95 ? (
+        <div className="stack-sm">
+          <button type="button" className="btn btn-sm" disabled={busy} onClick={onOptimize}>
+            Optimize with Claude
+          </button>
+          <span className="hint">One more revision aimed at the missing keywords and checks. Takes about as long as the first draft; kept only if the scores go up.</span>
+        </div>
+      ) : null}
       <button type="button" className="link small" aria-expanded={open} onClick={() => setOpen(!open)}>
         {open ? 'Hide ATS details' : 'Show ATS details'}
       </button>

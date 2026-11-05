@@ -88,6 +88,11 @@ globalThis.__afClaude = (function () {
   }
   // The conversation as Claude.ai's own page loads it: the reply exactly as written (no rendering,
   // no curly quotes) and the prompt it answers. Same origin and session as the open page.
+  function getJson(path) {
+    var ctl = typeof AbortController === 'function' ? new AbortController() : null;
+    var timer = setTimeout(function () { if (ctl) ctl.abort(); }, 10000);
+    return fetch(path, { credentials: 'include', signal: ctl ? ctl.signal : undefined }).finally(function () { clearTimeout(timer); });
+  }
   async function readReply() {
     var id = chatId();
     if (!id) return { ok: false, why: 'no chat yet' };
@@ -96,13 +101,13 @@ globalThis.__afClaude = (function () {
       var cookie = document.cookie.match(/(?:^|; )lastActiveOrg=([^;]+)/);
       if (cookie) org = decodeURIComponent(cookie[1]);
       if (!org) {
-        var orgs = await fetch('/api/organizations', { credentials: 'include' });
+        var orgs = await getJson('/api/organizations');
         if (!orgs.ok) return { ok: false, why: 'organizations ' + orgs.status };
         var list = await orgs.json();
         org = (list && list[0] && list[0].uuid) || '';
       }
       if (!org) return { ok: false, why: 'no organization' };
-      var res = await fetch('/api/organizations/' + encodeURIComponent(org) + '/chat_conversations/' + id + '?tree=True&rendering_mode=messages&render_all_tools=true', { credentials: 'include' });
+      var res = await getJson('/api/organizations/' + encodeURIComponent(org) + '/chat_conversations/' + id + '?tree=True&rendering_mode=messages&render_all_tools=true');
       if (!res.ok) return { ok: false, why: 'conversation ' + res.status };
       var conv = await res.json();
       var msgs = (conv && conv.chat_messages) || [];

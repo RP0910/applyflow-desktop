@@ -159,7 +159,7 @@ export function ResumeTab({ wf, lib, settings }: { wf: Workflow; lib: LibraryCon
           {r.editedByUser ? ', edited by you' : ''}
         </span>
       </div>
-      {s.atsTailored ? <AtsReportCard report={s.atsTailored} before={s.atsMaster} expanded busy={wf.busy} onConfirmSkills={(terms) => void wf.confirmSkills(terms, true)} /> : null}
+      {s.atsTailored ? <AtsReportCard report={s.atsTailored} before={s.atsMaster} expanded busy={wf.busy} onConfirmSkills={(terms) => void wf.confirmSkills(terms, true)} onOptimize={s.submittedAt ? undefined : () => void wf.optimizeResume()} /> : null}
       <IssueList issues={r.issues} onAutoFix={() => void wf.autoFixResume()} />
       {view === 'preview' ? <ResumePaper resume={r} /> : null}
       {view === 'compare' && wf.master ? <ResumeCompare master={wf.master.parsed} tailored={r} changes={r.changes} /> : null}

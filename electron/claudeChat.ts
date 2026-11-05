@@ -118,8 +118,20 @@ export function startClaudeChat(opts: {
   const ensureWorker = async (): Promise<ClaudeTab> => {
     const b = await getBrowser();
     if (worker && !worker.isDestroyed()) return worker;
-    worker = await b.openWorker();
+    worker = guardTab(await limit(b.openWorker(), OPEN_LIMIT_MS, 'Claude.ai could not open its background tab.'));
     return worker;
+  };
+
+  /** A page that stopped answering scripts is closed, so the next job (or retry) gets a fresh tab. */
+  const recycleWorker = () => {
+    const stuck = worker;
+    worker = null;
+    lastLoad = 0;
+    composerDirty = false;
+    try {
+      if (stuck && !stuck.isDestroyed()) stuck.close();
+    } catch {
+    }
   };
 
   const stepAside = async () => {
@@ -172,6 +184,7 @@ export function startClaudeChat(opts: {
       challengeAt = 0;
       emit(statusFromSnap(snap));
     } catch (e) {
+      if (e instanceof StuckError) recycleWorker();
       emit({ state: 'error', detail: e instanceof Error ? e.message : 'Could not reach Claude.ai.', checkedAt: new Date().toISOString() });
     }
   };
@@ -267,7 +280,23 @@ export function startClaudeChat(opts: {
     void wc.run('globalThis.__afClaude && globalThis.__afClaude.clickStop()').catch(() => undefined);
   };
 
-  const complete = (req: ClaudeChatCompleteRequest) => enqueue(() => runJob(req));
+  /** The last step a job reached, so a failure says where it stopped (the caller's retry hides it otherwise). */
+  let jobStep = '';
+  const complete = (req: ClaudeChatCompleteRequest) =>
+    enqueue(async () => {
+      jobStep = 'Checking the Claude.ai session';
+      const res = await runJob(req);
+      if (!res.ok && res.code !== 'cancelled') {
+        diagnostics.record({
+          partition: browser?.partition ?? CLAUDE_PARTITION,
+          source: 'claude chat',
+          kind: 'chat-failed',
+          url: worker && !worker.isDestroyed() ? redactChatUrl(worker.getURL()) : undefined,
+          detail: `${jobStep} → ${res.code}: ${res.detail}`,
+        });
+      }
+      return res;
+    });
 
   const runJob = async (req: ClaudeChatCompleteRequest): Promise<ClaudeChatCompleteResult> => {
     const requestId = typeof req?.requestId === 'string' ? req.requestId : '';
@@ -281,7 +310,10 @@ export function startClaudeChat(opts: {
     if (cancelled.has(requestId)) return { ok: false, code: 'cancelled', detail: 'Cancelled.' };
     if (current.state !== 'ready') return sessionNotReady();
     const research = /^Research\s*[—-]/i.test(title) || prompt.includes('"task":"company_research"');
-    const step = (detail: string) => emit({ state: 'ready', detail, checkedAt: new Date().toISOString() });
+    const step = (detail: string) => {
+      jobStep = detail.replace(/…$/, '');
+      emit({ state: 'ready', detail, checkedAt: new Date().toISOString() });
+    };
     step(research ? 'Opening Claude.ai for company research…' : 'Opening Claude.ai for CV generation…');
     try {
       const wc = await ensureWorker();
@@ -313,6 +345,7 @@ export function startClaudeChat(opts: {
         composerDirty = false;
       }
       if (cancelled.has(requestId)) return { ok: false, code: 'cancelled', detail: 'Cancelled.' };
+      jobStep = `Waiting for the Claude.ai message box (${redactChatUrl(wc.getURL())})`;
       const opened = await waitForComposer(wc, requestId);
       if (opened) return await settleFailure(opened);
       await ensureApi(wc);
@@ -343,6 +376,12 @@ export function startClaudeChat(opts: {
     } catch (e) {
       if (cancelled.has(requestId)) return await settleFailure({ ok: false, code: 'cancelled', detail: 'Cancelled.' });
       const detail = e instanceof Error ? e.message : 'Could not reach Claude.ai.';
+      if (e instanceof StuckError) {
+        recycleWorker();
+        emit({ state: 'ready', detail: 'Connected', checkedAt: new Date().toISOString() });
+        // 'input' is retried by the caller, which then starts on a fresh tab.
+        return { ok: false, code: 'input', detail: `${detail} ApplyFlow is retrying in a fresh Claude.ai tab.` };
+      }
       emit({ state: 'error', detail, checkedAt: new Date().toISOString() });
       return { ok: false, code: /timeout/i.test(detail) ? 'timeout' : 'input', detail };
     } finally {
@@ -509,6 +548,44 @@ function isNewChatUrl(url: string): boolean {
   }
 }
 
+/** Page scripts normally answer in milliseconds; one that hangs (page frozen, or mid-navigation) must not stall the job queue. */
+const RUN_LIMIT_MS = 30_000;
+const OPEN_LIMIT_MS = 45_000;
+
+export class StuckError extends Error {}
+
+function limit<T>(work: Promise<T>, ms: number, message: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new StuckError(message)), ms);
+    work.then(
+      (v) => {
+        clearTimeout(timer);
+        resolve(v);
+      },
+      (e: unknown) => {
+        clearTimeout(timer);
+        reject(e);
+      },
+    );
+  });
+}
+
+/** The same tab, with a time limit on every page script and load. */
+function guardTab(tab: ClaudeTab): ClaudeTab {
+  return {
+    id: tab.id,
+    getURL: () => tab.getURL(),
+    getTitle: () => tab.getTitle(),
+    isDestroyed: () => tab.isDestroyed(),
+    onChallengePage: () => tab.onChallengePage(),
+    load: (url, timeoutMs) => limit(tab.load(url, timeoutMs), timeoutMs + 5_000, 'Claude.ai did not finish loading.'),
+    run: (code, userGesture) => limit(tab.run(code, userGesture), RUN_LIMIT_MS, 'The Claude.ai page stopped responding.'),
+    focus: () => tab.focus(),
+    close: () => tab.close(),
+    onClosed: (cb) => tab.onClosed(cb),
+  };
+}
+
 type ApiReply = { ok: true; prompt: string; text: string; humans: number; done: boolean } | { ok: false; why: string };
 
 async function readApi(wc: ClaudeTab): Promise<ApiReply> {
@@ -615,7 +692,8 @@ async function snap(wc: ClaudeTab): Promise<PageSnap> {
   try {
     await ensureApi(wc);
     return normalizeSnap(await wc.run('globalThis.__afClaude.snapshot()'), href);
-  } catch {
+  } catch (e) {
+    if (e instanceof StuckError) throw e;
     return blankSnap(href);
   }
 }

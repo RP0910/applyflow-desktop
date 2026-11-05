@@ -531,7 +531,7 @@ export function HomeView({ wf, lib, settings, hasKey }: { wf: Workflow; lib: Lib
       ) : null}
       {s.job.externalApply && r.status === 'idle' ? <WarningBanner tone="info">This job applies on the employer’s website. ApplyFlow tailors and saves your documents, then opens that site.</WarningBanner> : null}
       {(s.atsTailored ?? s.atsMaster) && !s.submittedAt && r.status !== 'questions' ? (
-        <AtsReportCard report={(s.atsTailored ?? s.atsMaster)!} before={s.atsTailored ? s.atsMaster : null} busy={wf.busy} onConfirmSkills={(terms) => void wf.confirmSkills(terms, Boolean(s.resume))} />
+        <AtsReportCard report={(s.atsTailored ?? s.atsMaster)!} before={s.atsTailored ? s.atsMaster : null} busy={wf.busy} onConfirmSkills={(terms) => void wf.confirmSkills(terms, Boolean(s.resume))} onOptimize={s.resume && !s.submittedAt ? () => void wf.optimizeResume() : undefined} />
       ) : null}
       {r.status === 'attention' && r.need === 'resume' ? <ResumeNeeded wf={wf} /> : null}
       {r.status === 'attention' && r.need !== 'resume' && r.message ? (

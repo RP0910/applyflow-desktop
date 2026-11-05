@@ -21,6 +21,8 @@ export interface ChatResumeDeps {
   onUsage?: UsageReporter;
   providerFactory?: (apiKey: string, settings: Settings) => ClaudeProvider;
   chatComplete?: (req: ChatCompleteRequest) => Promise<{ text: string; model: string }>;
+  /** Progress line in the panel; used to say why an attempt is being retried. */
+  onStatus?: (line: string) => void;
 }
 
 export function claudeChatTitle(company: unknown, role: unknown): string {
@@ -127,6 +129,9 @@ export class ClaudeChatProvider {
         last = e;
         const again = canRetry(e) && attempt < 3;
         if (!again) throw present(e);
+        const shown = present(e);
+        const why = ((shown instanceof ClaudeError && shown.detail) || shown.message).replace(/\s+/g, ' ').trim().slice(0, 140).replace(/[.\s]+$/, '');
+        this.deps.onStatus?.(`Claude.ai try ${attempt} of 3 didn’t work${why ? `: ${why}` : ''}. Trying again…`);
         await pause(1200, signal);
       }
     }

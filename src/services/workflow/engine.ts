@@ -402,6 +402,7 @@ export async function runDocuments(
   deps: EngineDeps,
   tone: CoverLetterTone,
   onPhase: PhaseCallback = () => undefined,
+  opts: { optimize?: boolean } = {},
 ): Promise<{ resume: TailoredResume; tailoredScore: MatchScore; coverLetter: CoverLetter | null; notices: string[]; atsPlan: AtsPlan; atsMaster: AtsReport; atsTailored: AtsReport; companyResearch?: CompanyResearchReply | null }> {
   if (!session.analysis) throw new Error('Analyze the job first.');
   if (!useResumeModel(deps)) throw new Error(resumeModelError(deps));
@@ -417,91 +418,135 @@ export async function runDocuments(
   ].slice(0, 28);
 
   const p = provider(deps);
-  onPhase('researching_companies');
-  deps.onStatus?.('Starting company name research on Claude.ai…');
-  let research: CompanyResearchReply;
-  try {
-    research = (await p.researchCompanies(baseFacts, job, tech, deps.signal)).data;
-  } catch (e) {
-    if (deps.signal?.aborted) throw e;
-    const msg = e instanceof ClaudeError ? e.userMessage : e instanceof Error ? e.message : 'Company research failed.';
-    throw new Error(`Company research did not complete, so resume generation was not started. ${msg}`);
-  }
-  if (!research.companies.length) {
-    throw new Error('Company research returned no companies. Resume generation was not started.');
-  }
+  const timing: string[] = [];
+  const timed = async <T>(label: string, work: () => Promise<T>): Promise<T> => {
+    const started = Date.now();
+    try {
+      return await work();
+    } finally {
+      timing.push(`${label} ${clock(Date.now() - started)}`);
+    }
+  };
 
+  // Research is saved with the job; a re-run (Apply again, a retry, Optimize) reuses it instead of asking Claude.ai again.
+  const saved = await loadCompanyResearch(deps, session.jobKey).catch(() => null);
   const periodCount = Object.keys(baseFacts.jobIds).length;
-  deps.onStatus?.('Saving researched company names…');
-  const aligned = alignResearchToEmployers(research, periodCount);
-  await persistCompanyResearch(deps, session.jobKey, aligned);
-  const stored = (await loadCompanyResearch(deps, session.jobKey)) ?? aligned;
+  let research: CompanyResearchReply;
+  let stored: CompanyResearchReply;
+  if (saved?.companies.length) {
+    research = saved;
+    stored = saved;
+  } else {
+    onPhase('researching_companies');
+    deps.onStatus?.('Starting company name research on Claude.ai…');
+    try {
+      research = (await timed('research', () => p.researchCompanies(baseFacts, job, tech, deps.signal))).data;
+    } catch (e) {
+      if (deps.signal?.aborted) throw e;
+      const msg = e instanceof ClaudeError ? e.userMessage : e instanceof Error ? e.message : 'Company research failed.';
+      throw new Error(`Company research did not complete, so resume generation was not started. ${msg}`);
+    }
+    if (!research.companies.length) {
+      throw new Error('Company research returned no companies. Resume generation was not started.');
+    }
+    deps.onStatus?.('Saving researched company names…');
+    const aligned = alignResearchToEmployers(research, periodCount);
+    await persistCompanyResearch(deps, session.jobKey, aligned);
+    stored = (await loadCompanyResearch(deps, session.jobKey)) ?? aligned;
+  }
   deps.onStatus?.('Updating CV prompt with researched company names…');
   const { master: draftMaster, replaced } = applyCompanyResearch(master, stored);
   const facts = compactFacts(draftMaster, profile);
-
-  onPhase('generating_resume');
-  deps.onStatus?.('Generating tailored resume on Claude.ai…');
-  let result: Awaited<ReturnType<ResumeModel['generateCv']>>;
-  try {
-    result = await p.generateCv(facts, job, deps.signal);
-  } catch (e) {
-    if (deps.signal?.aborted) throw e;
-    const msg = e instanceof ClaudeError ? e.userMessage : e instanceof Error ? e.message : 'Resume generation failed.';
-    const names = stored.companies.map((c) => c.name).join(', ');
-    throw new Error(`Company research was saved (${names}), but resume generation failed. ${msg}`);
-  }
-  let resume = assembleCv(result.data, draftMaster, profile, session, result.model);
   const measure = (t: TailoredResume) => {
     const corpus = draftCorpus(t, master);
     const { plan } = planAts(session.job, session.analysis!, corpus, profile, deps.settings.defaultResumeLength);
     return { plan, ats: scanTailored(t, plan, corpus, deps.settings), match: scoreTailored(session.job, session.analysis!, [], master, t, profile) };
   };
-  let measured = measure(resume);
-  const list = research.companies
+  const list = stored.companies
     .slice()
     .sort((a, b) => a.periodIndex - b.periodIndex)
     .map((c) => `${c.periodIndex + 1}. ${c.name}${c.hq ? ` (${c.hq})` : ''}`)
     .join('; ');
-  const notices: string[] = [
-    `Company research completed: ${list}.`,
-    'Verify generated claims before submitting. Scores describe draft coverage, not verified experience.',
-  ];
-  if (replaced.length) {
-    notices.push(
-      `Employer labels updated from saved research: ${replaced.map((r) => `${r.from} → ${r.to}`).join('; ')}.`,
-    );
-  }
-  for (let pass = 0; pass < 1 && (measured.ats.score <= 95 || measured.match.total <= 95); pass++) {
-    const missing = measured.ats.keywords.filter((k) => k.found === 'missing').map((k) => k.term).slice(0, 16);
+  const notices: string[] = [];
+
+  onPhase('generating_resume');
+  let resume: TailoredResume;
+  let measured: ReturnType<typeof measure>;
+  let coverText: string | null;
+  let model: string;
+  const optimizing = Boolean(opts.optimize && session.resume);
+  if (optimizing) {
+    // One measured revision of the current draft (the old automatic second pass), kept only if both scores improve.
+    const current = session.resume!;
+    const before = measure(current);
     const revision = JSON.stringify({
       target: '>95',
-      ats: measured.ats.score,
-      match: measured.match.total,
-      missingKeywords: missing,
-      checks: measured.ats.checks.filter((c) => c.status !== 'pass').map((c) => c.label).slice(0, 8),
+      ats: before.ats.score,
+      match: before.match.total,
+      missingKeywords: before.ats.keywords.filter((k) => k.found === 'missing').map((k) => k.term).slice(0, 16),
+      checks: before.ats.checks.filter((c) => c.status !== 'pass').map((c) => c.label).slice(0, 8),
     });
+    deps.onStatus?.('Optimizing the resume on Claude.ai…');
+    let refined: Awaited<ReturnType<ResumeModel['generateCv']>>;
     try {
-      const refined = await p.generateCv(facts, job, deps.signal, revision);
-      const next = assembleCv(refined.data, draftMaster, profile, session, refined.model);
-      const score = measure(next);
-      if (score.ats.score >= measured.ats.score && score.match.total >= measured.match.total) {
-        result = refined;
-        resume = next;
-        measured = score;
-      }
+      refined = await timed('optimization', () => p.generateCv(facts, job, deps.signal, revision));
     } catch (e) {
       if (deps.signal?.aborted) throw e;
-      notices.push('The optimization pass failed. The completed first draft is available.');
-      break;
+      const msg = e instanceof ClaudeError ? e.userMessage : e instanceof Error ? e.message : 'The optimization failed.';
+      throw new Error(`The optimization didn’t finish; your current draft is unchanged. ${msg}`);
+    }
+    const next = assembleCv(refined.data, draftMaster, profile, session, refined.model);
+    const after = measure(next);
+    if (after.ats.score >= before.ats.score && after.match.total >= before.match.total) {
+      resume = next;
+      measured = after;
+      coverText = refined.data.cover_letter;
+      model = refined.model;
+      notices.push(`Optimized: ATS ${before.ats.score} → ${after.ats.score}; draft match ${before.match.total} → ${after.match.total}.`);
+    } else {
+      resume = current;
+      measured = before;
+      coverText = null;
+      model = current.model ?? 'claude';
+      notices.push(`The optimized version scored lower (ATS ${after.ats.score}, match ${after.match.total}), so your current draft was kept.`);
+    }
+  } else {
+    deps.onStatus?.('Generating tailored resume on Claude.ai…');
+    let result: Awaited<ReturnType<ResumeModel['generateCv']>>;
+    try {
+      result = await timed('resume', () => p.generateCv(facts, job, deps.signal));
+    } catch (e) {
+      if (deps.signal?.aborted) throw e;
+      const msg = e instanceof ClaudeError ? e.userMessage : e instanceof Error ? e.message : 'Resume generation failed.';
+      const names = stored.companies.map((c) => c.name).join(', ');
+      throw new Error(`Company research was saved (${names}), but resume generation failed. ${msg}`);
+    }
+    resume = assembleCv(result.data, draftMaster, profile, session, result.model);
+    measured = measure(resume);
+    coverText = result.data.cover_letter;
+    model = result.model;
+    notices.push(`Company research ${saved?.companies.length ? 'reused from this job' : 'completed'}: ${list}.`);
+    notices.push('Verify generated claims before submitting. Scores describe draft coverage, not verified experience.');
+    if (replaced.length) {
+      notices.push(`Employer labels updated from saved research: ${replaced.map((r) => `${r.from} → ${r.to}`).join('; ')}.`);
     }
   }
-  if (measured.ats.score <= 95 || measured.match.total <= 95) notices.push(`Target not reached: ATS ${measured.ats.score}/100; draft match ${measured.match.total}/100. See the remaining findings.`);
+  if (measured.ats.score <= 95 || measured.match.total <= 95) {
+    notices.push(`Target not reached: ATS ${measured.ats.score}/100; draft match ${measured.match.total}/100.${optimizing ? '' : ' Press “Optimize with Claude” for one more revision, or see the remaining findings.'}`);
+  }
+  if (timing.length) notices.push(`Claude.ai time: ${timing.join(' · ')}.`);
   onPhase('validating');
-  const text = result.data.cover_letter;
-  const coverLetter: CoverLetter | null = session.includeCoverLetter
-    ? { version: (session.coverLetter?.version ?? 0) + 1, tone, text, wordCount: wordCount(text), issues: [], engine: 'claude', model: result.model, generatedAt: resume.generatedAt, editedByUser: false }
-    : null;
+  const coverLetter: CoverLetter | null = !session.includeCoverLetter
+    ? null
+    : coverText === null
+      ? session.coverLetter
+      : { version: (session.coverLetter?.version ?? 0) + 1, tone, text: coverText, wordCount: wordCount(coverText), issues: [], engine: 'claude', model, generatedAt: resume.generatedAt, editedByUser: false };
   const original = planAts(session.job, session.analysis, master, profile, deps.settings.defaultResumeLength);
   return { resume, coverLetter, tailoredScore: measured.match, notices, atsPlan: measured.plan, atsMaster: original.master, atsTailored: measured.ats, companyResearch: research };
+}
+
+/** m:ss for the notice that says where the time went. */
+function clock(ms: number): string {
+  const s = Math.max(0, Math.round(ms / 1000));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 }

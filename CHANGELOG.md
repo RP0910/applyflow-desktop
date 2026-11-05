@@ -1,3 +1,7 @@
+# 2.2.17
+
+Changed: Tailor & Apply runs one CV pass by default; optional “Optimize with Claude” on the ATS card for a measured second revision. Fixed: Claude.ai background tab timeouts, stuck-page recycle, and clearer retry/failure status. See RELEASE-2.2.17.md.
+
 # 2.2.16
 
 Fixed: Claude.ai Chat reads the assistant reply from Claude’s own conversation API when DOM parsing fails, with prompt matching for reused chats; clearer error when Claude answers in prose instead of JSON. See RELEASE-2.2.16.md.

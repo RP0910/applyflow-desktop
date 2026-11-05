@@ -101,6 +101,53 @@ describe('CV Generate 2.1 pipeline',()=>{
    await expect(runDocuments(s,master,profile,dEmpty,'professional')).rejects.toThrow(/no companies/);
    expect(generateCv).not.toHaveBeenCalled();
  });
+ describe('speed: no repeated Claude.ai work',()=>{
+   const company={periodIndex:0,name:'Example Systems',activeYears:'2020-Present',techFit:'TypeScript platforms',hq:''};
+   const setup=(generateCv:ReturnType<typeof vi.fn>,saved=new Map<string,CompanyResearchReply>())=>{
+     const researchCompanies=vi.fn().mockResolvedValue({data:{companies:[company]},model:'test'});
+     const d={settings:{...DEFAULT_SETTINGS,engine:'claude' as const},apiKey:'test',providerFactory:()=>({generateCv,researchCompanies} as unknown as ClaudeProvider),saveCompanyResearch:async(k:string,v:CompanyResearchReply)=>{saved.set(k,v);},loadCompanyResearch:async(k:string)=>saved.get(k)??null};
+     return {d,researchCompanies,saved};
+   };
+   it('Tailor writes the resume once (no automatic second pass) and says where the time went',async()=>{
+     const generateCv=vi.fn().mockResolvedValue({data:reply,model:'test'});
+     const {d,researchCompanies}=setup(generateCv);
+     const a=await runAnalysis(session.job,false,master,profile,{...d,settings:{...d.settings,deepAnalysisWithClaude:false}});
+     const r=await runDocuments({...session,analysis:a.analysis},master,profile,d,'professional');
+     expect(researchCompanies).toHaveBeenCalledTimes(1);
+     expect(generateCv).toHaveBeenCalledTimes(1);
+     expect(r.notices.join(' ')).toMatch(/Claude\.ai time: research \d+:\d\d · resume \d+:\d\d\./);
+     expect(r.notices.join(' ')).toMatch(/Optimize with Claude/);
+   });
+   it('a second run for the same job reuses the saved company research',async()=>{
+     const generateCv=vi.fn().mockResolvedValue({data:reply,model:'test'});
+     const saved=new Map<string,CompanyResearchReply>([[session.jobKey,{companies:[company]}]]);
+     const {d,researchCompanies}=setup(generateCv,saved);
+     const a=await runAnalysis(session.job,false,master,profile,{...d,settings:{...d.settings,deepAnalysisWithClaude:false}});
+     const r=await runDocuments({...session,analysis:a.analysis},master,profile,d,'professional');
+     expect(researchCompanies).not.toHaveBeenCalled();
+     expect(generateCv).toHaveBeenCalledTimes(1);
+     expect(r.notices.join(' ')).toMatch(/Company research reused from this job: 1\. Example Systems/);
+   });
+   it('Optimize sends one measured revision of the current draft and keeps it only when scores do not drop',async()=>{
+     const generateCv=vi.fn().mockResolvedValue({data:reply,model:'test'});
+     const saved=new Map<string,CompanyResearchReply>([[session.jobKey,{companies:[company]}]]);
+     const {d,researchCompanies}=setup(generateCv,saved);
+     const a=await runAnalysis(session.job,false,master,profile,{...d,settings:{...d.settings,deepAnalysisWithClaude:false}});
+     const first=await runDocuments({...session,analysis:a.analysis},master,profile,d,'professional');
+     generateCv.mockClear();
+     const weaker={...reply,summary:'Engineer.',skill_groups:[{category:'Other',items:['Typing']}],experience:[{...reply.experience[0]!,bullets:['Did work.']}]};
+     generateCv.mockResolvedValueOnce({data:weaker,model:'test'});
+     const s={...session,analysis:a.analysis,resume:first.resume,coverLetter:first.coverLetter,includeCoverLetter:true};
+     const r=await runDocuments(s,master,profile,d,'professional',undefined,{optimize:true});
+     expect(researchCompanies).not.toHaveBeenCalled();
+     expect(generateCv).toHaveBeenCalledTimes(1);
+     expect(JSON.parse(generateCv.mock.calls[0]![3]).target).toBe('>95');
+     expect(r.resume).toBe(first.resume);
+     expect(r.coverLetter).toBe(first.coverLetter);
+     expect(r.notices.join(' ')).toMatch(/scored lower .* current draft was kept/);
+     expect(r.notices.join(' ')).toMatch(/Claude\.ai time: optimization \d+:\d\d\./);
+   });
+ });
  it('retains a complete draft after a refine failure once research succeeded',async()=>{
    const researchCompanies=vi.fn().mockResolvedValue({data:{companies:[{periodIndex:0,name:'Example Systems',activeYears:'2020-Present',techFit:'TypeScript platforms',hq:''}]},model:'test'});
    const generateCv=vi.fn().mockResolvedValueOnce({data:reply,model:'test'}).mockRejectedValueOnce(new Error('refine failed'));
