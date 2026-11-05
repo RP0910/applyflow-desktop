@@ -159,15 +159,18 @@ export function validateTailoredResume(t: TailoredResume, ctx: ValidateContext):
   const allowed = allowedResume(ctx.master, ctx.profile);
   const corpus = allowedCorpus(ctx.master, ctx.profile);
   const masterById = new Map(allowed.experience.map((e) => [e.id, e]));
+  const cvDraft = t.contentSource === 'cv-generate';
 
   for (const e of t.experience) {
     const m = masterById.get(e.sourceId);
     if (!m) {
-      issues.push(issue('critical', 'invented_employer', `“${e.company || e.title}” is not a role in your master resume.`, `${e.title} — ${e.company}`, true));
+      if (!cvDraft) issues.push(issue('critical', 'invented_employer', `“${e.company || e.title}” is not a role in your master resume.`, `${e.title} — ${e.company}`, true));
       continue;
     }
-    if (norm(e.company) !== norm(m.company)) issues.push(issue('critical', 'invented_employer', `Employer changed from “${m.company}” to “${e.company}”.`, e.company));
-    if (norm(e.title) !== norm(m.title)) issues.push(issue('critical', 'invented_title', `Job title changed from “${m.title}” to “${e.title}”.`, e.title));
+    if (!cvDraft) {
+      if (norm(e.company) !== norm(m.company)) issues.push(issue('critical', 'invented_employer', `Employer changed from “${m.company}” to “${e.company}”.`, e.company));
+      if (norm(e.title) !== norm(m.title)) issues.push(issue('critical', 'invented_title', `Job title changed from “${m.title}” to “${e.title}”.`, e.title));
+    }
     if (norm(e.startDate) !== norm(m.startDate) || norm(e.endDate) !== norm(m.endDate)) {
       issues.push(issue('critical', 'changed_dates', `Dates for ${m.company} changed from ${m.startDate}–${m.endDate} to ${e.startDate}–${e.endDate}.`));
     }

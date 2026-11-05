@@ -38,6 +38,13 @@ import {
   validateCompanyResearch,
   type CompanyResearchReply,
 } from '@/prompts/companyResearch';
+import {
+  ROLE_TITLES_SCHEMA,
+  ROLE_TITLES_SYSTEM,
+  roleTitlesUser,
+  validateRoleTitlesReply,
+  type RoleTitlesReply,
+} from '@/prompts/roleTitles';
 
 export interface ProviderResult<T> {
   data: T;
@@ -120,13 +127,30 @@ export class ClaudeProvider {
     return r;
   }
 
+  async suggestRoleTitles(
+    job: Record<string, unknown>,
+    periodCount: number,
+    signal?: AbortSignal,
+  ): Promise<ProviderResult<RoleTitlesReply>> {
+    const r = await this.json<RoleTitlesReply>(
+      roleTitlesUser(job, periodCount),
+      ROLE_TITLES_SCHEMA,
+      4000,
+      signal,
+      ROLE_TITLES_SYSTEM,
+      'role_titles',
+    );
+    validateRoleTitlesReply(r.data, periodCount);
+    return r;
+  }
+
   async generateCv(
     facts: CompactFacts,
     job: Record<string, unknown>,
     signal?: AbortSignal,
     revision?: string,
   ): Promise<ProviderResult<CvReply>> {
-    const r = await this.json<CvReply>(cvUser(job, revision), CV_SCHEMA, 14000, signal, cvSystem(facts), 'cv_generate');
+    const r = await this.json<CvReply>(cvUser(job, revision, facts), CV_SCHEMA, 14000, signal, cvSystem(facts), 'cv_generate');
     validateCv(r.data, Object.keys(facts.jobIds).length);
     return r;
   }

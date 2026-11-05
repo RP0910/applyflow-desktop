@@ -1,5 +1,6 @@
 import type { CareerProfile, CoverLetterAction, CoverLetterTone, JobPosting, MasterResume } from '@/types';
 import { allowedResume } from '@/services/resume/facts';
+import type { CompanyResearchReply } from '@/prompts/companyResearch';
 import type { PromptPlan, TailorResumeReply } from './tailorResume';
 
 const str = { type: 'string' } as const;
@@ -106,6 +107,36 @@ export function compactFacts(master: MasterResume, profile?: CareerProfile): Com
     jobs,
     projects: a.projects.length ? a.projects.map((p) => ({ name: p.name, about: p.description || undefined, facts: p.bullets })) : undefined,
     education: a.education.length ? a.education.map((e) => [e.degree, e.institution, e.date].filter(Boolean).join(', ')) : undefined,
+    certs: a.certifications.length ? a.certifications : undefined,
+    languages: a.languages.length ? a.languages : undefined,
+    preferredTitles: profile?.preferredTitles?.length ? profile.preferredTitles : undefined,
+    remote: profile?.remotePreference && profile.remotePreference !== 'any' ? profile.remotePreference : undefined,
+  };
+  return { text: JSON.stringify(facts), jobIds };
+}
+
+/** Employment identity for CV Generate — no master bullets (Claude must rewrite work content for the JD). */
+export function compactFactsForCv(master: MasterResume, profile?: CareerProfile, research?: CompanyResearchReply | null): CompactFacts {
+  const a = allowedResume(master, profile);
+  const jobIds: Record<string, string> = {};
+  const byPeriod = new Map((research?.companies ?? []).map((c) => [c.periodIndex, c]));
+  const jobs = a.experience.map((e, i) => {
+    const id = `j${i + 1}`;
+    jobIds[id] = e.id;
+    const job: Record<string, unknown> = { id, role_title: e.title, company: e.company, start: e.startDate, end: e.endDate || 'Present' };
+    if (e.location?.trim()) job.location = e.location.trim();
+    if (e.technologies?.length) job.tech = e.technologies;
+    const ctx = byPeriod.get(i);
+    if (ctx?.techFit?.trim()) job.companyContext = ctx.techFit.trim();
+    return job;
+  });
+  const facts: Record<string, unknown> = {
+    name: a.contact.fullName || profile?.fullName || '',
+    location: profile?.location || a.contact.location || undefined,
+    headline: a.headline || undefined,
+    skills: a.skills,
+    jobs,
+    education: a.education.length ? a.education.map((ed) => [ed.degree, ed.institution, ed.date].filter(Boolean).join(', ')) : undefined,
     certs: a.certifications.length ? a.certifications : undefined,
     languages: a.languages.length ? a.languages : undefined,
     preferredTitles: profile?.preferredTitles?.length ? profile.preferredTitles : undefined,

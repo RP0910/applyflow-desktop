@@ -1,6 +1,6 @@
 import type { Settings } from '@/types';
-import type { CompanyResearchReply } from '@/prompts/companyResearch';
-import { COMPANY_RESEARCH_SYSTEM, companyResearchUser, validateCompanyResearch } from '@/prompts/companyResearch';
+import { COMPANY_RESEARCH_SYSTEM, companyResearchUser, validateCompanyResearch, type CompanyResearchReply } from '@/prompts/companyResearch';
+import { ROLE_TITLES_SYSTEM, roleTitlesUser, validateRoleTitlesReply, type RoleTitlesReply } from '@/prompts/roleTitles';
 import type { CompactFacts } from '@/prompts/application';
 import { cvSystem, cvUser, validateCv, type CvReply } from '@/prompts/cvGenerate';
 import { bridge, type ClaudeChatCompleteResult } from '@/platform/bridge';
@@ -31,6 +31,10 @@ export function claudeChatTitle(company: unknown, role: unknown): string {
 
 export function claudeChatResearchTitle(company: unknown, role: unknown): string {
   return claudeChatTitlePrefix('Research — ', company, role);
+}
+
+export function claudeChatRoleTitlesTitle(company: unknown, role: unknown): string {
+  return claudeChatTitlePrefix('Titles — ', company, role);
 }
 
 function claudeChatTitlePrefix(prefix: string, company: unknown, role: unknown): string {
@@ -92,9 +96,22 @@ export class ClaudeChatProvider {
     });
   }
 
+  suggestRoleTitles(
+    job: Record<string, unknown>,
+    periodCount: number,
+    signal?: AbortSignal,
+  ): Promise<ProviderResult<RoleTitlesReply>> {
+    const prompt = buildClaudeChatPrompt(ROLE_TITLES_SYSTEM, roleTitlesUser(job, periodCount));
+    return this.attempt(claudeChatRoleTitlesTitle(job.company, job.title), prompt, signal, (text, model) => {
+      const data = parseClaudeChatJson<RoleTitlesReply>(text);
+      validateRoleTitlesReply(data, periodCount);
+      return { data, model };
+    });
+  }
+
   generateCv(facts: CompactFacts, job: Record<string, unknown>, signal?: AbortSignal, revision?: string): Promise<ProviderResult<CvReply>> {
     const system = cvSystem(facts).map((block) => block.text).join('\n\n');
-    const prompt = buildClaudeChatPrompt(system, cvUser(job, revision));
+    const prompt = buildClaudeChatPrompt(system, cvUser(job, revision, facts));
     const count = Object.keys(facts.jobIds).length;
     return this.attempt(claudeChatTitle(job.company, job.title), prompt, signal, (text, model) => {
       const data = parseClaudeChatJson<CvReply>(text);

@@ -1,3 +1,7 @@
+# 2.2.19
+
+Changed: Tailor & Apply asks Claude for JD-aligned job titles (no company names) before CV generation, keeps a verified profile title when a suggestion does not fit, and falls back to a seniority ladder if that step fails. CV generation rewrites experience for those titles and no longer receives master-resume bullets. See RELEASE-2.2.19.md.
+
 # 2.2.18
 
 Fixed: Claude.ai Chat continues when the page is already open even if the browser load event is late, and does not send the resume prompt into the research chat if the new conversation never opened. A page that failed to load is retried; only a security check still needs you. See RELEASE-2.2.18.md.

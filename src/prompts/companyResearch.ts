@@ -4,6 +4,8 @@ export interface ResearchedCompany {
   activeYears: string;
   techFit: string;
   hq: string;
+  /** JD-aligned draft title for this employment period (ApplyFlow supplies it to CV Generate). */
+  roleTitle: string;
 }
 
 export interface CompanyResearchReply {
@@ -35,12 +37,13 @@ export const COMPANY_RESEARCH_SYSTEM = `You identify real companies that match a
 Rules:
 - Use only the job title, organization, description, responsibilities, and technology keywords provided.
 - Return exactly four distinct companies whose products, services, or technical work are relevant to that job.
+- List companies in career order: index 0 = most recent plausible employer for this JD, index 3 = earliest. ApplyFlow maps them to the candidate's employment periods in that order.
 - Each company must be real and publicly documented (press, careers page, Crunchbase, SEC, or Wikipedia). Use the official legal name.
 - Prefer lesser-known, mid-size, or niche firms. Avoid household mega-brands and ultra-famous names (e.g. Microsoft, Google, Amazon, Meta, Apple, Netflix, Uber, Airbnb, OpenAI, Anthropic, NVIDIA, Salesforce, Oracle, IBM, Adobe, Cisco, Intel, Databricks, Snowflake, Confluent, Stripe, Palantir, LinkedIn, Twitter/X, Spotify, Tesla, Samsung, Sony, Dell, HP, Accenture, Deloitte, McKinsey).
 - Do not return the organization named in the job, and do not repeat a name.
 - hq is the company's primary global headquarters city (City, ST for US; City, Country otherwise) from public sources. Never invent an HQ; use "" only if it is unknown. No street address.
 - techFit is one short clause under 20 words describing the public match to the job. activeYears is a short public operating range.
-- Do not invent private projects, metrics, customers, or internal facts.
+- Do not invent private projects, metrics, customers, or internal facts. Do not suggest job titles; ApplyFlow handles titles separately.
 - If a match is uncertain, still choose the closest documented public company and note that briefly in techFit.`;
 
 export function researchJobPayload(job: Record<string, unknown>, tech: string[]): Record<string, unknown> {
@@ -83,7 +86,7 @@ export function validateCompanyResearch(value: unknown): asserts value is Compan
     const activeYears = typeof c.activeYears === 'string' ? c.activeYears.trim() : typeof c.activeYears === 'number' ? String(c.activeYears) : '';
     const techFit = typeof c.techFit === 'string' ? c.techFit.trim() : '';
     const hq = typeof c.hq === 'string' ? c.hq.trim() : '';
-    cleaned.push({ periodIndex: cleaned.length, name, activeYears: activeYears || 'unknown', techFit: techFit || 'relevant to the role', hq });
+    cleaned.push({ periodIndex: cleaned.length, name, activeYears: activeYears || 'unknown', techFit: techFit || 'relevant to the role', hq, roleTitle: '' });
     if (cleaned.length >= 8) break;
   }
   if (cleaned.length === 0) throw new Error('Claude returned no usable company research entries.');

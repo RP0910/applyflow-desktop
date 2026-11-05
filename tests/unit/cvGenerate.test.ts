@@ -1,8 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
-import { CV_CORE, cvSystem, validateCv, type CvReply } from '@/prompts/cvGenerate';
+import { CV_CORE, cvEmploymentRolesBlock, cvSystem, validateCv, type CvReply } from '@/prompts/cvGenerate';
 import type { CompanyResearchReply } from '@/prompts/companyResearch';
-import { compactFacts } from '@/prompts/application';
-import { assembleCv } from '@/services/workflow/cvEngine';
+import { compactFacts, compactFactsForCv } from '@/prompts/application';
+import { assembleCv, reusedMasterLines } from '@/services/workflow/cvEngine';
+import { roleTitlesForCv } from '@/services/workflow/cvRoleTitles';
 import { buildMasterFromForm, emptyBuilder, builderProblems } from '@/services/resume/builder';
 import { runAnalysis, runDocuments, revalidateEdited } from '@/services/workflow/engine';
 import { toResumeDocument, fromResumeDocument, renderResumePdf } from '@/resume-renderer';
@@ -18,16 +19,46 @@ const profile = {...EMPTY_PROFILE,fullName:'Test Candidate',email:'candidate@exa
 const master = buildMasterFromForm(form, profile, 'Candidate');
 const session = emptySession(mockJob(),master.id);
 const reply: CvReply = {company_name:'Hiring Co',role_title:'Software Engineer',subtitle:'Software Engineer | TypeScript',summary:'Software engineer building TypeScript services.',cover_letter:'Dear Hiring Team,\n\nI build TypeScript services.\n\nSincerely,\nTest Candidate',skill_groups:[{category:'Languages',items:['TypeScript']}],additional_categories:[],experience:[{company:'Example Systems',role_title:'Software Engineer',location:'Wrong City',dates:'1999 - 2000',role_description:'Built reliable customer platforms.',bullets:['Developed TypeScript API services with automated regression tests.']}]};
+const researchCompany={periodIndex:0,name:'Example Systems',activeYears:'2020-Present',techFit:'TypeScript platforms',hq:'',roleTitle:''};
+const cvReply=()=>{
+  const role_title=roleTitlesForCv(session.job.title,1,{companies:[researchCompany]})[0]!;
+  return {...reply,role_title,experience:[{...reply.experience[0]!,role_title}]};
+};
 
 describe('CV Generate 2.1 pipeline',()=>{
  it('accepts employer/date-only input without prewritten bullets or title',()=>expect(builderProblems(form)).toEqual([]));
  it('uses one complete supplied prompt and explicit candidate overrides',()=>{
    expect(CV_CORE.match(/<output_schema>/g)?.length).toBeGreaterThan(0);
    expect(CV_CORE.match(/^<goal>$/gm)).toHaveLength(1);
-   const system=cvSystem(compactFacts(master,profile));
+   const system=cvSystem(compactFactsForCv(master,profile));
    expect(system[0]!.text).toContain('<final_check>');
-   expect(system[1]!.text).toContain('Employer names and job locations in CANDIDATE.jobs are final');
+   expect(system[1]!.text).toContain('Employer names, role_title values, and job locations in CANDIDATE.jobs are final');
+   expect(system[1]!.text).toContain('Do not reuse or lightly paraphrase');
    expect(system[1]!.text).not.toContain(profile.email);
+ });
+ it('puts finalized role_title in the CV prompt before generation',()=>{
+   const draft=buildMasterFromForm({...form,jobs:[{...form.jobs[0]!,title:'Staff Platform Engineer',company:'Progyny, Inc.'}]},profile,'Candidate');
+   const facts=compactFactsForCv(draft,profile,{companies:[{periodIndex:0,name:'Progyny, Inc.',activeYears:'2020-Present',techFit:'Fertility benefits platform',hq:'New York, NY',roleTitle:'Staff Platform Engineer'}]});
+   expect(cvEmploymentRolesBlock(facts)).toContain('role_title: "Staff Platform Engineer"');
+   expect(JSON.parse(facts.text).jobs[0].role_title).toBe('Staff Platform Engineer');
+   expect(cvSystem(facts)[1]!.text).toContain('FIXED EMPLOYMENT ROLES');
+ });
+ it('omits master bullets from CV candidate facts and passes company research context',()=>{
+   const rich=buildMasterFromForm({...form,jobs:[{...form.jobs[0]!,company:'Example Systems',did:'Legacy streaming bullet about OTT.',title:'Senior Streaming Engineer'}]},profile,'Candidate');
+   const cvFacts=compactFactsForCv(rich,profile,{companies:[{periodIndex:0,name:'HashiCorp',activeYears:'2020-Present',techFit:'Infrastructure automation',hq:'San Francisco, CA',roleTitle:'Senior Platform Engineer'}]});
+   const payload=JSON.parse(cvFacts.text);
+   expect(payload.jobs[0].company).toBe('Example Systems');
+   expect(payload.jobs[0].facts).toBeUndefined();
+   expect(payload.jobs[0].companyContext).toBe('Infrastructure automation');
+   expect(compactFacts(rich,profile).text).toContain('Legacy streaming');
+ });
+ it('counts draft lines that repeat master bullets and uses the supplied CV role title in the resume',()=>{
+   const rich=buildMasterFromForm({...form,jobs:[{...form.jobs[0]!,did:'Built OTT delivery pipelines.',title:'Senior Streaming Engineer'}]},profile,'Candidate');
+   const draft=buildMasterFromForm({...form,jobs:[{...form.jobs[0]!,title:'Software Engineer',company:'Example Systems'}]},profile,'Candidate');
+   const copied={...reply,experience:[{...reply.experience[0]!,role_title:'Software Engineer',bullets:['Built OTT  delivery pipelines.','Developed TypeScript API services.']}]};
+   expect(reusedMasterLines(copied,rich,profile)).toBe(1);
+   expect(reusedMasterLines(reply,rich,profile)).toBe(0);
+   expect(assembleCv(copied,draft,profile,session,'test').experience[0]!.title).toBe('Software Engineer');
  });
  it('preserves employer dates and identity while accepting generated work content',()=>{
    const r=assembleCv(reply,master,profile,session,'test-model');
@@ -66,22 +97,28 @@ describe('CV Generate 2.1 pipeline',()=>{
  it('runs company research then CV generate as two separate calls',async()=>{
    const order:string[]=[];
    const saved=new Map<string,CompanyResearchReply>();
-   const researchCompanies=vi.fn().mockImplementation(async()=>{order.push('research');return{data:{companies:[{periodIndex:0,name:'HashiCorp',activeYears:'2020-Present',techFit:'TypeScript platforms',hq:''}]},model:'test'};});
-   const tailoredReply={...reply,experience:[{...reply.experience[0]!,company:'HashiCorp'}]};
+   const researchCompanies=vi.fn().mockImplementation(async()=>{order.push('research');return{data:{companies:[{periodIndex:0,name:'HashiCorp',activeYears:'2020-Present',techFit:'TypeScript platforms',hq:'',roleTitle:''}]},model:'test'};});
+   const hashicorpTitle=roleTitlesForCv(session.job.title,1,{companies:[{periodIndex:0,name:'HashiCorp',activeYears:'2020-Present',techFit:'TypeScript platforms',hq:'',roleTitle:''}]})[0]!;
+   const tailoredReply={...reply,role_title:hashicorpTitle,experience:[{...reply.experience[0]!,company:'HashiCorp',role_title:hashicorpTitle}]};
    const generateCv=vi.fn().mockImplementation(async()=>{order.push('cv');return{data:tailoredReply,model:'test'};});
+   const suggestRoleTitles=vi.fn().mockImplementation(async()=>{order.push('titles');return{data:{roles:[{periodIndex:0,role_title:hashicorpTitle}]},model:'test'};});
    const phases:string[]=[];
-   const d={settings:{...DEFAULT_SETTINGS,engine:'claude' as const},apiKey:'test',providerFactory:()=>({generateCv,researchCompanies} as unknown as ClaudeProvider),saveCompanyResearch:async(k:string,v:CompanyResearchReply)=>{saved.set(k,v);},loadCompanyResearch:async(k:string)=>saved.get(k)??null};
+   const d={settings:{...DEFAULT_SETTINGS,engine:'claude' as const},apiKey:'test',providerFactory:()=>({generateCv,researchCompanies,suggestRoleTitles} as unknown as ClaudeProvider),saveCompanyResearch:async(k:string,v:CompanyResearchReply)=>{saved.set(k,v);},loadCompanyResearch:async(k:string)=>saved.get(k)??null};
    const a=await runAnalysis(session.job,false,master,profile,{...d,settings:{...d.settings,deepAnalysisWithClaude:false}});
    const result=await runDocuments({...session,analysis:a.analysis},master,profile,d,'professional',(p)=>phases.push(p));
    expect(researchCompanies).toHaveBeenCalledTimes(1);
    expect(generateCv.mock.calls.length).toBeGreaterThanOrEqual(1);
    expect(generateCv.mock.calls.length).toBeLessThanOrEqual(2);
    expect(order[0]).toBe('research');
-   expect(order.slice(1).every((x)=>x==='cv')).toBe(true);
+   expect(order[1]).toBe('titles');
+   expect(order.slice(2).every((x)=>x==='cv')).toBe(true);
+   expect(suggestRoleTitles).toHaveBeenCalledTimes(1);
    expect(phases.indexOf('researching_companies')).toBeGreaterThanOrEqual(0);
    expect(phases.indexOf('generating_resume')).toBeGreaterThan(phases.indexOf('researching_companies'));
    expect(generateCv.mock.calls[0]!).toHaveLength(3);
-   expect(JSON.parse(generateCv.mock.calls[0]![0].text).jobs[0].company).toBe('HashiCorp');
+   const sent=JSON.parse(generateCv.mock.calls[0]![0].text);
+   expect(sent.jobs[0].company).toBe('HashiCorp');
+   expect(sent.jobs[0].facts).toBeUndefined();
    expect(saved.has(session.jobKey)).toBe(true);
    expect(result.resume.experience[0]!.company).toBe('HashiCorp');
    expect(result.resume.experience[0]!.bullets).toContain(reply.experience[0]!.bullets[0]);
@@ -102,24 +139,26 @@ describe('CV Generate 2.1 pipeline',()=>{
    expect(generateCv).not.toHaveBeenCalled();
  });
  describe('speed: no repeated Claude.ai work',()=>{
-   const company={periodIndex:0,name:'Example Systems',activeYears:'2020-Present',techFit:'TypeScript platforms',hq:''};
+   const company=researchCompany;
    const setup=(generateCv:ReturnType<typeof vi.fn>,saved=new Map<string,CompanyResearchReply>())=>{
      const researchCompanies=vi.fn().mockResolvedValue({data:{companies:[company]},model:'test'});
-     const d={settings:{...DEFAULT_SETTINGS,engine:'claude' as const},apiKey:'test',providerFactory:()=>({generateCv,researchCompanies} as unknown as ClaudeProvider),saveCompanyResearch:async(k:string,v:CompanyResearchReply)=>{saved.set(k,v);},loadCompanyResearch:async(k:string)=>saved.get(k)??null};
-     return {d,researchCompanies,saved};
+     const rt=roleTitlesForCv(session.job.title,1,{companies:[company]})[0]!;
+     const suggestRoleTitles=vi.fn().mockResolvedValue({data:{roles:[{periodIndex:0,role_title:rt}]},model:'test'});
+     const d={settings:{...DEFAULT_SETTINGS,engine:'claude' as const},apiKey:'test',providerFactory:()=>({generateCv,researchCompanies,suggestRoleTitles} as unknown as ClaudeProvider),saveCompanyResearch:async(k:string,v:CompanyResearchReply)=>{saved.set(k,v);},loadCompanyResearch:async(k:string)=>saved.get(k)??null};
+     return {d,researchCompanies,suggestRoleTitles,saved};
    };
    it('Tailor writes the resume once (no automatic second pass) and says where the time went',async()=>{
-     const generateCv=vi.fn().mockResolvedValue({data:reply,model:'test'});
+     const generateCv=vi.fn().mockResolvedValue({data:cvReply(),model:'test'});
      const {d,researchCompanies}=setup(generateCv);
      const a=await runAnalysis(session.job,false,master,profile,{...d,settings:{...d.settings,deepAnalysisWithClaude:false}});
      const r=await runDocuments({...session,analysis:a.analysis},master,profile,d,'professional');
      expect(researchCompanies).toHaveBeenCalledTimes(1);
      expect(generateCv).toHaveBeenCalledTimes(1);
-     expect(r.notices.join(' ')).toMatch(/Claude\.ai time: research \d+:\d\d · resume \d+:\d\d\./);
+     expect(r.notices.join(' ')).toMatch(/Claude\.ai time: research \d+:\d\d · titles \d+:\d\d · resume \d+:\d\d\./);
      expect(r.notices.join(' ')).toMatch(/Optimize with Claude/);
    });
    it('a second run for the same job reuses the saved company research',async()=>{
-     const generateCv=vi.fn().mockResolvedValue({data:reply,model:'test'});
+     const generateCv=vi.fn().mockResolvedValue({data:cvReply(),model:'test'});
      const saved=new Map<string,CompanyResearchReply>([[session.jobKey,{companies:[company]}]]);
      const {d,researchCompanies}=setup(generateCv,saved);
      const a=await runAnalysis(session.job,false,master,profile,{...d,settings:{...d.settings,deepAnalysisWithClaude:false}});
@@ -129,13 +168,14 @@ describe('CV Generate 2.1 pipeline',()=>{
      expect(r.notices.join(' ')).toMatch(/Company research reused from this job: 1\. Example Systems/);
    });
    it('Optimize sends one measured revision of the current draft and keeps it only when scores do not drop',async()=>{
-     const generateCv=vi.fn().mockResolvedValue({data:reply,model:'test'});
+     const generateCv=vi.fn().mockResolvedValue({data:cvReply(),model:'test'});
      const saved=new Map<string,CompanyResearchReply>([[session.jobKey,{companies:[company]}]]);
      const {d,researchCompanies}=setup(generateCv,saved);
      const a=await runAnalysis(session.job,false,master,profile,{...d,settings:{...d.settings,deepAnalysisWithClaude:false}});
      const first=await runDocuments({...session,analysis:a.analysis},master,profile,d,'professional');
      generateCv.mockClear();
-     const weaker={...reply,summary:'Engineer.',skill_groups:[{category:'Other',items:['Typing']}],experience:[{...reply.experience[0]!,bullets:['Did work.']}]};
+     const rt=roleTitlesForCv(session.job.title,1,{companies:[company]})[0]!;
+     const weaker={...reply,role_title:rt,summary:'Engineer.',skill_groups:[{category:'Other',items:['Typing']}],experience:[{...reply.experience[0]!,role_title:rt,bullets:['Did work.']}]};
      generateCv.mockResolvedValueOnce({data:weaker,model:'test'});
      const s={...session,analysis:a.analysis,resume:first.resume,coverLetter:first.coverLetter,includeCoverLetter:true};
      const r=await runDocuments(s,master,profile,d,'professional',undefined,{optimize:true});
@@ -149,9 +189,10 @@ describe('CV Generate 2.1 pipeline',()=>{
    });
  });
  it('retains a complete draft after a refine failure once research succeeded',async()=>{
-   const researchCompanies=vi.fn().mockResolvedValue({data:{companies:[{periodIndex:0,name:'Example Systems',activeYears:'2020-Present',techFit:'TypeScript platforms',hq:''}]},model:'test'});
-   const generateCv=vi.fn().mockResolvedValueOnce({data:reply,model:'test'}).mockRejectedValueOnce(new Error('refine failed'));
-   const d={settings:{...DEFAULT_SETTINGS,engine:'claude' as const},apiKey:'test',providerFactory:()=>({generateCv,researchCompanies} as unknown as ClaudeProvider)};
+   const researchCompanies=vi.fn().mockResolvedValue({data:{companies:[researchCompany]},model:'test'});
+   const suggestRoleTitles=vi.fn().mockResolvedValue({data:{roles:[{periodIndex:0,role_title:roleTitlesForCv(session.job.title,1,{companies:[researchCompany]})[0]!}]},model:'test'});
+   const generateCv=vi.fn().mockResolvedValueOnce({data:cvReply(),model:'test'}).mockRejectedValueOnce(new Error('refine failed'));
+   const d={settings:{...DEFAULT_SETTINGS,engine:'claude' as const},apiKey:'test',providerFactory:()=>({generateCv,researchCompanies,suggestRoleTitles} as unknown as ClaudeProvider)};
    const a=await runAnalysis(session.job,false,master,profile,{...d,settings:{...d.settings,deepAnalysisWithClaude:false}});
    const r=await runDocuments({...session,analysis:a.analysis},master,profile,d,'professional');
    expect(r.resume.summary).toBe(reply.summary);

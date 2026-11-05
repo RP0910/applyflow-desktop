@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { CLAUDE_PAGE_API } from '../../electron/claudePage';
 import { ClaudeError } from '@/services/claude/errors';
-import { claudeChatResearchTitle, claudeChatTitle, parseClaudeChatJson, ClaudeChatProvider } from '@/services/claude/chatResume';
+import { claudeChatResearchTitle, claudeChatRoleTitlesTitle, claudeChatTitle, parseClaudeChatJson, ClaudeChatProvider } from '@/services/claude/chatResume';
 import { claudeReplyBody, claudeReplyReady } from '../../electron/claudeReply';
 import { claudeChatIndicator } from '@/desktop/ClaudeChatStatus';
 import { compactFacts } from '@/prompts/application';
@@ -10,6 +10,7 @@ import { buildMasterFromForm, emptyBuilder } from '@/services/resume/builder';
 import { EMPTY_PROFILE } from '@/storage/repositories';
 import type { CvReply } from '@/prompts/cvGenerate';
 import { DEFAULT_SETTINGS } from '@/types';
+import { roleTitlesForCv } from '@/services/workflow/cvRoleTitles';
 import { emptySession, mockJob } from '../helpers';
 
 const form = emptyBuilder();
@@ -70,7 +71,9 @@ describe('Claude.ai chat resume generation', () => {
     const titles: string[] = [];
     const cvBodies: string[] = [];
     let cvCalls = 0;
-    const research = { companies: [{ periodIndex: 0, name: 'Example Systems', activeYears: '2020-Present', techFit: 'TypeScript services', hq: '' }] };
+    const research = { companies: [{ periodIndex: 0, name: 'Example Systems', activeYears: '2020-Present', techFit: 'TypeScript services', hq: '', roleTitle: '' }] };
+    const role_title = roleTitlesForCv(session.job.title, 1, research)[0]!;
+    const cvJson = { ...reply, role_title, experience: [{ ...reply.experience[0]!, role_title }] };
     const researchPrompts: string[] = [];
     const chatComplete = vi.fn(async ({ prompt, title }: { prompt: string; title: string }) => {
       titles.push(title);
@@ -78,10 +81,16 @@ describe('Claude.ai chat resume generation', () => {
         researchPrompts.push(prompt);
         return { text: '```json\n' + JSON.stringify(research) + '\n```', model: 'claude.ai' };
       }
-      cvCalls += 1;
-      cvBodies.push(prompt);
-      if (cvCalls === 1) return { text: '{"company_name": "Hiring Co"', model: 'claude.ai' };
-      return { text: JSON.stringify(reply), model: 'claude.ai (Sonnet 5.5 Medium)' };
+      if (prompt.includes('"task":"suggest_role_titles"')) {
+        return { text: JSON.stringify({ roles: [{ periodIndex: 0, role_title }] }), model: 'claude.ai' };
+      }
+      if (prompt.includes('<output_schema>')) {
+        cvCalls += 1;
+        cvBodies.push(prompt);
+        if (cvCalls === 1) return { text: '{"company_name": "Hiring Co"', model: 'claude.ai' };
+        return { text: JSON.stringify(cvJson), model: 'claude.ai (Sonnet 5.5 Medium)' };
+      }
+      return { text: '{}', model: 'claude.ai' };
     });
     const settings = { ...DEFAULT_SETTINGS, engine: 'claude' as const, resumeGenerationMethod: 'chat' as const };
     const store = new Map<string, unknown>();
@@ -96,15 +105,18 @@ describe('Claude.ai chat resume generation', () => {
     const result = await runDocuments({ ...session, analysis: analyzed.analysis }, master, profile, deps, 'professional');
     const resumeTitle = claudeChatTitle(session.job.company, session.job.title);
     const researchTitle = claudeChatResearchTitle(session.job.company, session.job.title);
-    expect(titles.length).toBeGreaterThanOrEqual(2);
+    const titlesTitle = claudeChatRoleTitlesTitle(session.job.company, session.job.title);
+    expect(titles.length).toBeGreaterThanOrEqual(3);
     expect(titles[0]).toBe(researchTitle);
-    expect(titles.slice(1).every((title) => title === resumeTitle)).toBe(true);
+    expect(titles[1]).toBe(titlesTitle);
+    expect(titles.slice(2).every((title) => title === resumeTitle)).toBe(true);
     expect(researchPrompts).toHaveLength(1);
     const instructions = researchPrompts[0]!.split('{"task":"company_research"')[0]!;
     expect(instructions).toMatch(/identify real companies that match a job description/);
-    expect(instructions).not.toMatch(/resume|employment period|periodIndex/i);
+    expect(instructions).not.toMatch(/\bperiodIndex\b/i);
     expect(researchPrompts[0]).not.toContain('"periods"');
     expect(cvBodies[0]).toContain('<output_schema>');
+    expect(cvBodies[0]).toContain('FIXED EMPLOYMENT ROLES');
     expect(cvBodies[0]).toContain('JOB DESCRIPTION');
     expect(cvBodies[0]).not.toContain(profile.email);
     expect(result.resume.contentSource).toBe('cv-generate');

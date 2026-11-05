@@ -6,7 +6,7 @@ import { buildAtsPlan, docFromMaster, docFromTailored, extractJobKeywords, forbi
 import { optimizeForAts, promptPlan, refineFindings } from '@/services/tailoring/atsTailor';
 import { ClaudeProvider, type UsageReporter } from '@/services/claude/provider';
 import { ClaudeChatProvider, type ChatCompleteRequest } from '@/services/claude/chatResume';
-import { compactFacts, compactJob, compactPlan, draftFromTailored, letterText, toTailorReply } from '@/prompts/application';
+import { compactFacts, compactFactsForCv, compactJob, compactPlan, draftFromTailored, letterText, toTailorReply } from '@/prompts/application';
 import { ClaudeError } from '@/services/claude/errors';
 import type { AnalyzeJobReply } from '@/prompts/analyzeJob';
 import { analyzeJobLocally, missingQualifications } from '@/services/analysis/localAnalyzer';
@@ -23,7 +23,15 @@ import { parsedToView, tailoredToView } from '@/services/export/render';
 import { uniqCaseInsensitive, wordCount } from '@/utils/text';
 import { newId } from '@/utils/id';
 import { nowIso } from '@/utils/dates';
-import { alignResearchToEmployers, applyCompanyResearch, assembleCv, draftCorpus } from './cvEngine';
+import { alignResearchToEmployers, applyCompanyResearch, applyCvRoleTitles, assembleCv, draftCorpus, reusedMasterLines } from './cvEngine';
+import {
+  applyTitlesWithVerifiedExperience,
+  mergeRoleTitlesIntoResearch,
+  researchHasSavedRoleTitles,
+  roleTitlesForCv,
+  RoleTitleValidationError,
+  validateRoleTitlePlan,
+} from './cvRoleTitles';
 import { loadCompanyResearch, persistCompanyResearch } from './companyResearchStore';
 import type { CompanyResearchReply } from '@/prompts/companyResearch';
 
@@ -45,6 +53,7 @@ interface ResumeModel {
   refineApplication: ClaudeProvider['refineApplication'];
   writeLetter: ClaudeProvider['writeLetter'];
   researchCompanies: ClaudeProvider['researchCompanies'];
+  suggestRoleTitles: ClaudeProvider['suggestRoleTitles'];
   generateCv: ClaudeProvider['generateCv'];
 }
 
@@ -409,7 +418,19 @@ export async function runDocuments(
   const baseFacts = compactFacts(master, profile);
   if (!Object.keys(baseFacts.jobIds).length) throw new Error('Add employer names and dates in Profile settings.');
   deps.onStatus?.('Preparing job description for Claude…');
-  const job = compactJob(session.job, deps.settings.sendFullJobDescription, 12000);
+  const jobBase = compactJob(session.job, deps.settings.sendFullJobDescription, 12000);
+  const job =
+    session.analysis
+      ? {
+          ...jobBase,
+          atsKeywords: uniqCaseInsensitive([
+            ...session.analysis.resumeKeywords,
+            ...session.analysis.requiredSkills,
+            ...session.analysis.preferredSkills,
+            ...session.analysis.tools,
+          ]).slice(0, 36),
+        }
+      : jobBase;
   const tech = [
     ...session.analysis.requiredSkills,
     ...session.analysis.preferredSkills,
@@ -454,9 +475,45 @@ export async function runDocuments(
     await persistCompanyResearch(deps, session.jobKey, aligned);
     stored = (await loadCompanyResearch(deps, session.jobKey)) ?? aligned;
   }
-  deps.onStatus?.('Updating CV prompt with researched company names…');
-  const { master: draftMaster, replaced } = applyCompanyResearch(master, stored);
-  const facts = compactFacts(draftMaster, profile);
+  const notices: string[] = [];
+  deps.onStatus?.('Updating CV prompt with researched employers…');
+  const { master: withCompanies, replaced } = applyCompanyResearch(master, stored);
+  let cvTitles: string[];
+  if (researchHasSavedRoleTitles(stored, periodCount)) {
+    cvTitles = applyTitlesWithVerifiedExperience(
+      roleTitlesForCv(session.job.title, periodCount, stored),
+      session.job.title,
+      master,
+      profile,
+    ).titles;
+  } else {
+    deps.onStatus?.('Asking Claude for job titles from the posting (no company names)…');
+    try {
+      const suggested = await timed('titles', () => p.suggestRoleTitles(job, periodCount, deps.signal));
+      const fromJd = validateRoleTitlePlan(suggested.data.roles, periodCount, session.job.title);
+      const mapped = applyTitlesWithVerifiedExperience(fromJd, session.job.title, master, profile);
+      cvTitles = mapped.titles;
+      if (mapped.keptVerified) {
+        notices.push(`Job titles: kept ${mapped.keptVerified} verified title${mapped.keptVerified > 1 ? 's' : ''} from your profile where JD suggestions did not match.`);
+      }
+      stored = mergeRoleTitlesIntoResearch(stored, cvTitles);
+      await persistCompanyResearch(deps, session.jobKey, stored);
+    } catch (e) {
+      if (deps.signal?.aborted) throw e;
+      cvTitles = roleTitlesForCv(session.job.title, periodCount, stored);
+      const detail =
+        e instanceof RoleTitleValidationError
+          ? e.message
+          : e instanceof ClaudeError
+            ? e.userMessage
+            : e instanceof Error
+              ? e.message
+              : 'Title suggestion failed.';
+      notices.push(`Job titles: ${detail} Using ApplyFlow’s default title ladder for this draft.`);
+    }
+  }
+  const draftMaster = applyCvRoleTitles(withCompanies, cvTitles);
+  const facts = compactFactsForCv(draftMaster, profile, stored);
   const measure = (t: TailoredResume) => {
     const corpus = draftCorpus(t, master);
     const { plan } = planAts(session.job, session.analysis!, corpus, profile, deps.settings.defaultResumeLength);
@@ -467,7 +524,6 @@ export async function runDocuments(
     .sort((a, b) => a.periodIndex - b.periodIndex)
     .map((c) => `${c.periodIndex + 1}. ${c.name}${c.hq ? ` (${c.hq})` : ''}`)
     .join('; ');
-  const notices: string[] = [];
 
   onPhase('generating_resume');
   let resume: TailoredResume;
@@ -522,6 +578,8 @@ export async function runDocuments(
       throw new Error(`Company research was saved (${names}), but resume generation failed. ${msg}`);
     }
     resume = assembleCv(result.data, draftMaster, profile, session, result.model);
+    const reused = reusedMasterLines(result.data, draftMaster, profile);
+    if (reused) notices.push(`${reused} line${reused > 1 ? 's' : ''} of the draft repeat${reused > 1 ? '' : 's'} your master resume word for word. Check the experience section, or press “Optimize with Claude”.`);
     measured = measure(resume);
     coverText = result.data.cover_letter;
     model = result.model;
