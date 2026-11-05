@@ -122,7 +122,7 @@ export class ClaudeChatProvider {
         return accept(text, model);
       } catch (e) {
         last = e;
-        const again = canRetry(e) && attempt < 3 && !(e instanceof ClaudeError && e.code === 'timeout' && attempt >= 2);
+        const again = canRetry(e) && attempt < 3;
         if (!again) throw present(e);
         await pause(1200, signal);
       }
@@ -162,9 +162,9 @@ function present(e: unknown): Error {
 
 function canRetry(e: unknown): boolean {
   if (e instanceof ClaudeError) {
-    if (e.code === 'aborted' || e.code === 'chat_signed_out' || e.code === 'refusal' || e.code === 'no_key') return false;
+    if (e.code === 'aborted' || e.code === 'chat_signed_out' || e.code === 'refusal' || e.code === 'no_key' || e.code === 'timeout') return false;
     if (e.code === 'chat_unavailable') return e.retryable;
-    return e.retryable || e.code === 'parse' || e.code === 'truncated' || e.code === 'timeout' || e.code === 'rate_limit' || e.code === 'overloaded' || e.code === 'server';
+    return e.retryable || e.code === 'parse' || e.code === 'truncated' || e.code === 'rate_limit' || e.code === 'overloaded' || e.code === 'server';
   }
   return e instanceof Error;
 }
@@ -173,7 +173,7 @@ function chatFailure(res: Extract<ClaudeChatCompleteResult, { ok: false }>): Cla
   switch (res.code) {
     case 'signed_out': return new ClaudeError('chat_signed_out', { detail: res.detail });
     case 'challenge': return new ClaudeError('chat_unavailable', { detail: res.detail });
-    case 'timeout': return new ClaudeError('timeout', { retryable: true, detail: res.detail });
+    case 'timeout': return new ClaudeError('timeout', { detail: res.detail });
     case 'cancelled': return new ClaudeError('aborted', { detail: res.detail });
     case 'limit': return new ClaudeError('rate_limit', { retryable: true, detail: res.detail });
     case 'empty':

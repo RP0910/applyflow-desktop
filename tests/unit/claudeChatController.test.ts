@@ -6,7 +6,7 @@ import type { ClaudeChatStatus } from '@/platform/bridge';
 import type { ClaudeBrowser, ClaudeTab } from '../../electron/claudeBrowser';
 import type { BrowserDiagnostics } from '../../electron/browserSession';
 import { startClaudeChat, type ClaudeChatController } from '../../electron/claudeChat';
-import { claudeReplyReady } from '../../electron/claudeReply';
+import { claudeReplyReady, extractClaudeJson } from '../../electron/claudeReply';
 
 const NEW_CHAT = 'https://claude.ai/new';
 const REPLY = '{"companies":[{"periodIndex":0,"name":"Northwind","activeYears":"2020","techFit":"platforms","hq":"Austin, TX"}]}';
@@ -152,6 +152,33 @@ describe('Claude.ai Chat job runner', () => {
     expect(res).toMatchObject({ ok: false, code: 'cancelled' });
     expect(chat.status().detail).not.toMatch(/^Writing /);
   });
+
+  it('accepts a complete reply while the stop control is still visible', async () => {
+    tab.polls = 0;
+    const original = tab.run.bind(tab);
+    tab.run = async (code: string) => {
+      if (code.includes('snapshot()')) {
+        const streaming = tab.polls >= 0 && tab.polls < 2;
+        const done = tab.polls >= 2;
+        if (tab.polls >= 0) tab.polls += 1;
+        return {
+          href: tab.url,
+          composer: tab.signedIn,
+          sendEnabled: true,
+          stop: streaming || done,
+          assistant: REPLY,
+          model: 'claude.ai',
+          challenge: false,
+          signedOut: false,
+          usageLimited: false,
+          chatId: null,
+        };
+      }
+      return original(code);
+    };
+    const res = await settle(chat.complete({ requestId: 'r-stop', prompt: 'Research employers. Reply with JSON.', title: 'Research — A — B', timeoutMs: 60_000 }));
+    expect(res).toMatchObject({ ok: true, text: REPLY });
+  });
 });
 
 describe('Claude.ai reply readiness', () => {
@@ -160,5 +187,10 @@ describe('Claude.ai reply readiness', () => {
     expect(claudeReplyReady(REPLY)).toBe(true);
     expect(claudeReplyReady(`Here it is:\n${REPLY}\nCopy`)).toBe(true);
     expect(claudeReplyReady('{"companies": "a } inside a string')).toBe(false);
+  });
+
+  it('extracts research JSON even when Claude adds UI text after it', () => {
+    const research = '{"companies":[{"name":"Medidata Solutions, Inc.","activeYears":"1999-present","techFit":"Cloud clinical trial platform","hq":"New York, NY"}]} Copy Retry';
+    expect(extractClaudeJson(research)).toBe('{"companies":[{"name":"Medidata Solutions, Inc.","activeYears":"1999-present","techFit":"Cloud clinical trial platform","hq":"New York, NY"}]}');
   });
 });

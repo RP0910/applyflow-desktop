@@ -97,7 +97,7 @@ describe('CV Generate 2.1 pipeline',()=>{
    const dEmpty={settings:{...DEFAULT_SETTINGS,engine:'claude' as const},apiKey:'test',providerFactory:()=>({generateCv,researchCompanies:emptyResearch} as unknown as ClaudeProvider)};
    const a=await runAnalysis(session.job,false,master,profile,{...dFail,settings:{...dFail.settings,deepAnalysisWithClaude:false}});
    const s={...session,analysis:a.analysis};
-   await expect(runDocuments(s,master,profile,dFail,'professional')).rejects.toThrow(/Company research must finish/);
+   await expect(runDocuments(s,master,profile,dFail,'professional')).rejects.toThrow(/Company research did not complete/);
    await expect(runDocuments(s,master,profile,dEmpty,'professional')).rejects.toThrow(/no companies/);
    expect(generateCv).not.toHaveBeenCalled();
  });

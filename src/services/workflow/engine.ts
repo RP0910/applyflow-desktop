@@ -421,8 +421,8 @@ export async function runDocuments(
     research = (await p.researchCompanies(baseFacts, job, tech, deps.signal)).data;
   } catch (e) {
     if (deps.signal?.aborted) throw e;
-    const msg = e instanceof Error ? e.message : 'Company research failed.';
-    throw new Error(`Company research must finish before resume generation. ${msg}`);
+    const msg = e instanceof ClaudeError ? e.userMessage : e instanceof Error ? e.message : 'Company research failed.';
+    throw new Error(`Company research did not complete, so resume generation was not started. ${msg}`);
   }
   if (!research.companies.length) {
     throw new Error('Company research returned no companies. Resume generation was not started.');
@@ -436,7 +436,15 @@ export async function runDocuments(
   const facts = compactFacts(draftMaster, profile);
 
   onPhase('generating_resume');
-  let result = await p.generateCv(facts, job, deps.signal);
+  let result: Awaited<ReturnType<ResumeModel['generateCv']>>;
+  try {
+    result = await p.generateCv(facts, job, deps.signal);
+  } catch (e) {
+    if (deps.signal?.aborted) throw e;
+    const msg = e instanceof ClaudeError ? e.userMessage : e instanceof Error ? e.message : 'Resume generation failed.';
+    const names = stored.companies.map((c) => c.name).join(', ');
+    throw new Error(`Company research was saved (${names}), but resume generation failed. ${msg}`);
+  }
   let resume = assembleCv(result.data, draftMaster, profile, session, result.model);
   const measure = (t: TailoredResume) => {
     const corpus = draftCorpus(t, master);

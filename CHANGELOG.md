@@ -1,3 +1,7 @@
+# 2.2.11
+
+Fixed: Claude.ai Chat now recognizes completed company-research JSON and moves on to CV generation automatically, instead of timing out while the reply is already on screen. Separate research and resume chat titles; clearer errors when research or CV generation fails. See RELEASE-2.2.11.md.
+
 # 2.2.10
 
 Changed: company research now picks four real companies that match the job, saves that result with the job, and uses it to label employers on the draft resume. Claude.ai sign-in opens inside an ApplyFlow window, and the sidebar shows Writing… while a resume is being written. See RELEASE-2.2.10.md.

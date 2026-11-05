@@ -3,7 +3,7 @@ import { CHALLENGE_LOOP_COUNT, CHALLENGE_LOOP_WINDOW_MS, CHALLENGE_STUCK_MS, Loo
 import { BrowserDiagnostics } from './browserSession';
 import { CLAUDE_PARTITION, type ClaudeBrowser, type ClaudeTab } from './claudeBrowser';
 import { CLAUDE_PAGE_API } from './claudePage';
-import { claudeReplyBody, claudeReplyReady } from './claudeReply';
+import { claudeReplyBody, claudeReplyReady, extractClaudeJson } from './claudeReply';
 
 const HOME = 'https://claude.ai/';
 const NEW_CHAT = 'https://claude.ai/new';
@@ -299,13 +299,9 @@ export function startClaudeChat(opts: {
       const reply = await waitForReply(wc, requestId, timeoutMs, before, prompt);
       if (!reply.ok) return await settleFailure(reply);
       challengeAt = 0;
-      const renamed = await renameChat(wc, title);
-      emit({
-        state: 'ready',
-        detail: renamed ? 'Connected' : 'Connected. The resume was written, but Claude.ai kept its own chat title.',
-        checkedAt: new Date().toISOString(),
-      });
-      return { ok: true, text: reply.text, model: reply.model, renamed };
+      void renameChat(wc, title);
+      emit({ state: 'ready', detail: 'Connected', checkedAt: new Date().toISOString() });
+      return { ok: true, text: reply.text, model: reply.model, renamed: false };
     } catch (e) {
       if (cancelled.has(requestId)) return await settleFailure({ ok: false, code: 'cancelled', detail: 'Cancelled.' });
       const detail = e instanceof Error ? e.message : 'Could not reach Claude.ai.';
@@ -344,33 +340,47 @@ export function startClaudeChat(opts: {
 
   const waitForReply = async (wc: ClaudeTab, requestId: string, timeoutMs: number, before: string, prompt: string): Promise<Extract<ClaudeChatCompleteResult, { ok: true }> | Failure> => {
     const deadline = Date.now() + timeoutMs;
-    let last = '';
-    let stable = 0;
     let saw = false;
-    let sawStop = false;
+    let lastJson: string | null = null;
+    let jsonStable = 0;
+    let lastSnap: PageSnap | null = null;
+    let lastBody = '';
     while (Date.now() < deadline) {
       if (cancelled.has(requestId)) {
         await wc.run('globalThis.__afClaude && globalThis.__afClaude.clickStop()', true).catch(() => undefined);
         return { ok: false, code: 'cancelled', detail: 'Cancelled.' };
       }
       const s = await snap(wc);
+      lastSnap = s;
       if (s.challenge) return { ok: false, code: 'challenge', detail: CHALLENGE };
       if (s.signedOut) return { ok: false, code: 'signed_out', detail: 'Claude.ai signed out while writing. Sign in again from the sidebar.' };
       if (s.usageLimited) return { ok: false, code: 'limit', detail: 'Claude.ai reported a usage limit on this account.' };
-      if (s.stop) sawStop = true;
       const body = claudeReplyBody(s.assistant, prompt);
+      lastBody = body;
       const prior = before.replace(/\s+/g, ' ').trim();
       const flat = body.replace(/\s+/g, ' ').trim();
-      const fresh = flat.length >= 24 && flat !== prior && !prior.includes(flat);
-      if (s.stop || fresh) saw = true;
-      if (fresh && claudeReplyReady(body) && !s.stop && flat === last) stable += 1;
-      else stable = 0;
-      if (stable >= 3 && (sawStop || stable >= 6)) return { ok: true, text: body, model: s.model || 'claude.ai', renamed: false };
-      last = flat;
+      if (flat.length >= 24 && flat !== prior && !prior.includes(flat)) saw = true;
+      if (s.stop || flat.length >= 24) saw = true;
+      const json = extractClaudeJson(body);
+      if (json) {
+        jsonStable = json === lastJson ? jsonStable + 1 : 0;
+        lastJson = json;
+        if (!s.stop) {
+          return { ok: true, text: json, model: s.model || 'claude.ai', renamed: false };
+        }
+        if (jsonStable >= 1) {
+          return { ok: true, text: json, model: s.model || 'claude.ai', renamed: false };
+        }
+      } else {
+        jsonStable = 0;
+        lastJson = null;
+      }
       await delay(700);
     }
+    const tail = extractClaudeJson(lastBody) ?? (lastSnap ? extractClaudeJson(claudeReplyBody(lastSnap.assistant, prompt)) : null);
+    if (tail) return { ok: true, text: tail, model: lastSnap?.model || 'claude.ai', renamed: false };
     return saw
-      ? { ok: false, code: 'timeout', detail: 'Claude.ai was still writing when the time limit was reached.' }
+      ? { ok: false, code: 'timeout', detail: 'Claude.ai finished on screen but ApplyFlow could not read the JSON. Copy the reply into a new chat or try again.' }
       : { ok: false, code: 'timeout', detail: 'Claude.ai did not start a reply.' };
   };
 
