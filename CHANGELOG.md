@@ -1,3 +1,7 @@
+# 2.2.15
+
+Fixed: Claude.ai Chat retries in the same thread accept a reply only after the newest prompt (including when Claude repeats the same research JSON word for word). See RELEASE-2.2.15.md.
+
 # 2.2.14
 
 Fixed: Claude.ai Chat reuses one research thread and one CV thread per job (retries and refine stay in the same chat instead of opening duplicates). Added: Profile default login for employer portals, with optional per-site overrides and account creation when the site allows. See RELEASE-2.2.14.md.

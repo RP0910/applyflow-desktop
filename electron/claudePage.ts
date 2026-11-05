@@ -96,9 +96,20 @@ globalThis.__afClaude = (function () {
     }
     return '';
   }
+  function lastUserMessage() {
+    var users = queryAll('[data-testid="user-message"], [data-testid*="user-message"]');
+    return users.length ? users[users.length - 1] : null;
+  }
+  // In a reused chat earlier answers stay on the page; only what follows the newest prompt is its reply.
+  function afterLastUser(el) {
+    var user = lastUserMessage();
+    if (!user) return true;
+    return user !== el && !user.contains(el) && !!(user.compareDocumentPosition(el) & 4);
+  }
   function jsonFromCodeBlocks() {
     var nodes = queryAll('pre, code, [data-testid*="code"], [class*="code-block"]');
     for (var i = nodes.length - 1; i >= 0; i--) {
+      if (insideUser(nodes[i]) || !afterLastUser(nodes[i])) continue;
       var t = (nodes[i].innerText || '').trim();
       if (t.charAt(0) === '{' && /"companies"|"company_name"/.test(t)) return clip(t);
     }
@@ -108,7 +119,7 @@ globalThis.__afClaude = (function () {
     var nodes = queryAll('[data-testid="assistant-message"], [data-testid*="assistant-message"], [data-testid="ai-message"], [data-message-author="assistant"], .font-claude-response, .standard-markdown, .font-claude-message');
     var out = [];
     for (var i = 0; i < nodes.length; i++) {
-      if (insideUser(nodes[i])) continue;
+      if (insideUser(nodes[i]) || !afterLastUser(nodes[i])) continue;
       var t = (nodes[i].innerText || '').trim();
       if (t) out.push(t);
     }
@@ -151,6 +162,7 @@ globalThis.__afClaude = (function () {
       sendEnabled: !!sendButton(),
       stop: !!stopButton(),
       assistant: assistantText(),
+      fresh: !!lastUserMessage() && assistantParts().length > 0,
       model: modelLabel(),
       challenge: challenge(),
       signedOut: signedOut(),

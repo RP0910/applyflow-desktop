@@ -2,7 +2,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { CLAUDE_PAGE_API } from '../../electron/claudePage';
 
 interface PageApi {
-  snapshot: () => { sendEnabled: boolean; stop: boolean; assistant: string };
+  snapshot: () => { sendEnabled: boolean; stop: boolean; assistant: string; fresh: boolean };
 }
 
 function page(html: string): PageApi {
@@ -39,5 +39,20 @@ describe('Claude.ai page helper', () => {
   it('reads the reply after the user message, not the prompt', () => {
     const api = page('<div id="t"><div data-testid="user-message">PROMPT TEXT</div><div data-testid="assistant-message">{"companies":[]}</div></div>');
     expect(api.snapshot().assistant).toBe('{"companies":[]}');
+  });
+
+  it('in a reused chat, ignores the earlier answer until the newest prompt gets its own reply', () => {
+    const OLD = '{"companies":[{"name":"Northwind"}]}';
+    const turn = (who: 'user' | 'assistant', text: string) => `<div data-testid="${who}-message">${text}</div>`;
+    const waiting = page(`<div>${turn('user', 'Research employers.')}${turn('assistant', OLD)}${turn('user', 'Research employers. Return one complete JSON object.')}</div>`);
+    expect(waiting.snapshot()).toMatchObject({ assistant: '', fresh: false });
+    // Claude.ai answers with the very same JSON: it is the reply to the newest prompt.
+    const answered = page(`<div>${turn('user', 'Research employers.')}${turn('assistant', OLD)}${turn('user', 'Research employers. Return one complete JSON object.')}${turn('assistant', OLD)}</div>`);
+    expect(answered.snapshot()).toMatchObject({ assistant: OLD, fresh: true });
+  });
+
+  it('skips an earlier code-block answer while the new reply is still being written', () => {
+    const page2 = page('<div><div data-testid="user-message">one</div><div data-testid="assistant-message"><pre>{"company_name":"Old"}</pre></div><div data-testid="user-message">two</div><div data-testid="assistant-message">Writing…</div></div>');
+    expect(page2.snapshot()).toMatchObject({ assistant: 'Writing…', fresh: true });
   });
 });

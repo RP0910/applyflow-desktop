@@ -81,6 +81,8 @@ class FakeTab implements ClaudeTab {
         composer: this.signedIn,
         sendEnabled: true,
         stop: streaming && !queued,
+        // While queued the old answer is still the newest one; nothing follows the new prompt yet.
+        fresh: (streaming || done) && !queued,
         assistant: done ? this.answering : queued ? this.onScreen : streaming ? partial : this.onScreen,
         model: 'claude.ai',
         challenge: false,
@@ -141,6 +143,16 @@ describe('Claude.ai Chat job runner', () => {
     expect(seen.map((s) => s.state)).not.toContain('connecting');
     expect(seen.map((s) => s.state)).not.toContain('checking');
     expect(chat.status()).toMatchObject({ state: 'ready', detail: 'Connected' });
+  });
+
+  it('accepts a retry in the same chat that repeats the earlier research word for word', async () => {
+    const title = 'Research — Medasource — Salesforce Administrator';
+    const first = await settle(chat.complete({ requestId: 'r1', prompt: 'Research employers. Reply with JSON.', title, timeoutMs: 60_000 }));
+    expect(first).toMatchObject({ ok: true, text: REPLY });
+    const chatUrl = tab.url;
+    const again = await settle(chat.complete({ requestId: 'r2', prompt: 'Research employers. Return one complete JSON object.', title, timeoutMs: 60_000 }));
+    expect(again).toMatchObject({ ok: true, text: REPLY });
+    expect(tab.url).toBe(chatUrl);
   });
 
   it('reuses one Claude.ai chat per research title instead of opening /new on every retry', async () => {

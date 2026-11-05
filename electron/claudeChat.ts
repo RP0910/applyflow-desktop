@@ -21,6 +21,8 @@ interface PageSnap {
   sendEnabled: boolean;
   stop: boolean;
   assistant: string;
+  /** The page shows an assistant message after the newest prompt (a reply to it, not an older answer). */
+  fresh: boolean;
   model: string;
   challenge: boolean;
   signedOut: boolean;
@@ -376,7 +378,8 @@ export function startClaudeChat(opts: {
 
   const waitForReply = async (wc: ClaudeTab, requestId: string, timeoutMs: number, before: string, prompt: string, reused: boolean): Promise<Extract<ClaudeChatCompleteResult, { ok: true }> | Failure> => {
     const deadline = Date.now() + timeoutMs;
-    // In a reused chat the previous answer is still on screen; never hand it back as the new reply.
+    // In a reused chat the previous answer is still on screen. Its JSON only counts as the new reply once the
+    // page shows an answer after the newest prompt: Claude.ai often repeats the same research word for word.
     const stale = reused ? parseAssistantJson(before, prompt) : null;
     let saw = false;
     let lastJson: string | null = null;
@@ -400,7 +403,7 @@ export function startClaudeChat(opts: {
       if (flat.length >= 24 && flat !== prior && !prior.includes(flat)) saw = true;
       if (s.stop || flat.length >= 24) saw = true;
       const found = parseAssistantJson(s.assistant, prompt);
-      const json = found && found !== stale ? found : null;
+      const json = found && (found !== stale || s.fresh) ? found : null;
       if (json) {
         jsonStable = json === lastJson ? jsonStable + 1 : 0;
         lastJson = json;
@@ -417,7 +420,7 @@ export function startClaudeChat(opts: {
       await delay(700);
     }
     const tail = (lastSnap ? parseAssistantJson(lastSnap.assistant, prompt) : null);
-    if (tail && tail !== stale) return { ok: true, text: tail, model: lastSnap?.model || 'claude.ai', renamed: false };
+    if (tail && (tail !== stale || lastSnap?.fresh)) return { ok: true, text: tail, model: lastSnap?.model || 'claude.ai', renamed: false };
     return saw
       ? { ok: false, code: 'timeout', detail: 'Claude.ai finished on screen but ApplyFlow could not read the JSON. Copy the reply into a new chat or try again.' }
       : { ok: false, code: 'timeout', detail: 'Claude.ai did not start a reply.' };
@@ -565,6 +568,7 @@ function normalizeSnap(raw: unknown, href: string): PageSnap {
     sendEnabled: r.sendEnabled === true,
     stop: r.stop === true,
     assistant: typeof r.assistant === 'string' ? r.assistant : '',
+    fresh: r.fresh === true,
     model: typeof r.model === 'string' && r.model ? r.model : 'claude.ai',
     challenge: r.challenge === true,
     signedOut: r.signedOut === true,
@@ -574,7 +578,7 @@ function normalizeSnap(raw: unknown, href: string): PageSnap {
 }
 
 function blankSnap(href: string): PageSnap {
-  return { href, composer: false, sendEnabled: false, stop: false, assistant: '', model: 'claude.ai', challenge: false, signedOut: onSignInPage(href), usageLimited: false, chatId: null };
+  return { href, composer: false, sendEnabled: false, stop: false, assistant: '', fresh: false, model: 'claude.ai', challenge: false, signedOut: onSignInPage(href), usageLimited: false, chatId: null };
 }
 
 function delay(ms: number): Promise<void> {
