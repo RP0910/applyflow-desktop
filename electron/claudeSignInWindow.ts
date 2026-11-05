@@ -90,9 +90,10 @@ export class ClaudeSignInWindow {
     }
     host.focus();
     await this.layout();
+    await this.focusPage();
     this.timer ??= setInterval(() => {
       this.showAddress();
-      void this.checkInset().then(() => this.raise());
+      void this.checkInset().then(() => this.raise()).then(() => this.focusPage());
     }, 800);
     return true;
   }
@@ -152,6 +153,8 @@ export class ClaudeSignInWindow {
       this.hide();
       cb?.();
     });
+    // Activating the window gives focus to its own (header) page; hand it to Claude.ai so typing works.
+    host.on('focus', () => setTimeout(() => void this.focusPage(), 30));
     const relayout = () => void this.layout();
     host.on('resize', relayout);
     host.on('maximize', relayout);
@@ -197,6 +200,17 @@ export class ClaudeSignInWindow {
     if (!host || host.isDestroyed() || !host.isVisible() || !this.embedded) return;
     const helper = await this.opts.helper();
     await helper?.raise(this.opts.page).catch(() => false);
+  }
+
+  /**
+   * Keyboard focus for the Claude.ai page while this window is in front. Windows does not move focus into a
+   * window of another process when it is clicked, so without this every key went to the header page.
+   */
+  private async focusPage(): Promise<void> {
+    const host = this.host;
+    if (!host || host.isDestroyed() || !host.isVisible() || !host.isFocused() || !this.embedded) return;
+    const helper = await this.opts.helper();
+    await helper?.focus(this.opts.page).catch(() => '');
   }
 
   private async checkInset(): Promise<void> {

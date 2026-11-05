@@ -94,6 +94,33 @@ public static class AfWin {
     SetWindowPos(h, IntPtr.Zero, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010);
     return true;
   }
+  [DllImport("user32.dll")] static extern IntPtr GetForegroundWindow();
+  [DllImport("user32.dll")] static extern IntPtr SetFocus(IntPtr hWnd);
+  [DllImport("user32.dll")] static extern bool IsChild(IntPtr parent, IntPtr child);
+  [DllImport("user32.dll")] static extern IntPtr GetAncestor(IntPtr hWnd, uint flags);
+  [DllImport("user32.dll")] static extern bool AttachThreadInput(uint a, uint b, bool attach);
+  [DllImport("kernel32.dll")] static extern uint GetCurrentThreadId();
+  [DllImport("user32.dll")] static extern bool GetGUIThreadInfo(uint thread, ref GUITHREADINFO info);
+  [StructLayout(LayoutKind.Sequential)] struct GUITHREADINFO { public int cbSize; public int flags; public IntPtr hwndActive; public IntPtr hwndFocus; public IntPtr hwndCapture; public IntPtr hwndMenuOwner; public IntPtr hwndMoveSize; public IntPtr hwndCaret; public RECT rcCaret; }
+  // Gives an embedded window keyboard focus while its host is the foreground window. Windows does not move focus
+  // into a child that belongs to another process on a click, so typing would otherwise go to the host.
+  public static string Focus(long hwnd) {
+    var h = new IntPtr(hwnd);
+    var fg = GetForegroundWindow();
+    if (fg == IntPtr.Zero || GetAncestor(h, 2) != fg) return "background";
+    uint pid;
+    uint fgThread = GetWindowThreadProcessId(fg, out pid);
+    var info = new GUITHREADINFO(); info.cbSize = Marshal.SizeOf(typeof(GUITHREADINFO));
+    if (GetGUIThreadInfo(fgThread, ref info) && (info.hwndFocus == h || IsChild(h, info.hwndFocus))) return "ok";
+    uint me = GetCurrentThreadId();
+    uint target = GetWindowThreadProcessId(h, out pid);
+    AttachThreadInput(me, fgThread, true);
+    if (target != fgThread) AttachThreadInput(me, target, true);
+    SetFocus(h);
+    if (target != fgThread) AttachThreadInput(me, target, false);
+    AttachThreadInput(me, fgThread, false);
+    return "focused";
+  }
   public static void Crop(long hwnd, int l, int t, int r, int b) {
     SetWindowRgn(new IntPtr(hwnd), CreateRectRgn(l, t, r, b), true);
   }
@@ -121,6 +148,7 @@ while (($line = [Console]::In.ReadLine()) -ne $null) {
       'content' { reply ("content " + [AfWin]::Content([int64]$p[1])) }
       'crop' { [AfWin]::Crop([int64]$p[1], [int]$p[2], [int]$p[3], [int]$p[4], [int]$p[5]); reply 'ok' }
       'tool' { [AfWin]::Tool([int64]$p[1]); reply 'ok' }
+      'focus' { reply ([AfWin]::Focus([int64]$p[1])) }
       'raise' { reply $(if ([AfWin]::Raise([int64]$p[1])) { 'raised' } else { 'ok' }) }
       'place' { [void][AfWin]::MoveWindow(([IntPtr][int64]$p[1]), [int]$p[2], [int]$p[3], [int]$p[4], [int]$p[5], $true); reply 'ok' }
       'show' { [void][AfWin]::ShowWindow(([IntPtr][int64]$p[1]), [int]$p[2]); reply 'ok' }
@@ -255,6 +283,11 @@ export class Win32Embed {
 
   front(hwnd: bigint, owner: bigint | null): Promise<void> {
     return this.call(`front ${hwnd} ${owner ?? 0n}`).then(() => undefined);
+  }
+
+  /** Keyboard focus for an embedded window whose host is in front: 'focused', 'ok' (already had it) or 'background'. */
+  focus(hwnd: bigint): Promise<string> {
+    return this.call(`focus ${hwnd}`).then((line) => line.trim());
   }
 
   /** Keeps an embedded window on top of its siblings; true when something had covered it. */

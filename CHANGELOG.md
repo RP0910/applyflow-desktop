@@ -1,3 +1,7 @@
+# 2.3.2
+
+Fixed: the Claude.ai sign-in window takes keyboard focus, so typing reaches Claude.ai instead of the header. See RELEASE-2.3.2.md.
+
 # 2.3.1
 
 Fixed: Claude.ai Chat clears the leave-site prompt so job titles can open after company research, and reads the titles JSON when an earlier companies reply is still on the page. Dice and Jobright buttons open in the tab you are on. See RELEASE-2.3.1.md.
