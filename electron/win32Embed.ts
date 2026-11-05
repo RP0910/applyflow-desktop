@@ -51,6 +51,15 @@ public static class AfWin {
     SetWindowPos(h, IntPtr.Zero, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0004 | 0x0020 | 0x0010);
     SetParent(h, new IntPtr(parent));
   }
+  public static void Tool(long hwnd) {
+    var h = new IntPtr(hwnd);
+    ShowWindow(h, 0);
+    long ex = GetWindowLongPtr(h, -20).ToInt64();
+    ex |= 0x00000080L;
+    ex &= ~0x00040000L;
+    SetWindowLongPtr(h, -20, new IntPtr(ex));
+    ShowWindow(h, 4);
+  }
 }
 "@
 function reply([string]$s) { [Console]::Out.WriteLine($s); [Console]::Out.Flush() }
@@ -62,6 +71,7 @@ while (($line = [Console]::In.ReadLine()) -ne $null) {
     switch ($p[0]) {
       'find' { reply ("hwnds " + [AfWin]::Find([uint32]$p[1])) }
       'embed' { [AfWin]::Embed([int64]$p[1], [int64]$p[2]); reply 'ok' }
+      'tool' { [AfWin]::Tool([int64]$p[1]); reply 'ok' }
       'place' { [void][AfWin]::MoveWindow(([IntPtr][int64]$p[1]), [int]$p[2], [int]$p[3], [int]$p[4], [int]$p[5], $true); reply 'ok' }
       'show' { [void][AfWin]::ShowWindow(([IntPtr][int64]$p[1]), [int]$p[2]); reply 'ok' }
       'alive' { reply $(if ([AfWin]::IsWindow(([IntPtr][int64]$p[1]))) { 'yes' } else { 'no' }) }
@@ -179,6 +189,11 @@ export class Win32Embed {
 
   place(child: bigint, x: number, y: number, w: number, h: number): Promise<void> {
     return this.call(`place ${child} ${x} ${y} ${Math.max(0, w)} ${Math.max(0, h)}`).then(() => undefined);
+  }
+
+  /** Keeps a top-level window visible to Windows but off the taskbar and Alt+Tab (WS_EX_TOOLWINDOW). */
+  toolWindow(hwnd: bigint): Promise<void> {
+    return this.call(`tool ${hwnd}`).then(() => undefined);
   }
 
   show(child: bigint, visible: boolean): Promise<void> {

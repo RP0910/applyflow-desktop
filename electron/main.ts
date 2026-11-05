@@ -11,7 +11,8 @@ import { browserUserAgent, isSignInUrl } from './browserPolicy';
 import { allMonitors, BrowserDiagnostics, monitorSession, type SessionMonitor } from './browserSession';
 import { BrowserTabs } from './browserTabs';
 import { electronSurface } from './browserSurface';
-import { connectJobsInput, launchEmbeddedChrome, type EmbeddedChrome } from './embeddedChrome';
+import { electronClaudeBrowser, type ClaudeBrowser } from './claudeBrowser';
+import { launchClaudeChrome } from './claudeChrome';
 import type { PageController } from './pageController';
 import type { PanelToContent } from '../src/types/messages';
 import type { SiteCredential } from '../src/types';
@@ -45,7 +46,6 @@ let win: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let quitting = false;
 let dice: { webContents: PageController } | null = null;
-let chromeHost: EmbeddedChrome | null = null;
 let diceReady = false;
 let diceVisible = true;
 let diceBounds = { x: 0, y: 0, width: 0, height: 0 };
@@ -203,33 +203,54 @@ function layoutDice(): void {
   tabs.setBounds(diceBounds);
 }
 
-async function claudeCheckLoopDialog(signIn: BrowserWindow): Promise<void> {
-  if (signIn.isDestroyed()) return;
-  const { response } = await dialog.showMessageBox(signIn, {
+async function claudeCheckLoopDialog(closeSignIn: () => void): Promise<void> {
+  const parent = win && !win.isDestroyed() ? win : null;
+  const options: Electron.MessageBoxOptions = {
     type: 'warning',
     title: 'Claude.ai security check',
     message: 'Claude.ai’s security check keeps coming back',
     detail:
-      'Cloudflare, which protects claude.ai, has shown its check several times in a row in ApplyFlow’s built-in browser. ' +
-      'It may not accept this browser from this network right now (VPNs and shared networks make that more likely). ApplyFlow will not keep reloading it.\n\n' +
-      'You can keep trying here, open claude.ai in your usual browser, or switch resume generation to the Claude API in Settings. ' +
-      '(Claude.ai Chat resume generation needs the sign-in here; a sign-in in another browser is separate.)',
-    buttons: ['Keep trying here', 'Open claude.ai in my browser', 'Open Settings'],
+      'Cloudflare, which protects claude.ai, has shown its check several times in a row in the sign-in window. ' +
+      'It may not accept this connection from this network right now (VPNs and shared networks make that more likely). ApplyFlow will not keep reloading it.\n\n' +
+      'You can keep trying in the sign-in window, open claude.ai in your usual browser, or switch resume generation to the Claude API in Settings. ' +
+      '(Claude.ai Chat resume generation needs the sign-in window; a sign-in in another browser is separate.)',
+    buttons: ['Keep trying', 'Open claude.ai in my browser', 'Open Settings'],
     defaultId: 0,
     cancelId: 0,
     noLink: true,
-  });
+  };
+  const { response } = parent ? await dialog.showMessageBox(parent, options) : await dialog.showMessageBox(options);
   if (response === 1) void shell.openExternal('https://claude.ai/');
   if (response === 2) {
-    if (!signIn.isDestroyed()) signIn.close();
+    closeSignIn();
     focusWindow();
     send('app:navigate', { view: 'settings' });
   }
 }
 
+/** Claude.ai Chat runs in Google Chrome; without Chrome it falls back to ApplyFlow's own browser. */
+async function openClaudeBrowser(): Promise<ClaudeBrowser> {
+  if (process.platform === 'win32' && !MOCK_DICE && process.env.APPLYFLOW_CLAUDE_BROWSER !== 'electron') {
+    try {
+      return await launchClaudeChrome({
+        userDataDir: join(app.getPath('userData'), 'claude-chrome'),
+        getWindow: () => win,
+        diagnostics: browserDiagnostics,
+      });
+    } catch (error) {
+      browserDiagnostics.record({
+        partition: 'chrome:applyflow-claude',
+        source: 'claude chrome',
+        kind: 'navigation-error',
+        detail: `Google Chrome unavailable, using the built-in browser: ${error instanceof Error ? error.message : String(error)}`,
+      });
+    }
+  }
+  return electronClaudeBrowser({ getWindow: () => win, diagnostics: browserDiagnostics });
+}
+
 async function resetBrowserSession(home: string): Promise<void> {
-  if (chromeHost) await chromeHost.reset();
-  else await diceMonitor?.reset();
+  await diceMonitor?.reset();
   tabs?.closeWebTabs();
   tabs?.activateJobs();
   void dice?.webContents.loadURL(home);
@@ -306,25 +327,6 @@ function mountElectronJobs(): void {
   void view.webContents.loadURL(JOBRIGHT_HOME);
 }
 
-async function mountChromeJobs(): Promise<void> {
-  const helperPath = join(here, 'dice-page.js');
-  const host = await launchEmbeddedChrome({
-    userDataDir: join(app.getPath('userData'), 'embedded-chrome'),
-    parent: () => win,
-    helperSource: existsSync(helperPath) ? readFileSync(helperPath, 'utf8') : '',
-    onJobsEvent: (evt) => acceptPageEvent(evt as { type?: string }),
-    onJobsResponse: (body) => acceptPageResponse(body),
-    onJobsTrusted: (req) => trustedFromPage(req as TrustedRequest),
-    onPageResponse: (res) => diceMonitor?.noteResponse(res),
-  });
-  chromeHost = host;
-  dice = { webContents: host.jobs };
-  if (diceInput) connectJobsInput(host, diceInput);
-  wireJobsPage(host.jobs);
-  tabs?.adoptJobs(host.jobsSurface);
-  layoutDice();
-  void host.jobs.loadURL(JOBRIGHT_HOME);
-}
 function createDiceView(): WebContentsView {
   diceMonitor = monitorSession(DICE_PARTITION, browserDiagnostics);
   if (MOCK_DICE) mockDice(diceMonitor.session, MOCK_DICE);
@@ -552,17 +554,7 @@ function registerIpc(): void {
     'browser.openExternal': (id: number) => tabs?.openExternally(Number(id)) ?? false,
     'browser.resetSession': () => resetBrowserSession(JOBRIGHT_HOME),
     'browser.diagnostics': async () => {
-      const report = await browserDiagnostics.report(allMonitors());
-      if (chromeHost) {
-        const summary = await chromeHost.cookieSummary().catch(() => null);
-        const row = report.partitions.find((p) => p.partition === DICE_PARTITION);
-        if (summary && row) {
-          row.cookies = summary.cookies;
-          row.sites = summary.sites;
-          row.clearanceSites = summary.clearance;
-        }
-      }
-      return report;
+      return browserDiagnostics.report(allMonitors());
     },
     'reminders.set': (r: { applicationId: string; whenIso: string; label: string }) => {
       const all = (store.kvGet(REMINDERS_KEY) as Record<string, { whenIso: string; label: string }> | undefined) ?? {};
@@ -695,16 +687,8 @@ function createWindow(): void {
     window: () => win,
     monitor: diceMonitor,
     emit: (state) => send('browser:tabs', state),
-    openWeb: (url) => chromeHost?.openWeb(url) ?? null,
   });
-  if (MOCK_DICE) mountElectronJobs();
-  else {
-    void mountChromeJobs().catch((error: unknown) => {
-      const message = error instanceof Error ? error.message : 'Google Chrome did not start.';
-      dialog.showErrorBox('Google Chrome', `${message}\n\nApplyFlow will use its built-in browser for this session.`);
-      if (!dice) mountElectronJobs();
-    });
-  }
+  mountElectronJobs();
 
   void win.loadURL('app://applyflow/index.html');
   win.on('close', (e) => {
@@ -802,7 +786,6 @@ app.on('second-instance', focusWindow);
 app.on('activate', focusWindow);
 app.on('before-quit', () => {
   quitting = true;
-  chromeHost?.close();
   claudeChat?.dispose();
 });
 
@@ -835,10 +818,10 @@ app.whenReady().then(() => {
   buildMenu();
   createWindow();
   claudeChat = startClaudeChat({
-    getWindow: () => win,
     emit: (status) => send('claudeChat:status', status),
+    openBrowser: openClaudeBrowser,
     diagnostics: browserDiagnostics,
-    onChallengeLoop: (signIn) => void claudeCheckLoopDialog(signIn),
+    onChallengeLoop: (closeSignIn) => void claudeCheckLoopDialog(closeSignIn),
   });
   createTray();
   setInterval(checkReminders, 60_000);

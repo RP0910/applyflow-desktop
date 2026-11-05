@@ -1,3 +1,7 @@
+# 2.2.9
+
+Changed: Claude.ai Chat runs in Google Chrome, with its own profile, so Claude.ai’s security check can finish. Sign in again in the Chrome window ApplyFlow opens. ApplyFlow still does not complete that check. If Chrome is missing, Claude.ai Chat uses the previous built-in browser. See RELEASE-2.2.9.md.
+
 # 2.2.8
 
 Changed: the built-in browser is Google Chrome embedded in the ApplyFlow window, so site security checks can finish. Sign-in for Jobright and Dice is kept in that Chrome profile. ApplyFlow still does not complete those checks. Older installers in `release` are removed when a new Windows build starts. See RELEASE-2.2.8.md.

@@ -1,11 +1,11 @@
 import { EventEmitter } from 'node:events';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { mkdirSync } from 'node:fs';
-import { createServer } from 'node:net';
 import { screen, type BrowserWindow } from 'electron';
 import type { BrowserSurface, PaneBounds } from './browserSurface';
 import { CdpClient, type CdpEvent } from './cdpClient';
 import { findChromeExecutable } from './chromePath';
+import { freePort, killChrome, waitForChrome } from './chromeProcess';
 import { isChallengeResponse, isNavigable } from './browserPolicy';
 import { DiceInput } from './diceInput';
 import type { PageResponse } from './browserSession';
@@ -679,46 +679,6 @@ let pageSeq = 0;
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function freePort(): Promise<number> {
-  return new Promise((resolve, reject) => {
-    const server = createServer();
-    server.once('error', reject);
-    server.listen(0, '127.0.0.1', () => {
-      const address = server.address();
-      const port = typeof address === 'object' && address ? address.port : 0;
-      server.close(() => resolve(port));
-    });
-  });
-}
-
-async function waitForChrome(port: number, child: ChildProcess): Promise<string> {
-  const deadline = Date.now() + 20_000;
-  let exited = false;
-  child.once('exit', () => {
-    exited = true;
-  });
-  while (Date.now() < deadline) {
-    if (exited) throw new Error('Google Chrome closed before it was ready. Close any other embedded Chrome window and try again.');
-    try {
-      const response = await fetch(`http://127.0.0.1:${port}/json/version`);
-      if (response.ok) {
-        const body = (await response.json()) as { webSocketDebuggerUrl?: string };
-        if (body.webSocketDebuggerUrl) return body.webSocketDebuggerUrl;
-      }
-    } catch {
-    }
-    await delay(200);
-  }
-  throw new Error('Google Chrome did not start.');
-}
-
-function killChrome(child: ChildProcess): void {
-  const pid = child.pid;
-  if (!pid) return;
-  if (process.platform === 'win32') spawn('taskkill', ['/PID', String(pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' });
-  else child.kill();
 }
 
 export function connectJobsInput(host: EmbeddedChrome, input: DiceInput): void {

@@ -75,7 +75,7 @@ export function BrowserSessionDialog({ open, tab, onClose }: { open: boolean; ta
         <h2 id={titleId}>Built-in browser</h2>
         <div className="stack-sm">
           <p className="small">
-            Sites you sign in to here stay signed in after ApplyFlow restarts, for as long as each site allows. This browser is Google Chrome, embedded in the window, with its own profile — separate from the Chrome you use day to day. ApplyFlow never fills in security checks
+            Sites you sign in to here stay signed in after ApplyFlow restarts, for as long as each site allows. This browser keeps its own profile, separate from the browser you use day to day. ApplyFlow never fills in security checks
             (“Just a moment…”, CAPTCHAs): you complete them on the page.
           </p>
           {report ? (
