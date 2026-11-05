@@ -1,3 +1,7 @@
+# 2.2.16
+
+Fixed: Claude.ai Chat reads the assistant reply from Claude’s own conversation API when DOM parsing fails, with prompt matching for reused chats; clearer error when Claude answers in prose instead of JSON. See RELEASE-2.2.16.md.
+
 # 2.2.15
 
 Fixed: Claude.ai Chat retries in the same thread accept a reply only after the newest prompt (including when Claude repeats the same research JSON word for word). See RELEASE-2.2.15.md.

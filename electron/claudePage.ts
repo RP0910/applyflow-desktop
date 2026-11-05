@@ -72,6 +72,59 @@ globalThis.__afClaude = (function () {
     var m = location.pathname.match(/\\/chat\\/([0-9a-f-]{36})/i);
     return m ? m[1] : null;
   }
+  function messageText(m) {
+    if (!m) return '';
+    var parts = [];
+    var content = m.content || [];
+    for (var i = 0; i < content.length; i++) {
+      if (content[i] && content[i].type === 'text' && typeof content[i].text === 'string') parts.push(content[i].text);
+    }
+    if (!parts.length && typeof m.text === 'string') parts.push(m.text);
+    var files = m.attachments || [];
+    for (var j = 0; j < files.length; j++) {
+      if (files[j] && typeof files[j].extracted_content === 'string') parts.push(files[j].extracted_content);
+    }
+    return parts.join('');
+  }
+  // The conversation as Claude.ai's own page loads it: the reply exactly as written (no rendering,
+  // no curly quotes) and the prompt it answers. Same origin and session as the open page.
+  async function readReply() {
+    var id = chatId();
+    if (!id) return { ok: false, why: 'no chat yet' };
+    try {
+      var org = '';
+      var cookie = document.cookie.match(/(?:^|; )lastActiveOrg=([^;]+)/);
+      if (cookie) org = decodeURIComponent(cookie[1]);
+      if (!org) {
+        var orgs = await fetch('/api/organizations', { credentials: 'include' });
+        if (!orgs.ok) return { ok: false, why: 'organizations ' + orgs.status };
+        var list = await orgs.json();
+        org = (list && list[0] && list[0].uuid) || '';
+      }
+      if (!org) return { ok: false, why: 'no organization' };
+      var res = await fetch('/api/organizations/' + encodeURIComponent(org) + '/chat_conversations/' + id + '?tree=True&rendering_mode=messages&render_all_tools=true', { credentials: 'include' });
+      if (!res.ok) return { ok: false, why: 'conversation ' + res.status };
+      var conv = await res.json();
+      var msgs = (conv && conv.chat_messages) || [];
+      var byId = {};
+      for (var i = 0; i < msgs.length; i++) byId[msgs[i].uuid] = msgs[i];
+      var leaf = (conv.current_leaf_message_uuid && byId[conv.current_leaf_message_uuid]) || msgs[msgs.length - 1];
+      if (!leaf) return { ok: true, prompt: '', text: '', humans: 0, done: false };
+      var answer = leaf.sender === 'assistant' ? leaf : null;
+      var human = answer ? byId[answer.parent_message_uuid] : leaf;
+      var humans = 0;
+      for (var k = 0; k < msgs.length; k++) if (msgs[k].sender === 'human') humans++;
+      return {
+        ok: true,
+        prompt: messageText(human).slice(0, 600),
+        text: answer ? messageText(answer) : '',
+        humans: humans,
+        done: !!(answer && answer.stop_reason)
+      };
+    } catch (e) {
+      return { ok: false, why: String(e && e.message || e).slice(0, 200) };
+    }
+  }
   function insideUser(el) {
     var node = el;
     while (node && node !== document.documentElement) {
@@ -357,7 +410,7 @@ globalThis.__afClaude = (function () {
       return renameViaUi(id, title);
     }).catch(function () { return false; });
   }
-  return { snapshot: snapshot, insert: insert, clickSend: clickSend, clickStop: clickStop, rename: rename };
+  return { snapshot: snapshot, insert: insert, clickSend: clickSend, clickStop: clickStop, rename: rename, readReply: readReply };
 })();
 true;
 `;

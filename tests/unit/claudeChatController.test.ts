@@ -27,6 +27,10 @@ class FakeTab implements ClaudeTab {
   /** Last finished answer per chat URL, shown again when that chat is reopened. */
   private chats = new Map<string, string>();
   private onScreen = '';
+  /** When set, the on-screen reply text ApplyFlow reads (e.g. a layout it can't parse). */
+  domText: string | null = null;
+  /** The conversation as Claude.ai's API returns it; null = the page helper can't read it. */
+  conversation: { prompt: string; text: string; done: boolean } | null = null;
 
   getURL() { return this.url; }
   getTitle() { return 'Claude'; }
@@ -64,6 +68,7 @@ class FakeTab implements ClaudeTab {
       return true;
     }
     if (code.includes('rename()')) return true;
+    if (code.includes('readReply')) return this.conversation ? { ok: true, humans: 1, ...this.conversation } : { ok: false, why: 'conversation 404' };
     if (code.includes('snapshot()')) {
       // Right after Send in a reused chat, the previous answer is still the newest one on screen
       // and Claude.ai has not shown its stop control yet.
@@ -83,7 +88,7 @@ class FakeTab implements ClaudeTab {
         stop: streaming && !queued,
         // While queued the old answer is still the newest one; nothing follows the new prompt yet.
         fresh: (streaming || done) && !queued,
-        assistant: done ? this.answering : queued ? this.onScreen : streaming ? partial : this.onScreen,
+        assistant: this.domText ?? (done ? this.answering : queued ? this.onScreen : streaming ? partial : this.onScreen),
         model: 'claude.ai',
         challenge: false,
         signedOut: !this.signedIn,
@@ -143,6 +148,25 @@ describe('Claude.ai Chat job runner', () => {
     expect(seen.map((s) => s.state)).not.toContain('connecting');
     expect(seen.map((s) => s.state)).not.toContain('checking');
     expect(chat.status()).toMatchObject({ state: 'ready', detail: 'Connected' });
+  });
+
+  it('reads the reply from the conversation when the page text cannot be parsed', async () => {
+    const prompt = 'Research the employers for this role. Reply with one JSON object only.';
+    tab.domText = 'Claude can make mistakes. Please double-check responses.';
+    tab.conversation = { prompt, text: REPLY, done: true };
+    const res = await settle(chat.complete({ requestId: 'r1', prompt, title: 'Research — Medasource — Salesforce Administrator', timeoutMs: 60_000 }));
+    expect(res).toMatchObject({ ok: true, text: REPLY });
+  });
+
+  it('fails fast, for a retry, when Claude.ai answers in words instead of JSON', async () => {
+    const prompt = 'Research the employers for this role. Reply with one JSON object only.';
+    tab.domText = 'I can’t identify specific companies from this description.';
+    tab.conversation = { prompt, text: 'I can’t identify specific companies from this description.', done: true };
+    const started = Date.now();
+    const res = await settle(chat.complete({ requestId: 'r1', prompt, title: 'Research — Medasource — Salesforce Administrator', timeoutMs: 60_000 }));
+    expect(res).toMatchObject({ ok: false, code: 'input' });
+    expect(res.ok ? '' : res.detail).toMatch(/answered without the JSON.*identify specific companies/);
+    expect(Date.now() - started).toBeLessThan(20_000);
   });
 
   it('accepts a retry in the same chat that repeats the earlier research word for word', async () => {

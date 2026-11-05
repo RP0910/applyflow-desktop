@@ -51,6 +51,35 @@ describe('Claude.ai page helper', () => {
     expect(answered.snapshot()).toMatchObject({ assistant: OLD, fresh: true });
   });
 
+  it('reads the newest reply and the prompt it answers from the conversation itself', async () => {
+    const id = '0f1e2d3c-4b5a-4968-8776-655443322110';
+    history.pushState({}, '', `/chat/${id}`);
+    document.cookie = 'lastActiveOrg=org-123';
+    const urls: string[] = [];
+    const conversation = {
+      current_leaf_message_uuid: 'a2',
+      chat_messages: [
+        { uuid: 'h1', sender: 'human', parent_message_uuid: null, content: [{ type: 'text', text: 'Research employers.' }] },
+        { uuid: 'a1', sender: 'assistant', parent_message_uuid: 'h1', stop_reason: 'end_turn', content: [{ type: 'text', text: '{"companies":[{"name":"Old"}]}' }] },
+        { uuid: 'h2', sender: 'human', parent_message_uuid: 'a1', content: [], text: '', attachments: [{ extracted_content: 'Research employers. Return one complete JSON object.' }] },
+        { uuid: 'a2', sender: 'assistant', parent_message_uuid: 'h2', stop_reason: 'end_turn', content: [{ type: 'text', text: '{"companies":[{"name":"New"}]}' }] },
+      ],
+    };
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async (url: string) => {
+      urls.push(url);
+      return { ok: true, status: 200, json: async () => conversation } as Response;
+    }) as typeof fetch;
+    try {
+      const api = page('<div></div>') as unknown as { readReply: () => Promise<Record<string, unknown>> };
+      expect(await api.readReply()).toEqual({ ok: true, prompt: 'Research employers. Return one complete JSON object.', text: '{"companies":[{"name":"New"}]}', humans: 2, done: true });
+      expect(urls).toEqual([`/api/organizations/org-123/chat_conversations/${id}?tree=True&rendering_mode=messages&render_all_tools=true`]);
+    } finally {
+      globalThis.fetch = realFetch;
+      history.pushState({}, '', '/');
+    }
+  });
+
   it('skips an earlier code-block answer while the new reply is still being written', () => {
     const page2 = page('<div><div data-testid="user-message">one</div><div data-testid="assistant-message"><pre>{"company_name":"Old"}</pre></div><div data-testid="user-message">two</div><div data-testid="assistant-message">Writing…</div></div>');
     expect(page2.snapshot()).toMatchObject({ assistant: 'Writing…', fresh: true });

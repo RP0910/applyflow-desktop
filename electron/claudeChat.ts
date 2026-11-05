@@ -386,6 +386,9 @@ export function startClaudeChat(opts: {
     let jsonStable = 0;
     let lastSnap: PageSnap | null = null;
     let lastBody = '';
+    let polls = 0;
+    let api: ApiReply = { ok: false, why: 'not read yet' };
+    let doneWithoutJson = 0;
     while (Date.now() < deadline) {
       if (cancelled.has(requestId)) {
         await wc.run('globalThis.__afClaude && globalThis.__afClaude.clickStop()', true).catch(() => undefined);
@@ -402,6 +405,21 @@ export function startClaudeChat(opts: {
       const flat = (body || s.assistant).replace(/\s+/g, ' ').trim();
       if (flat.length >= 24 && flat !== prior && !prior.includes(flat)) saw = true;
       if (s.stop || flat.length >= 24) saw = true;
+      // Primary source: the conversation itself, read the way Claude.ai's page loads it. It has the reply exactly as
+      // written and the prompt it answers, so neither page layout changes nor an earlier answer in a reused chat matter.
+      if (polls++ % 3 === 0) {
+        api = await readApi(wc);
+        if (api.ok && api.text && (!reused || samePrompt(api.prompt, prompt))) {
+          saw = true;
+          const fromApi = parseAssistantJson(api.text, '');
+          if (fromApi && parses(fromApi)) return { ok: true, text: fromApi, model: s.model || 'claude.ai', renamed: false };
+          doneWithoutJson = api.done ? doneWithoutJson + 1 : 0;
+          if (doneWithoutJson >= 2) {
+            const said = api.text.replace(/\s+/g, ' ').trim().slice(0, 160);
+            return { ok: false, code: 'input', detail: `Claude.ai answered without the JSON ApplyFlow asked for: “${said}${api.text.length > 160 ? '…' : ''}”` };
+          }
+        }
+      }
       const found = parseAssistantJson(s.assistant, prompt);
       const json = found && (found !== stale || s.fresh) ? found : null;
       if (json) {
@@ -421,6 +439,13 @@ export function startClaudeChat(opts: {
     }
     const tail = (lastSnap ? parseAssistantJson(lastSnap.assistant, prompt) : null);
     if (tail && (tail !== stale || lastSnap?.fresh)) return { ok: true, text: tail, model: lastSnap?.model || 'claude.ai', renamed: false };
+    diagnostics.record({
+      partition: browser?.partition ?? CLAUDE_PARTITION,
+      source: 'claude chat',
+      kind: 'reply-unread',
+      url: redactChatUrl(wc.getURL()),
+      detail: `reused=${reused} page: ${lastBody.length} chars, newReply=${Boolean(lastSnap?.fresh)}, starts “${lastBody.slice(0, 60).replace(/\s+/g, ' ')}” · conversation: ${api.ok ? `${api.text.length} chars, done=${api.done}, samePrompt=${samePrompt(api.prompt, prompt)}` : api.why}`,
+    });
     return saw
       ? { ok: false, code: 'timeout', detail: 'Claude.ai finished on screen but ApplyFlow could not read the JSON. Copy the reply into a new chat or try again.' }
       : { ok: false, code: 'timeout', detail: 'Claude.ai did not start a reply.' };
@@ -482,6 +507,47 @@ function isNewChatUrl(url: string): boolean {
   } catch {
     return false;
   }
+}
+
+type ApiReply = { ok: true; prompt: string; text: string; humans: number; done: boolean } | { ok: false; why: string };
+
+async function readApi(wc: ClaudeTab): Promise<ApiReply> {
+  try {
+    await ensureApi(wc);
+    const r = (await wc.run('globalThis.__afClaude.readReply ? globalThis.__afClaude.readReply() : null')) as Record<string, unknown> | null;
+    if (!r || typeof r !== 'object') return { ok: false, why: 'page helper missing' };
+    if (r.ok !== true) return { ok: false, why: typeof r.why === 'string' ? r.why : 'unreadable' };
+    return {
+      ok: true,
+      prompt: typeof r.prompt === 'string' ? r.prompt : '',
+      text: typeof r.text === 'string' ? r.text : '',
+      humans: typeof r.humans === 'number' ? r.humans : 0,
+      done: r.done === true,
+    };
+  } catch (e) {
+    return { ok: false, why: e instanceof Error ? e.message.slice(0, 160) : 'read failed' };
+  }
+}
+
+/** The conversation's newest prompt is the one ApplyFlow just sent (compared on its opening text). */
+function samePrompt(seen: string, sent: string): boolean {
+  const flat = (t: string) => t.replace(/\s+/g, ' ').trim();
+  const a = flat(seen);
+  const b = flat(sent).slice(0, 300);
+  return a.length >= 40 && (a.startsWith(b.slice(0, Math.min(b.length, a.length))) || b.startsWith(a.slice(0, 300)));
+}
+
+function parses(json: string): boolean {
+  try {
+    JSON.parse(json);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function redactChatUrl(url: string): string {
+  return url.replace(/\/chat\/[0-9a-f-]{36}/i, '/chat/…');
 }
 
 function isExistingChatUrl(url: string): boolean {

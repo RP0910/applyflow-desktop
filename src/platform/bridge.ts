@@ -161,7 +161,8 @@ export type BrowserDiagnosticKind =
   | 'popup-opened'
   | 'popup-blocked'
   | 'permission-denied'
-  | 'session-reset';
+  | 'session-reset'
+  | 'reply-unread';
 
 export interface BrowserDiagnosticEvent {
   at: string;
