@@ -1,3 +1,7 @@
+# 2.2.14
+
+Fixed: Claude.ai Chat reuses one research thread and one CV thread per job (retries and refine stay in the same chat instead of opening duplicates). Added: Profile default login for employer portals, with optional per-site overrides and account creation when the site allows. See RELEASE-2.2.14.md.
+
 # 2.2.13
 
 Fixed: Claude.ai replies that use curly typographic quotes around JSON keys are normalized before parsing, and chat prompts ask for straight ASCII quotes. Continue button label truncates with an ellipsis when long. See RELEASE-2.2.13.md.

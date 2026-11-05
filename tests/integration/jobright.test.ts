@@ -1,10 +1,9 @@
-import { beforeAll, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { installFileChooserInterceptor } from '@/content/fileChooserInterceptor';
 import { ensureApplicationOpen, INITIAL_RUN, runSteps, type ApplyRunState, type RunnerIO } from '@/services/workflow/applyRunner';
 import { DEFAULT_SETTINGS, type CareerProfile, type JobPosting, type JobSession } from '@/types';
 import type { PanelToContent } from '@/types/messages';
-import { EMPTY_PROFILE, ensureSiteCredential } from '@/storage/repositories';
-import { DEFAULT_SITE_PASSWORD } from '@/types';
+import { deleteSiteCredential, EMPTY_PROFILE, ensureSiteCredential, listSiteCredentials, saveDefaultLogin } from '@/storage/repositories';
 import { analyzeJobLocally } from '@/services/analysis/localAnalyzer';
 import { classifySkills } from '@/services/matching/evidence';
 import { tailorLocally } from '@/services/tailoring/localTailor';
@@ -272,13 +271,70 @@ describe('stops that need you', () => {
     expect((document.querySelector('[name=firstName]') as HTMLInputElement).value).toBe('');
   });
 
-  it('Workday: presses Apply → Autofill with Resume, then signs in with stored credentials', async () => {
-    const h = await start('https://jobright.ai/jobs/info/workday-1');
-    expect(await ensureApplicationOpen(h.io)).toBe('stopped');
-    expect(document.querySelector('[data-automation-id="signInContent"]')).not.toBeNull();
-    expect((document.getElementById('em') as HTMLInputElement).value).toBe(PROFILE.email);
-    expect((document.getElementById('pw') as HTMLInputElement).value).toBe(DEFAULT_SITE_PASSWORD);
-    expect(h.state().label).toMatch(/Sign in to Workday/);
+  describe('Workday sign-in with the default job-site login', () => {
+    const LOGIN = 'jobs@granthoward.pro';
+    const PASSWORD = 'Strong#Pass2026';
+    afterEach(async () => {
+      await saveDefaultLogin('', '');
+      for (const c of await listSiteCredentials()) await deleteSiteCredential(c.host);
+    });
+
+    async function toSignIn(page: Record<string, unknown> = {}) {
+      const h = await start('https://jobright.ai/jobs/info/workday-1');
+      const remembered: string[] = [];
+      h.io.rememberSiteLogin = async (c) => remembered.push(`${c.host} ${c.email}`);
+      const load = h.b.load.bind(h.b);
+      // Seed the Workday page's own state (its accounts) each time it loads.
+      h.b.load = (url: string) => {
+        load(url);
+        Object.assign(h.b.page, page);
+      };
+      return { h, remembered, page: () => h.b.page };
+    }
+
+    it('creates the account when Workday has none, ticks only the terms box, then signs in', async () => {
+      await saveDefaultLogin(LOGIN, PASSWORD);
+      const { h, remembered, page } = await toSignIn();
+      await ensureApplicationOpen(h.io);
+      expect(page().__accounts).toEqual({ [LOGIN]: PASSWORD });
+      expect(page().__alerts).toBe(false);
+      expect(page().__signedIn).toBe(LOGIN);
+      expect(remembered).toEqual([`${new URL(h.b.url).hostname} ${LOGIN}`]);
+      expect(h.state().label).not.toMatch(/Sign in to Workday/);
+    });
+
+    it('signs straight in when the account exists, with the contact email when the default login has none', async () => {
+      await saveDefaultLogin('', PASSWORD);
+      const { h, remembered, page } = await toSignIn({ __accounts: { [PROFILE.email]: PASSWORD } });
+      await ensureApplicationOpen(h.io);
+      expect(page().__signedIn).toBe(PROFILE.email);
+      expect(remembered).toEqual([]);
+    });
+
+    it('stops and asks you to verify the email when Workday sends a verification link', async () => {
+      await saveDefaultLogin(LOGIN, PASSWORD);
+      const { h, page } = await toSignIn({ __verify: true });
+      expect(await ensureApplicationOpen(h.io)).toBe('stopped');
+      expect(page().__accounts).toEqual({ [LOGIN]: PASSWORD });
+      expect(h.state()).toMatchObject({ status: 'attention', label: 'Verify your email' });
+      expect(h.state().message).toMatch(new RegExp(`verification email to ${LOGIN.replace('.', '\\.')}`));
+    });
+
+    it('explains an existing account with another password instead of looping', async () => {
+      await saveDefaultLogin(LOGIN, PASSWORD);
+      const { h, page } = await toSignIn({ __accounts: { [LOGIN]: 'Some-Other-Pass1' } });
+      expect(await ensureApplicationOpen(h.io)).toBe('stopped');
+      expect(page().__signedIn).toBeUndefined();
+      expect(h.state().label).toBe('Sign in to Workday');
+      expect(h.state().message).toMatch(/already has an account.*Job site logins/);
+    });
+
+    it('asks for a default login when none is set, and fills nothing', async () => {
+      const { h } = await toSignIn();
+      expect(await ensureApplicationOpen(h.io)).toBe('stopped');
+      expect(h.state().message).toMatch(/Set your default job-site login/);
+      expect((document.getElementById('pw') as HTMLInputElement).value).toBe('');
+    });
   });
 
   it('employer sites: Greenhouse, Lever, Ashby get full support; others best effort and never Submit', () => {
@@ -286,6 +342,39 @@ describe('stops that need you', () => {
     expect(adapterForUrl('https://jobs.lever.co/x/y/apply')).toMatchObject({ id: 'lever', canSubmit: true, parsesResume: true });
     expect(adapterForUrl('https://jobs.ashbyhq.com/x/y/application')).toMatchObject({ id: 'ashby', canSubmit: true });
     expect(adapterForUrl('https://acme.wd5.myworkdayjobs.com/x')).toMatchObject({ id: 'generic', canSubmit: false });
+  });
+});
+
+describe('the job tab wandered off to the Jobright job list', () => {
+  const LIST = 'https://jobright.ai/jobs/recommend';
+  const FORM = 'https://jobs.lever.co/northwind/7c1f2e9a-5b3d-4c8e-9a10-2f6b8e0a5c71/apply';
+
+  it('goes back to the job page before pressing Apply, instead of pressing another job’s Apply in the list', async () => {
+    const h = await start('https://jobright.ai/jobs/info/lever-1');
+    h.io.navigate = async (url) => h.b.load(url);
+    h.b.load(LIST);
+    expect(await ensureApplicationOpen(h.io)).toBe('open');
+    expect(h.b.url).toBe(FORM);
+    expect(h.b.history.slice(h.b.history.indexOf(LIST))).toEqual([LIST, 'https://jobright.ai/jobs/info/lever-1', 'https://jobs.lever.co/northwind/7c1f2e9a-5b3d-4c8e-9a10-2f6b8e0a5c71', FORM]);
+  });
+
+  it('returns straight to the application form it already opened', async () => {
+    const h = await start('https://jobright.ai/jobs/info/lever-1');
+    h.io.navigate = async (url) => h.b.load(url);
+    expect(await ensureApplicationOpen(h.io)).toBe('open');
+    expect(h.state().formUrl).toBe(FORM);
+    h.b.load(LIST);
+    expect(await ensureApplicationOpen(h.io)).toBe('open');
+    expect(h.b.url).toBe(FORM);
+    expect(h.state().formKey).toBe('lever:7c1f2e9a-5b3d-4c8e-9a10-2f6b8e0a5c71');
+  });
+
+  it('asks you to open the job again when it cannot navigate, and presses nothing on the list', async () => {
+    const h = await start('https://jobright.ai/jobs/info/lever-1');
+    h.b.load(LIST);
+    expect(await ensureApplicationOpen(h.io)).toBe('stopped');
+    expect(h.state()).toMatchObject({ status: 'attention', label: 'Go back to the job' });
+    expect(h.b.url).toBe(LIST);
   });
 });
 

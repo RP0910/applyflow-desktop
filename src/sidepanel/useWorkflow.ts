@@ -9,7 +9,7 @@ import { TabUnreachableError } from '@/services/messaging';
 import { getApiKey } from '@/storage/settingsStore';
 import { onDataChange } from '@/storage/events';
 import { formKeyFor } from '@/services/platforms/registry';
-import { ensureSiteCredential, getApplication, getSession, latestSession, listApplications, saveApplication, saveProfile, saveSession } from '@/storage/repositories';
+import { ensureSiteCredential, saveSiteCredential, getApplication, getSession, latestSession, listApplications, saveApplication, saveProfile, saveSession } from '@/storage/repositories';
 import { planAts, runAnalysis, runCoverLetter, runDocuments, revalidateEdited, revalidateLetter, scanTailored, scoreMaster, scoreTailored, type EngineDeps } from '@/services/workflow/engine';
 import { saveResume } from '@/storage/repositories';
 import { parseCheckPdf } from '@/services/ats/parseCheck';
@@ -22,7 +22,7 @@ import { findDuplicates, hasApplied, recordFromSession, type DuplicateCheck } fr
 import { buildAllDocs, uploadFileName, uploadPayload } from '@/services/export/bundle';
 import { folderFor, planApplicationFiles } from '@/services/downloads/planner';
 import { downloadFiles, showInFolder, type DownloadsApi } from '@/services/downloads/downloader';
-import { ensureApplicationOpen, INITIAL_RUN, processStep, runSteps, stepKey, type ApplyRunState, type RunnerIO } from '@/services/workflow/applyRunner';
+import { ensureApplicationOpen, INITIAL_RUN, leftThisJob, processStep, returnUrl, runSteps, stepKey, type ApplyRunState, type RunnerIO } from '@/services/workflow/applyRunner';
 import { rememberAnswer, toScreeningControl } from '@/services/forms/mapper';
 import { ClaudeError } from '@/services/claude/errors';
 import { newId, newToken } from '@/utils/id';
@@ -390,6 +390,7 @@ export function useWorkflow(inputs: WorkflowInputs, deps: WorkflowDeps) {
       return saved;
     },
     ensureSiteCredential: (url, email) => ensureSiteCredential(url, email),
+    rememberSiteLogin: (c) => saveSiteCredential(c),
     payload: (kind) => (sessionRef.current ? uploadPayload(sessionRef.current, settings, kind) : Promise.resolve(null)),
     fileName,
     sleep,
@@ -397,6 +398,7 @@ export function useWorkflow(inputs: WorkflowInputs, deps: WorkflowDeps) {
     state: () => runRef.current,
     report,
     pollMs: deps.pollMs,
+    navigate: (url) => openInJobTab(tabId, url),
   }), [deps.messenger, deps.pollMs, tabId, settings, fileName, setSession, report]);
 
   const afterRun = useCallback(async (result: string) => {
@@ -452,6 +454,7 @@ export function useWorkflow(inputs: WorkflowInputs, deps: WorkflowDeps) {
       }
     } finally {
       runningRef.current = false;
+      setStatusLine('');
       setPhase('idle');
     }
   }, [master, tabId, duplicates, setSession, report, makeDocuments, runnerIO, afterRun, setStep]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -482,6 +485,7 @@ export function useWorkflow(inputs: WorkflowInputs, deps: WorkflowDeps) {
       report({ ...runRef.current, status: 'attention', label: step, message: errText(e, 'Press Continue to try again.') });
     } finally {
       runningRef.current = false;
+      setStatusLine('');
     }
   }, [tabId, runnerIO, report, afterRun, quickApply, setStep]);
 
@@ -910,15 +914,46 @@ export function useWorkflow(inputs: WorkflowInputs, deps: WorkflowDeps) {
 
   const duplicateApplied = Boolean(duplicates?.exact && hasApplied(duplicates.exact) && !session?.submittedAt);
   const busy = phase !== 'idle' || run.status === 'working' || run.status === 'submitting';
-  const progressText = statusLine || (run.status === 'working' || run.status === 'submitting' ? run.label : phase !== 'idle' ? `${PROGRESS_LABELS[phase]}…` : lastResult);
+  const live = run.status === 'working' || run.status === 'submitting';
+  // The step line ("Waiting for CV JSON…") only describes work in progress; never show it once the run stopped.
+  const progressText = (live || phase !== 'idle' ? statusLine : '') || (live ? run.label : phase !== 'idle' ? `${PROGRESS_LABELS[phase]}…` : lastResult);
+  /** The job tab shows a job list or another job while this application is still open in the panel. */
+  const leftApplication = Boolean(
+    session && !session.submittedAt && !runningRef.current && ['questions', 'attention', 'ready'].includes(run.status) && leftThisJob(page, session),
+  );
+  const returnToApplication = useCallback(async () => {
+    const url = returnUrl(runRef.current, sessionRef.current);
+    if (url) await openInJobTab(tabId, url);
+  }, [tabId]);
+  /** Drop this job from the panel so the page in the job tab can be read instead. */
+  const leaveApplication = useCallback(async () => {
+    abortRef.current?.abort();
+    report(INITIAL_RUN);
+    sessionRef.current = null;
+    setSessionState(null);
+    setStatusLine('');
+    setLastResult('');
+    await detect();
+  }, [report, detect]);
 
   return {
     tabId, page, session, master, extractionError, phase, busy, progressText, notices, dismiss, notify, duplicates, duplicateApplied, application,
     view, setView, tone, setTone, run, fileName,
+    leftApplication, returnToApplication, leaveApplication,
     detect, quickApply, continueRun, answerQuestion, submit, recordManualSubmit, keepDiceResume, cancel, diagnose,
     selectResume, regenerate, updateResume, autoFixResume, confirmSkills, coverLetterAction, saveLetterText, patchSession, editJob, downloadNow, openFolder,
   };
 }
 
 export type Workflow = ReturnType<typeof useWorkflow>;
+
+/** Load a URL in the tab ApplyFlow works in (the desktop Jobs tab, or the pinned browser tab). */
+async function openInJobTab(tabId: number | null, url: string): Promise<void> {
+  const b = bridge();
+  if (b) {
+    await b.invoke('dice.navigate', url).catch(() => undefined);
+    return;
+  }
+  if (tabId !== null && typeof chrome !== 'undefined' && chrome.tabs?.update) await chrome.tabs.update(tabId, { url }).catch(() => undefined);
+}
 export type { FieldProposal };

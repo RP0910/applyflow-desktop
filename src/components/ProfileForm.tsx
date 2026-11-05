@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { CareerProfile, SiteCredential } from '@/types';
-import { DEFAULT_SITE_PASSWORD } from '@/types';
-import { deleteSiteCredential, listSiteCredentials, saveSiteCredential } from '@/storage/repositories';
+import { deleteSiteCredential, getDefaultLogin, listSiteCredentials, saveDefaultLogin, saveSiteCredential } from '@/storage/repositories';
 import { withSyncedLocation } from '@/utils/address';
 import { WarningBanner } from './WarningBanner';
 
@@ -79,16 +78,66 @@ export function ProfileForm({ profile, onSave }: { profile: CareerProfile; onSav
   );
 }
 
+function DefaultLoginCard({ contactEmail }: { contactEmail: string }) {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [shown, setShown] = useState(false);
+  const [saved, setSaved] = useState<{ email: string; password: string } | null>(null);
+  useEffect(() => {
+    void getDefaultLogin().then((d) => {
+      const v = { email: d?.email ?? '', password: d?.password ?? '' };
+      setSaved(v);
+      setEmail(v.email);
+      setPassword(v.password);
+    });
+  }, []);
+  const dirty = !saved || email.trim() !== saved.email || password !== saved.password;
+  const login = email.trim() || contactEmail.trim();
+  return (
+    <div className="card stack-sm" style={{ padding: '12px 14px' }}>
+      <strong>Default login</strong>
+      <span className="small muted">Used on every job site that asks you to sign in or create an account.</span>
+      <div className="grid-2">
+        <div className="field">
+          <label htmlFor="pf-default-email">Email</label>
+          <input id="pf-default-email" className="input" type="email" value={email} placeholder={contactEmail || 'you@example.com'} onChange={(e) => setEmail(e.target.value)} autoComplete="off" />
+          <span className="hint">Leave empty to use your contact email{contactEmail ? ` (${contactEmail})` : ''}.</span>
+        </div>
+        <div className="field">
+          <label htmlFor="pf-default-pass">Password</label>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <input id="pf-default-pass" className="input" type={shown ? 'text' : 'password'} value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" />
+            <button type="button" className="btn btn-sm" onClick={() => setShown((v) => !v)} aria-pressed={shown}>
+              {shown ? 'Hide' : 'Show'}
+            </button>
+          </div>
+          <span className="hint">Use a strong password: 12+ characters with upper and lower case, a number and a symbol. Most portals require that when ApplyFlow creates the account.</span>
+        </div>
+      </div>
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+        <button
+          type="button"
+          className="btn btn-sm btn-primary"
+          disabled={!dirty || !password}
+          onClick={() => void saveDefaultLogin(email, password).then(() => setSaved({ email: email.trim(), password }))}
+        >
+          Save default login
+        </button>
+        <span className="small muted" role="status">
+          {!password ? 'No default password yet: ApplyFlow will ask you to sign in yourself.' : dirty ? 'Not saved yet.' : `Saved. Signs in as ${login || 'your contact email'}.`}
+        </span>
+      </div>
+    </div>
+  );
+}
+
 function SiteLoginsSection({ defaultEmail }: { defaultEmail: string }) {
   const [rows, setRows] = useState<SiteCredential[]>([]);
-  const [draft, setDraft] = useState({ url: '', email: '', password: DEFAULT_SITE_PASSWORD });
+  const [draft, setDraft] = useState({ url: '', email: '', password: '' });
   const reload = () => void listSiteCredentials().then(setRows);
   useEffect(() => {
     reload();
   }, []);
-  useEffect(() => {
-    setDraft((d) => (d.email ? d : { ...d, email: defaultEmail }));
-  }, [defaultEmail]);
 
   return (
     <section className="card stack" aria-labelledby="pf-logins">
@@ -96,91 +145,97 @@ function SiteLoginsSection({ defaultEmail }: { defaultEmail: string }) {
         Job site logins
       </h2>
       <WarningBanner tone="info">
-        When a career portal asks you to sign in (Workday and similar), ApplyFlow uses the email from Contact details and the password stored here. New sites default to password <code>{DEFAULT_SITE_PASSWORD}</code> until you change it. Passwords are encrypted on this computer.
+        When a career portal (Workday and similar) asks you to sign in, ApplyFlow signs in with your default login. If the site has no account for it yet,
+        ApplyFlow creates one with the same email and password. Some sites then email you a link to verify the account. Passwords are encrypted on this computer.
       </WarningBanner>
-      {rows.length ? (
-        <ul className="list-plain stack-sm">
-          {rows.map((c) => (
-            <li key={c.host} className="card stack-sm" style={{ padding: '10px 12px' }}>
-              <div className="row-between">
-                <strong className="small wrap-anywhere">{c.host}</strong>
-                <button type="button" className="btn btn-sm btn-danger" onClick={() => void deleteSiteCredential(c.host).then(reload)}>
-                  Remove
-                </button>
-              </div>
-              <label className="field">
-                <span>Email</span>
-                <input
-                  className="input"
-                  type="email"
-                  value={c.email}
-                  onChange={(e) => setRows((all) => all.map((x) => (x.host === c.host ? { ...x, email: e.target.value } : x)))}
-                  onBlur={() => {
-                    const row = rows.find((x) => x.host === c.host) ?? c;
-                    void saveSiteCredential(row).then(reload);
-                  }}
-                />
-              </label>
-              <label className="field">
-                <span>Password</span>
-                <input
-                  className="input"
-                  type="password"
-                  value={c.password}
-                  onChange={(e) => setRows((all) => all.map((x) => (x.host === c.host ? { ...x, password: e.target.value } : x)))}
-                  onBlur={() => {
-                    const row = rows.find((x) => x.host === c.host) ?? c;
-                    void saveSiteCredential(row).then(reload);
-                  }}
-                />
-              </label>
-              <span className="hint wrap-anywhere">{c.url}</span>
-            </li>
-          ))}
-        </ul>
-      ) : (
-        <p className="small muted">No job-site logins stored yet. They are created automatically the first time a site asks you to sign in.</p>
-      )}
-      <div className="grid-2">
-        <div className="field">
-          <label htmlFor="pf-login-url">Site URL or host</label>
-          <input id="pf-login-url" className="input" value={draft.url} onChange={(e) => setDraft((d) => ({ ...d, url: e.target.value }))} placeholder="https://company.wd5.myworkdayjobs.com" />
+      <DefaultLoginCard contactEmail={defaultEmail} />
+      <details className="stack-sm" open={rows.length > 0}>
+        <summary className="small" style={{ cursor: 'pointer', fontWeight: 600 }}>
+          Different login for a specific site (optional){rows.length ? ` · ${rows.length}` : ''}
+        </summary>
+        <p className="small muted">Only needed when a site already has an account with another email or password. A login here replaces the default login on that site.</p>
+        {rows.length ? (
+          <ul className="list-plain stack-sm">
+            {rows.map((c) => (
+              <li key={c.host} className="card stack-sm" style={{ padding: '10px 12px' }}>
+                <div className="row-between">
+                  <strong className="small wrap-anywhere">{c.host}</strong>
+                  <button type="button" className="btn btn-sm btn-danger" onClick={() => void deleteSiteCredential(c.host).then(reload)}>
+                    Remove
+                  </button>
+                </div>
+                <label className="field">
+                  <span>Email</span>
+                  <input
+                    className="input"
+                    type="email"
+                    value={c.email}
+                    onChange={(e) => setRows((all) => all.map((x) => (x.host === c.host ? { ...x, email: e.target.value } : x)))}
+                    onBlur={() => {
+                      const row = rows.find((x) => x.host === c.host) ?? c;
+                      void saveSiteCredential(row).then(reload);
+                    }}
+                  />
+                </label>
+                <label className="field">
+                  <span>Password</span>
+                  <input
+                    className="input"
+                    type="password"
+                    value={c.password}
+                    onChange={(e) => setRows((all) => all.map((x) => (x.host === c.host ? { ...x, password: e.target.value } : x)))}
+                    onBlur={() => {
+                      const row = rows.find((x) => x.host === c.host) ?? c;
+                      void saveSiteCredential(row).then(reload);
+                    }}
+                  />
+                </label>
+                <span className="hint wrap-anywhere">{c.url}</span>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+        <div className="grid-2">
+          <div className="field">
+            <label htmlFor="pf-login-url">Site URL or host</label>
+            <input id="pf-login-url" className="input" value={draft.url} onChange={(e) => setDraft((d) => ({ ...d, url: e.target.value }))} placeholder="https://company.wd5.myworkdayjobs.com" />
+          </div>
+          <div className="field">
+            <label htmlFor="pf-login-email">Login email</label>
+            <input id="pf-login-email" className="input" type="email" value={draft.email} placeholder={defaultEmail} onChange={(e) => setDraft((d) => ({ ...d, email: e.target.value }))} />
+          </div>
+          <div className="field">
+            <label htmlFor="pf-login-pass">Password</label>
+            <input id="pf-login-pass" className="input" type="password" value={draft.password} onChange={(e) => setDraft((d) => ({ ...d, password: e.target.value }))} autoComplete="new-password" />
+          </div>
         </div>
-        <div className="field">
-          <label htmlFor="pf-login-email">Login email</label>
-          <input id="pf-login-email" className="input" type="email" value={draft.email} onChange={(e) => setDraft((d) => ({ ...d, email: e.target.value }))} />
+        <div>
+          <button
+            type="button"
+            className="btn btn-sm"
+            disabled={!draft.url.trim() || !draft.password}
+            onClick={() => {
+              let host = draft.url.trim();
+              try {
+                host = new URL(host.includes('://') ? host : `https://${host}`).hostname;
+              } catch {
+              }
+              void saveSiteCredential({
+                host,
+                url: draft.url.trim().includes('://') ? draft.url.trim() : `https://${host}`,
+                email: draft.email.trim(),
+                password: draft.password,
+                updatedAt: '',
+              }).then(() => {
+                setDraft({ url: '', email: '', password: '' });
+                reload();
+              });
+            }}
+          >
+            Add site login
+          </button>
         </div>
-        <div className="field">
-          <label htmlFor="pf-login-pass">Password</label>
-          <input id="pf-login-pass" className="input" type="password" value={draft.password} onChange={(e) => setDraft((d) => ({ ...d, password: e.target.value }))} />
-        </div>
-      </div>
-      <div>
-        <button
-          type="button"
-          className="btn btn-sm"
-          disabled={!draft.url.trim() || !draft.email.trim() || !draft.password}
-          onClick={() => {
-            let host = draft.url.trim();
-            try {
-              host = new URL(host.includes('://') ? host : `https://${host}`).hostname;
-            } catch {
-            }
-            void saveSiteCredential({
-              host,
-              url: draft.url.trim().includes('://') ? draft.url.trim() : `https://${host}`,
-              email: draft.email.trim(),
-              password: draft.password,
-              updatedAt: '',
-            }).then(() => {
-              setDraft({ url: '', email: defaultEmail, password: DEFAULT_SITE_PASSWORD });
-              reload();
-            });
-          }}
-        >
-          Add job site login
-        </button>
-      </div>
+      </details>
     </section>
   );
 }

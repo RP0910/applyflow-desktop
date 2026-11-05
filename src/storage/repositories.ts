@@ -1,5 +1,4 @@
 import type { ApplicationRecord, CareerProfile, JobSession, MasterResume, SiteCredential } from '@/types';
-import { DEFAULT_SITE_PASSWORD } from '@/types';
 import { nowIso } from '@/utils/dates';
 import { withSyncedLocation } from '@/utils/address';
 import { getDb } from './db';
@@ -132,7 +131,11 @@ export async function saveProfile(profile: CareerProfile): Promise<CareerProfile
 }
 
 
+/** Stored like a site login under this reserved host: the email and password used on every job site. */
+export const DEFAULT_LOGIN_HOST = '*';
+
 function hostOf(urlOrHost: string): string {
+  if (urlOrHost.trim() === DEFAULT_LOGIN_HOST) return DEFAULT_LOGIN_HOST;
   try {
     return new URL(urlOrHost.includes('://') ? urlOrHost : `https://${urlOrHost}`).hostname.toLowerCase();
   } catch {
@@ -140,24 +143,37 @@ function hostOf(urlOrHost: string): string {
   }
 }
 
-export async function listSiteCredentials(): Promise<SiteCredential[]> {
+async function allSiteCredentials(): Promise<SiteCredential[]> {
   const b = bridge();
   if (b) return b.invoke('siteCredentials.list');
   return (await storageGet<SiteCredential[]>(SITE_CREDS_KEY)) ?? [];
+}
+
+/** Site-specific logins (overrides of the default login). */
+export async function listSiteCredentials(): Promise<SiteCredential[]> {
+  return (await allSiteCredentials()).filter((c) => c.host !== DEFAULT_LOGIN_HOST);
 }
 
 export async function getSiteCredential(urlOrHost: string): Promise<SiteCredential | null> {
   const host = hostOf(urlOrHost);
   const b = bridge();
   if (b) return b.invoke('siteCredentials.get', host);
-  return (await listSiteCredentials()).find((c) => c.host === host) ?? null;
+  return (await allSiteCredentials()).find((c) => c.host === host) ?? null;
+}
+
+export async function getDefaultLogin(): Promise<SiteCredential | null> {
+  return getSiteCredential(DEFAULT_LOGIN_HOST);
+}
+
+export async function saveDefaultLogin(email: string, password: string): Promise<SiteCredential> {
+  return saveSiteCredential({ host: DEFAULT_LOGIN_HOST, url: '', email: email.trim(), password, updatedAt: '' });
 }
 
 export async function saveSiteCredential(cred: SiteCredential): Promise<SiteCredential> {
   const next: SiteCredential = { ...cred, host: hostOf(cred.host || cred.url), updatedAt: nowIso() };
   const b = bridge();
   if (b) return b.invoke('siteCredentials.save', next);
-  const all = (await listSiteCredentials()).filter((c) => c.host !== next.host);
+  const all = (await allSiteCredentials()).filter((c) => c.host !== next.host);
   all.push(next);
   await storageSet(SITE_CREDS_KEY, all);
   return next;
@@ -170,28 +186,28 @@ export async function deleteSiteCredential(host: string): Promise<void> {
     await b.invoke('siteCredentials.delete', h);
     return;
   }
-  await storageSet(SITE_CREDS_KEY, (await listSiteCredentials()).filter((c) => c.host !== h));
+  await storageSet(SITE_CREDS_KEY, (await allSiteCredentials()).filter((c) => c.host !== h));
 }
 
+/**
+ * The login to use on a job site: that site's own saved login if there is one, otherwise the
+ * default login (its email, or the contact email when it has none). Null when neither has a password.
+ */
 export async function ensureSiteCredential(url: string, email: string): Promise<SiteCredential | null> {
-  const trimmed = email.trim();
-  if (!trimmed) return null;
   const host = hostOf(url);
-  if (!host) return null;
-  const existing = await getSiteCredential(host);
-  if (existing) {
-    if (existing.email.trim().toLowerCase() !== trimmed.toLowerCase()) {
-      return saveSiteCredential({ ...existing, email: trimmed, url: existing.url || url });
-    }
-    return existing;
-  }
+  if (!host || host === DEFAULT_LOGIN_HOST) return null;
+  const site = await getSiteCredential(host);
+  if (site?.password) return { ...site, email: site.email.trim() || email.trim() };
+  const def = await getDefaultLogin();
+  const login = def?.email.trim() || email.trim();
+  if (!def?.password || !login) return null;
   let origin = url;
   try {
     origin = new URL(url).origin;
   } catch {
     origin = `https://${host}`;
   }
-  return saveSiteCredential({ host, url: origin, email: trimmed, password: DEFAULT_SITE_PASSWORD, updatedAt: '' });
+  return { host, url: origin, email: login, password: def.password, updatedAt: '' };
 }
 
 

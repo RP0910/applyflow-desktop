@@ -43,6 +43,15 @@ export function primaryAction(wf: Workflow, hasResume: boolean): Primary {
       ? { label: 'Back to search results', run: () => void backToDiceSearch(), hint: 'Applied and saved in Applications. Pick your next job.' }
       : { label: 'Applied', disabled: true, hint: 'Saved in Applications.' };
   }
+  if (wf.leftApplication) {
+    const where = wf.page?.pageType === 'search' ? `${wf.page.siteName || 'the site'}’s job list` : 'a different job';
+    return {
+      label: 'Return to application',
+      run: () => void wf.returnToApplication(),
+      hint: `The browser moved to ${where}. Your progress on ${s.job.title || 'this job'}${s.job.company ? ` at ${s.job.company}` : ''} is kept.`,
+      secondary: { label: 'Close job', run: () => void wf.leaveApplication() },
+    };
+  }
   if (r.status === 'ready') {
     const blockers = submitBlockers({ session: s, run: r, duplicateApplied: wf.duplicateApplied });
     return {
@@ -174,7 +183,7 @@ export function PanelApp({ deps = {}, desktop = false }: { deps?: PanelDeps; des
       </main>
       <footer className="action-bar">
         <div className="progress-line" role="status" aria-live="polite">
-          <span className="progress-line__text">{wf.progressText || primary.hint || ''}</span>
+          <span className="progress-line__text">{(wf.leftApplication ? primary.hint : wf.progressText || primary.hint) || ''}</span>
         </div>
         <div className="action-row">
           <button

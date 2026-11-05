@@ -1,5 +1,6 @@
 import type { CareerProfile, FieldProposal, FieldSemantic, FillInstruction, JobSession, PageBlocker, PageState, Settings, SiteCredential } from '@/types';
-import type { ContentResponseMap, FilePayload, PanelToContent, ScanResponse } from '@/types/messages';
+import type { ContentResponseMap, FilePayload, PanelToContent, ScanResponse, SignInResponse } from '@/types/messages';
+import type { LoginAction } from '@/services/forms/siteLogin';
 import { markAnswerUsed, proposeFieldValues, rememberAnswer, toScreeningControl } from '@/services/forms/mapper';
 import { formKeyFor } from '@/services/platforms/registry';
 import { nowIso } from '@/utils/dates';
@@ -34,6 +35,8 @@ export interface ApplyRunState {
   need: 'resume' | null;
   allowOriginalResume: boolean;
   formKey: string | null;
+  /** Address of the application form ApplyFlow opened, so it can go back there. */
+  formUrl: string | null;
 }
 
 export const INITIAL_RUN: ApplyRunState = {
@@ -52,6 +55,7 @@ export const INITIAL_RUN: ApplyRunState = {
   need: null,
   allowOriginalResume: false,
   formKey: null,
+  formUrl: null,
 };
 
 type Send = <K extends PanelToContent['type']>(msg: Extract<PanelToContent, { type: K }>) => Promise<ContentResponseMap[K]>;
@@ -64,6 +68,8 @@ export interface RunnerIO {
   profile: CareerProfile;
   saveProfile?: (p: CareerProfile) => Promise<CareerProfile>;
   ensureSiteCredential?: (url: string, email: string) => Promise<SiteCredential | null>;
+  /** Keep the login a new account was created with, so a later default-password change doesn't lock it out. */
+  rememberSiteLogin?: (c: SiteCredential) => Promise<unknown>;
   payload: (kind: 'resume' | 'cover_letter') => Promise<FilePayload | null>;
   fileName: (kind: 'resume' | 'cover_letter') => string | null;
   sleep: (ms: number) => Promise<void>;
@@ -71,6 +77,8 @@ export interface RunnerIO {
   state: () => ApplyRunState;
   report: (next: ApplyRunState) => void;
   pollMs?: number;
+  /** Load a URL in the job tab (used to get back to this job when the tab wandered off). */
+  navigate?: (url: string) => Promise<void>;
 }
 
 const patch = (io: RunnerIO, p: Partial<ApplyRunState>) => io.report({ ...io.state(), ...p });
@@ -112,13 +120,55 @@ function formOpened(io: RunnerIO, st: PageState): 'open' | 'stopped' {
     return attention(io, `This page isn’t the application ApplyFlow opened for this job (${siteOf(st)}). Go back to that application to continue, or open the job you want and press Tailor & Apply there. Nothing was filled here.`, 'Different application');
   }
   stage(io, 'open', 'done');
-  if (!prev) patch(io, { formKey: key });
+  if (!prev) patch(io, { formKey: key, formUrl: st.url });
   return 'open';
+}
+
+/**
+ * The job tab shows a job list or a different job instead of this job or its
+ * application (e.g. Jobright closed its job drawer and dropped ?jobId=). Its
+ * Apply buttons belong to other jobs, so nothing may be pressed there.
+ */
+export function leftThisJob(st: PageState | null | undefined, session: Pick<JobSession, 'jobKey'> | null | undefined): boolean {
+  if (!st || !session || st.hasApplicationForm) return false;
+  if (st.pageType === 'search') return true;
+  return st.pageType === 'job-detail' && Boolean(st.jobKey) && st.jobKey !== session.jobKey && (st.site === 'dice' || st.site === 'jobright');
+}
+
+/** Where to send the job tab to get back to this job: the form already opened, else the job page. */
+export function returnUrl(run: Pick<ApplyRunState, 'formUrl'>, session: Pick<JobSession, 'job'> | null | undefined): string | null {
+  return run.formUrl || session?.job.url || null;
+}
+
+async function returnToJob(io: RunnerIO, st: PageState): Promise<PageState | 'stopped'> {
+  const target = returnUrl(io.state(), io.session());
+  const where = st.pageType === 'search' ? `${siteOf(st)}’s job list` : 'a different job';
+  if (!target || !io.navigate) {
+    stage(io, 'open', 'error');
+    return attention(io, `The browser is on ${where}, not this job. Open ${io.session()?.job.title || 'the job'} again, then press Continue.`, 'Go back to the job');
+  }
+  patch(io, { status: 'working', label: 'Going back to this job…' });
+  await io.navigate(target);
+  const poll = io.pollMs ?? 400;
+  for (let i = 0; i < Math.ceil(20000 / poll); i++) {
+    if (io.aborted()) return 'stopped';
+    await io.sleep(poll);
+    const s = await safe(io.send({ type: 'AF_GET_PAGE_STATE' }));
+    if (!s || s.url === st.url) continue;
+    if (s.hasApplicationForm || s.blocker || (s.pageType === 'job-detail' && s.jobKey === io.session()?.jobKey)) return s;
+  }
+  stage(io, 'open', 'error');
+  return attention(io, `ApplyFlow couldn’t get back to ${io.session()?.job.title || 'this job'}. Open it in the Jobs tab, then press Continue.`, 'Go back to the job');
 }
 
 export async function ensureApplicationOpen(io: RunnerIO): Promise<'open' | 'external' | 'stopped'> {
   const poll = io.pollMs ?? 400;
   let st = await safe(io.send({ type: 'AF_GET_PAGE_STATE' }));
+  if (st && leftThisJob(st, io.session())) {
+    const back = await returnToJob(io, st);
+    if (back === 'stopped') return 'stopped';
+    st = back;
+  }
   if (st?.blocker) return stopFor(io, st.blocker);
   if (st?.hasApplicationForm) return formOpened(io, st);
   stage(io, 'open', 'active');
@@ -209,20 +259,42 @@ export async function ensureApplicationOpen(io: RunnerIO): Promise<'open' | 'ext
   return attention(io, st?.site === 'dice' || !multiHop ? 'Dice didn’t open its application form. Click Dice’s Apply button, then press Continue.' : `ApplyFlow couldn’t reach the application form on ${siteOf(st)}. Open it on the page (its Apply button), then press Continue.`);
 }
 
+/**
+ * Get past a sign-in wall with the default login (or this site's own login): email-first screens,
+ * Sign in, and — when the site has no account for that email — Create account. Stops with a clear
+ * message when the user has to act (verify the email, a password the site rejects, an existing
+ * account with a different password).
+ */
 async function trySignIn(io: RunnerIO, s: PageState): Promise<'signed' | 'stopped' | 'manual'> {
-  const email = io.profile.email.trim();
-  if (!email || !io.ensureSiteCredential) return 'manual';
-  patch(io, { label: `Signing in to ${siteOf(s)}…` });
-  const cred = await io.ensureSiteCredential(s.url, email);
-  if (!cred?.password) {
-    return attention(io, `Add a password for ${siteOf(s)} under Profile → Job site logins, then press Continue.`, `Sign in to ${siteOf(s)}`) as 'stopped';
+  if (!io.ensureSiteCredential) return 'manual';
+  const site = siteOf(s);
+  const title = `Sign in to ${site}`;
+  const cred = await io.ensureSiteCredential(s.url, io.profile.email.trim());
+  if (!cred?.password || !cred.email) {
+    return attention(io, `${site} asks you to sign in. Set your default job-site login (email and password) under Profile settings → Job site logins, or sign in on the page, then press Continue.`, title) as 'stopped';
   }
-  const res = await safe(io.send({ type: 'AF_SIGN_IN', email: cred.email || email, password: cred.password }));
-  if (!res?.ok || !res.submitted) {
-    return attention(io, res?.message ?? `${siteOf(s)} wants you to sign in. Sign in on the page, then press Continue.`, `Sign in to ${siteOf(s)}`) as 'stopped';
+  const [firstName, ...rest] = io.profile.fullName.trim().split(/\s+/);
+  const lastName = rest.join(' ');
+  const settle = Math.min(2500, (io.pollMs ?? 400) * 6);
+  let after: LoginAction | null = null;
+  for (let i = 0; i < 7; i++) {
+    if (io.aborted()) return 'stopped';
+    const res: SignInResponse | null = await safe(io.send({ type: 'AF_SIGN_IN', email: cred.email, password: cred.password, firstName, lastName, after, allowCreate: true }));
+    if (!res) return attention(io, `ApplyFlow can’t reach ${site}’s sign-in page. Sign in there, then press Continue.`, title) as 'stopped';
+    if (res.action === 'verify-email') return attention(io, res.message, 'Verify your email') as 'stopped';
+    if (!res.ok || !res.submitted) {
+      // "Not asking for a sign-in" right after a step means that step got us through.
+      if (after && !res.action) return 'signed';
+      return attention(io, res.message, title) as 'stopped';
+    }
+    patch(io, { label: res.message });
+    if (res.action === 'created' && io.rememberSiteLogin) await io.rememberSiteLogin(cred).catch(() => undefined);
+    after = res.action ?? 'signed-in';
+    await io.sleep(settle);
+    const now = await safe(io.send({ type: 'AF_GET_PAGE_STATE' }));
+    if (now && !now.loginRequired && after !== 'created' && after !== 'opened-signin' && after !== 'opened-signup') return 'signed';
   }
-  await io.sleep(Math.min(2000, (io.pollMs ?? 400) * 5));
-  return 'signed';
+  return attention(io, `${site} still wants you to sign in. Finish signing in on the page, then press Continue.`, title) as 'stopped';
 }
 
 export function mergeProposals(prev: FieldProposal[], next: FieldProposal[]): FieldProposal[] {

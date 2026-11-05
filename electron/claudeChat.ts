@@ -54,6 +54,8 @@ export function startClaudeChat(opts: {
   let loginStarting = false;
   let lastLoad = 0;
   let composerDirty = false;
+  /** One Claude.ai thread per research title and one per resume title (retries reuse the same chat). */
+  const chatSlots = new Map<string, ChatSlot>();
   let challengeAt = 0;
   let tail: Promise<void> = Promise.resolve();
   const cancelled = new Set<string>();
@@ -244,6 +246,8 @@ export function startClaudeChat(opts: {
     }
     lastLoad = 0;
     challengeAt = 0;
+    chatSlots.clear();
+    composerDirty = false;
     if (worker && !worker.isDestroyed()) {
       try {
         await worker.load('https://claude.ai/login', 30_000);
@@ -279,7 +283,28 @@ export function startClaudeChat(opts: {
     step(research ? 'Opening Claude.ai for company research…' : 'Opening Claude.ai for CV generation…');
     try {
       const wc = await ensureWorker();
-      if (composerDirty || wc.onChallengePage() || !isNewChatUrl(wc.getURL())) {
+      const slotKey = chatSlotKey(research, title);
+      const savedChat = liveChatSlot(chatSlots, slotKey);
+      let reused = false;
+      if (wc.onChallengePage()) {
+        step('Starting a new Claude.ai chat…');
+        await wc.load(NEW_CHAT, 60_000);
+        lastLoad = Date.now();
+        composerDirty = false;
+      } else if (savedChat && isExistingChatUrl(savedChat)) {
+        step(research ? 'Continuing company research chat on Claude.ai…' : 'Continuing CV generation chat on Claude.ai…');
+        if (wc.getURL() !== savedChat) await wc.load(savedChat, 60_000);
+        reused = true;
+        lastLoad = Date.now();
+        composerDirty = false;
+      } else if (research) {
+        if (!isNewChatUrl(wc.getURL()) || composerDirty) {
+          step('Starting a new Claude.ai chat…');
+          await wc.load(NEW_CHAT, 60_000);
+          lastLoad = Date.now();
+        }
+        composerDirty = false;
+      } else {
         step('Starting a new Claude.ai chat…');
         await wc.load(NEW_CHAT, 60_000);
         lastLoad = Date.now();
@@ -301,9 +326,15 @@ export function startClaudeChat(opts: {
       if (sent !== true) return await settleFailure({ ok: false, code: 'input', detail: 'Claude.ai did not enable Send. Sign in again from the sidebar if the session expired.' });
       step(research ? 'Waiting for company research from Claude.ai…' : 'Waiting for CV JSON from Claude.ai…');
       const before = (await snap(wc)).assistant;
-      const reply = await waitForReply(wc, requestId, timeoutMs, before, prompt);
-      if (!reply.ok) return await settleFailure(reply);
+      const reply = await waitForReply(wc, requestId, timeoutMs, before, prompt, reused);
+      if (!reply.ok) {
+        rememberChatSlot(chatSlots, slotKey, wc.getURL());
+        composerDirty = false;
+        return await settleFailure(reply);
+      }
       challengeAt = 0;
+      rememberChatSlot(chatSlots, slotKey, wc.getURL());
+      composerDirty = false;
       void renameChat(wc, title);
       emit({ state: 'ready', detail: 'Connected', checkedAt: new Date().toISOString() });
       return { ok: true, text: reply.text, model: reply.model, renamed: false };
@@ -343,8 +374,10 @@ export function startClaudeChat(opts: {
     return { ok: false, code: 'input', detail: 'Claude.ai did not show the message box. Sign in from the sidebar indicator and try again.' };
   };
 
-  const waitForReply = async (wc: ClaudeTab, requestId: string, timeoutMs: number, before: string, prompt: string): Promise<Extract<ClaudeChatCompleteResult, { ok: true }> | Failure> => {
+  const waitForReply = async (wc: ClaudeTab, requestId: string, timeoutMs: number, before: string, prompt: string, reused: boolean): Promise<Extract<ClaudeChatCompleteResult, { ok: true }> | Failure> => {
     const deadline = Date.now() + timeoutMs;
+    // In a reused chat the previous answer is still on screen; never hand it back as the new reply.
+    const stale = reused ? parseAssistantJson(before, prompt) : null;
     let saw = false;
     let lastJson: string | null = null;
     let jsonStable = 0;
@@ -366,7 +399,8 @@ export function startClaudeChat(opts: {
       const flat = (body || s.assistant).replace(/\s+/g, ' ').trim();
       if (flat.length >= 24 && flat !== prior && !prior.includes(flat)) saw = true;
       if (s.stop || flat.length >= 24) saw = true;
-      const json = parseAssistantJson(s.assistant, prompt);
+      const found = parseAssistantJson(s.assistant, prompt);
+      const json = found && found !== stale ? found : null;
       if (json) {
         jsonStable = json === lastJson ? jsonStable + 1 : 0;
         lastJson = json;
@@ -383,7 +417,7 @@ export function startClaudeChat(opts: {
       await delay(700);
     }
     const tail = (lastSnap ? parseAssistantJson(lastSnap.assistant, prompt) : null);
-    if (tail) return { ok: true, text: tail, model: lastSnap?.model || 'claude.ai', renamed: false };
+    if (tail && tail !== stale) return { ok: true, text: tail, model: lastSnap?.model || 'claude.ai', renamed: false };
     return saw
       ? { ok: false, code: 'timeout', detail: 'Claude.ai finished on screen but ApplyFlow could not read the JSON. Copy the reply into a new chat or try again.' }
       : { ok: false, code: 'timeout', detail: 'Claude.ai did not start a reply.' };
@@ -445,6 +479,36 @@ function isNewChatUrl(url: string): boolean {
   } catch {
     return false;
   }
+}
+
+function isExistingChatUrl(url: string): boolean {
+  try {
+    const u = new URL(url);
+    return /(^|\.)claude\.ai$/i.test(u.hostname) && /^\/chat\/[0-9a-f-]{36}\/?$/i.test(u.pathname);
+  } catch {
+    return false;
+  }
+}
+
+function chatSlotKey(research: boolean, title: string): string {
+  const kind = research ? 'research' : 'resume';
+  const norm = title.replace(/\s+/g, ' ').trim().toLowerCase();
+  return `${kind}:${norm}`;
+}
+
+/** Reuse a chat only within one Tailor & Apply run (retries and the refine pass), not days later. */
+const CHAT_SLOT_TTL_MS = 30 * 60_000;
+
+type ChatSlot = { url: string; at: number };
+
+function liveChatSlot(slots: Map<string, ChatSlot>, key: string): string | undefined {
+  const now = Date.now();
+  for (const [k, slot] of slots) if (now - slot.at > CHAT_SLOT_TTL_MS) slots.delete(k);
+  return slots.get(key)?.url;
+}
+
+function rememberChatSlot(slots: Map<string, ChatSlot>, key: string, url: string): void {
+  if (isExistingChatUrl(url)) slots.set(key, { url, at: Date.now() });
 }
 
 function onSignInPage(href: string): boolean {

@@ -5,7 +5,9 @@
 <title>Engineering Technician III - Contoso Defense Careers</title>
 <!-- MOCK PAGE for ApplyFlow tests. Models a Workday job page (*.myworkdayjobs.com): "Apply" opens a
      "Start Your Application" dialog (Autofill with Resume / Apply Manually / Use My Last Application);
-     "Autofill with Resume" (preferred) leads to Workday's Sign In page (email + password, Create Account). -->
+     "Autofill with Resume" (preferred) leads to Workday's Sign In page (email + password, Create Account).
+     Accounts live in window.__accounts ({email: password}); a wrong login shows Workday's error, Create Account
+     needs 8+ characters, matching passwords and the terms box, and window.__verify makes it ask for email verification. -->
 <style>
   body { margin: 0; font: 15px/1.5 Arial, sans-serif; color: #333; }
   .wrap { max-width: 900px; margin: 0 auto; padding: 24px; }
@@ -36,8 +38,44 @@
       document.getElementById('manual').addEventListener('click', function () { d.remove(); goSignIn('/apply/applyManually'); });
     });
   }
-  function signIn() {
-    wd.innerHTML = '<h2>Sign In</h2><form data-automation-id="signInContent" onsubmit="return false"><label for="em">Email Address</label><input id="em" type="email" data-automation-id="email"><label for="pw">Password</label><input id="pw" type="password" data-automation-id="password"><button type="submit">Sign In</button></form><p><a href="#">Create Account</a> · <a href="#">Forgot your password?</a></p>';
+  function accounts() {
+    if (!window.__accounts) window.__accounts = {};
+    return window.__accounts;
+  }
+  function signIn(error) {
+    wd.innerHTML = '<h2>Sign In</h2>' + (error ? '<div role="alert" data-automation-id="errorMessage">' + error + '</div>' : '') +
+      '<form data-automation-id="signInContent" onsubmit="return false"><label for="em">Email Address</label><input id="em" type="email" data-automation-id="email"><label for="pw">Password</label><input id="pw" type="password" data-automation-id="password"><button type="submit" id="signin">Sign In</button></form>' +
+      '<p><button type="button" data-automation-id="createAccountLink" id="create">Create Account</button> · <a href="#">Forgot your password?</a></p>';
+    document.getElementById('signin').addEventListener('click', function () {
+      var em = document.getElementById('em').value, pw = document.getElementById('pw').value;
+      if (accounts()[em] && accounts()[em] === pw) signedIn(em);
+      else signIn('Wrong email address or password. Try again, or create an account.');
+    });
+    document.getElementById('create').addEventListener('click', function () { createAccount(''); });
+  }
+  function createAccount(error) {
+    wd.innerHTML = '<h2>Create Account</h2>' + (error ? '<div role="alert">' + error + '</div>' : '') +
+      '<form data-automation-id="createAccountContent" onsubmit="return false"><label for="cem">Email Address</label><input id="cem" type="email" data-automation-id="email">' +
+      '<label for="cpw">Password</label><input id="cpw" type="password" data-automation-id="password">' +
+      '<label for="cpw2">Verify New Password</label><input id="cpw2" type="password" data-automation-id="verifyPassword">' +
+      '<label><input type="checkbox" id="terms" data-automation-id="createAccountCheckbox"> Yes, I have read and consent to the Terms and Conditions</label>' +
+      '<label><input type="checkbox" id="alerts"> Send me job alerts and marketing emails</label>' +
+      '<button type="submit" id="createbtn">Create Account</button></form><p><a href="#" id="back">Back to Sign In</a></p>';
+    document.getElementById('createbtn').addEventListener('click', function () {
+      var em = document.getElementById('cem').value, pw = document.getElementById('cpw').value;
+      window.__alerts = document.getElementById('alerts').checked;
+      if (accounts()[em]) return createAccount('An account with this email address already exists.');
+      if (pw.length < 8) return createAccount('Password must contain at least 8 characters.');
+      if (pw !== document.getElementById('cpw2').value) return createAccount('Passwords do not match.');
+      if (!document.getElementById('terms').checked) return createAccount('Accept the terms and conditions to continue.');
+      accounts()[em] = pw;
+      if (window.__verify) wd.innerHTML = '<h2>Verify Your Account</h2><p>We sent a verification email to ' + em + '. Open the link in it to activate your account.</p>';
+      else signIn('');
+    });
+  }
+  function signedIn(em) {
+    window.__signedIn = em;
+    wd.innerHTML = '<h2>My Information</h2><p>Signed in as ' + em + '.</p>';
   }
   if (/apply(Manually|autofill)/i.test(location.pathname)) signIn(); else job();
 })();

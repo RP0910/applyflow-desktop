@@ -15,9 +15,10 @@ import { describeWizard, findDocumentCard, findFileInputFor, findNextControl, pa
 import type { FormSupport, JobSiteAdapter } from '@/services/platforms/types';
 import { ATS_SUCCESS_PATTERNS } from '@/services/platforms/ats/common';
 import { appliedConfirmDialog, confirmAppliedControl } from '@/services/platforms/jobright/adapter';
-import { controlLabel, deepQueryAll, isVisible, visibleText } from '@/services/platforms/dom';
+import { controlLabel, visibleText } from '@/services/platforms/dom';
 import { answerFieldAsync, fillFieldsAsync, highlightField, probeComboboxes, scanFields } from '@/services/forms/domFields';
 import { browserUploadDeps, uploadDocument, type UploadDeps } from '@/services/forms/upload';
+import { loginStep, verifyNotice, type LoginInput } from '@/services/forms/siteLogin';
 
 export interface ControllerEnv {
   doc: Document;
@@ -267,43 +268,14 @@ export function createContentController(env: ControllerEnv) {
 
   const navigate = (url: string) => (env.navigate ? env.navigate(url) : env.doc.defaultView?.location.assign(url));
 
-  function setInputValue(el: HTMLInputElement, value: string): void {
-    el.focus();
-    el.value = value;
-    el.dispatchEvent(new Event('input', { bubbles: true }));
-    el.dispatchEvent(new Event('change', { bubbles: true }));
-  }
-
-  function signIn(email: string, password: string): SignInResponse {
+  function signIn(input: LoginInput): SignInResponse {
     const doc = env.doc;
     const name = siteName(env.url());
     if (!loginOn(adapterForUrl(env.url()), doc)) {
-      return { ok: false, submitted: false, message: `${name} is not asking for a sign-in right now.` };
+      // Off the login wall nothing is filled or pressed; only a "verify your email" screen is reported.
+      return verifyNotice(doc, name, input.email) ?? { ok: false, submitted: false, message: `${name} is not asking for a sign-in right now.` };
     }
-    const inputs = deepQueryAll<HTMLInputElement>(doc, 'input', 80).filter((el) => isVisible(el) && !el.disabled);
-    const passwordEl = inputs.find((el) => el.type === 'password');
-    if (!passwordEl) return { ok: false, submitted: false, message: `ApplyFlow couldn’t find the password field on ${name}.` };
-    const emailEl =
-      inputs.find((el) => el.type === 'email') ||
-      inputs.find((el) => /e-?mail|username|user\s*id|login/i.test(`${el.name} ${el.id} ${el.getAttribute('autocomplete') ?? ''} ${el.getAttribute('data-automation-id') ?? ''} ${controlLabel(el)}`)) ||
-      inputs.find((el) => el !== passwordEl && (el.type === 'text' || !el.type));
-    if (!emailEl) return { ok: false, submitted: false, message: `ApplyFlow couldn’t find the email field on ${name}.` };
-    setInputValue(emailEl, email);
-    setInputValue(passwordEl, password);
-    const form = passwordEl.closest('form');
-    const submit =
-      (form && deepQueryAll<HTMLElement>(form, 'button[type="submit"], input[type="submit"], button:not([type])', 20).find((el) => isVisible(el))) ||
-      deepQueryAll<HTMLElement>(doc, 'button, [role="button"], input[type="submit"]', 80).find((el) => {
-        if (!isVisible(el)) return false;
-        const label = controlLabel(el).replace(/\s+/g, ' ').trim();
-        return /^(sign\s*in|log\s*in|continue|next|submit)$/i.test(label);
-      });
-    if (submit) submit.click();
-    else if (form) {
-      if (typeof form.requestSubmit === 'function') form.requestSubmit();
-      else form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
-    } else return { ok: false, submitted: false, message: `Credentials were filled, but ApplyFlow couldn’t find Sign In on ${name}. Press it yourself.` };
-    return { ok: true, submitted: true, message: `Signed in to ${name} with your saved credentials.` };
+    return loginStep(doc, name, input);
   }
 
   function confirmJobrightApplied(): ContentResponseMap['AF_CONFIRM_JOBRIGHT_APPLIED'] {
@@ -394,7 +366,7 @@ export function createContentController(env: ControllerEnv) {
       case 'AF_OPEN_APPLICATION':
         return openApplication(Boolean(m.direct)) as Promise<ContentResponseMap[K]>;
       case 'AF_SIGN_IN':
-        return signIn(m.email, m.password) as ContentResponseMap[K];
+        return signIn(m) as ContentResponseMap[K];
       case 'AF_ARM_SUBMIT':
         armed = { token: m.token, expires: now() + 120_000 };
         return { ok: true } as ContentResponseMap[K];

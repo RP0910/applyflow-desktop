@@ -19,7 +19,14 @@ class FakeTab implements ClaudeTab {
   signedIn = true;
   sendWorks = true;
   onLoad: (() => void) | null = null;
-  private polls = -1;
+  polls = -1;
+  /** What the next send answers with. */
+  reply = REPLY;
+  private answering = REPLY;
+  private chatSeq = 0;
+  /** Last finished answer per chat URL, shown again when that chat is reopened. */
+  private chats = new Map<string, string>();
+  private onScreen = '';
 
   getURL() { return this.url; }
   getTitle() { return 'Claude'; }
@@ -34,6 +41,7 @@ class FakeTab implements ClaudeTab {
     this.url = url === 'https://claude.ai/' ? NEW_CHAT : url;
     this.composerText = '';
     this.polls = -1;
+    this.onScreen = this.chats.get(this.url) ?? '';
     this.onLoad?.();
   }
 
@@ -46,22 +54,34 @@ class FakeTab implements ClaudeTab {
     }
     if (code.includes('clickSend()')) {
       if (!this.sendWorks) return false;
-      this.url = 'https://claude.ai/chat/00000000-0000-0000-0000-000000000000';
+      if (!/^https:\/\/claude\.ai\/chat\//.test(this.url)) {
+        this.chatSeq += 1;
+        const id = String(this.chatSeq).padStart(8, '0');
+        this.url = `https://claude.ai/chat/${id}-0000-0000-0000-000000000000`;
+      }
+      this.answering = this.reply;
       this.polls = 0;
       return true;
     }
     if (code.includes('rename()')) return true;
     if (code.includes('snapshot()')) {
+      // Right after Send in a reused chat, the previous answer is still the newest one on screen
+      // and Claude.ai has not shown its stop control yet.
+      const queued = (this.polls === 0 || this.polls === 1) && this.onScreen !== '';
       const streaming = this.polls >= 0 && this.polls < 3;
       const done = this.polls >= 3;
       if (this.polls >= 0) this.polls += 1;
-      const partial = REPLY.slice(0, 40);
+      if (done) {
+        this.onScreen = this.answering;
+        this.chats.set(this.url, this.answering);
+      }
+      const partial = this.answering.slice(0, 40);
       return {
         href: this.url,
         composer: this.signedIn,
         sendEnabled: true,
-        stop: streaming,
-        assistant: done ? REPLY : streaming ? partial : '',
+        stop: streaming && !queued,
+        assistant: done ? this.answering : queued ? this.onScreen : streaming ? partial : this.onScreen,
         model: 'claude.ai',
         challenge: false,
         signedOut: !this.signedIn,
@@ -121,6 +141,46 @@ describe('Claude.ai Chat job runner', () => {
     expect(seen.map((s) => s.state)).not.toContain('connecting');
     expect(seen.map((s) => s.state)).not.toContain('checking');
     expect(chat.status()).toMatchObject({ state: 'ready', detail: 'Connected' });
+  });
+
+  it('reuses one Claude.ai chat per research title instead of opening /new on every retry', async () => {
+    const title = 'Research — Dandy — Senior Accountant';
+    const first = await settle(chat.complete({ requestId: 'r1', prompt: 'Research employers. Reply with JSON.', title, timeoutMs: 60_000 }));
+    expect(first).toMatchObject({ ok: true, text: REPLY });
+    const chatUrl = tab.url;
+    expect(chatUrl).toMatch(/\/chat\//);
+    tab.loads = [];
+    const retry = REPLY.replace('Northwind', 'Contoso');
+    tab.reply = retry;
+    const second = await settle(chat.complete({ requestId: 'r2', prompt: 'Return one complete JSON object.', title, timeoutMs: 60_000 }));
+    // The first answer is still on screen when the retry is sent; it must not be returned again.
+    expect(second).toMatchObject({ ok: true, text: retry });
+    expect(tab.loads).not.toContain(NEW_CHAT);
+    expect(tab.url).toBe(chatUrl);
+  });
+
+  it('opens a new chat when the saved one is older than one run', async () => {
+    const title = 'Research — Dandy — Senior Accountant';
+    await settle(chat.complete({ requestId: 'r1', prompt: 'Research employers.', title, timeoutMs: 60_000 }));
+    const oldUrl = tab.url;
+    await vi.advanceTimersByTimeAsync(31 * 60_000);
+    tab.loads = [];
+    const res = await settle(chat.complete({ requestId: 'r2', prompt: 'Research employers.', title, timeoutMs: 60_000 }));
+    expect(res.ok).toBe(true);
+    expect(tab.loads).not.toContain(oldUrl);
+    expect(tab.url).toMatch(/\/chat\//);
+    expect(tab.url).not.toBe(oldUrl);
+  });
+
+  it('opens a new chat for CV generation even after company research in another thread', async () => {
+    const researchTitle = 'Research — Dandy — Senior Accountant';
+    const resumeTitle = 'Dandy — Senior Accountant';
+    await settle(chat.complete({ requestId: 'r1', prompt: 'Research employers.', title: researchTitle, timeoutMs: 60_000 }));
+    const researchUrl = tab.url;
+    tab.loads = [];
+    await settle(chat.complete({ requestId: 'r2', prompt: 'Write resume JSON.', title: resumeTitle, timeoutMs: 60_000 }));
+    expect(tab.loads[0]).toBe(NEW_CHAT);
+    expect(tab.url).not.toBe(researchUrl);
   });
 
   it('reloads the new chat when an earlier job left its prompt unsent', async () => {

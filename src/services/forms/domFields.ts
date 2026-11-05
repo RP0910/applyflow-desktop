@@ -242,7 +242,7 @@ function labelOfOption(r: HTMLInputElement): string {
   return r.value;
 }
 
-function setNativeValue(el: HTMLInputElement | HTMLTextAreaElement, value: string): void {
+export function setNativeValue(el: HTMLInputElement | HTMLTextAreaElement, value: string): void {
   const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
   const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
   el.focus();

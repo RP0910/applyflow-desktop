@@ -6,4 +6,3 @@ export interface SiteCredential {
   updatedAt: string;
 }
 
-export const DEFAULT_SITE_PASSWORD = 'QWE@#$qwe234';

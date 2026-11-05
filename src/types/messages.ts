@@ -1,5 +1,6 @@
 import type { ExtractionResult, PageBlocker, PageState, SiteId } from './job';
 import type { FillInstruction, FillResult, FormFieldDescriptor } from './fields';
+import type { LoginAction } from '@/services/forms/siteLogin';
 
 export interface FilePayload {
   name: string;
@@ -18,7 +19,7 @@ export type PanelToContent =
   | { type: 'AF_NEXT_STEP' }
   | { type: 'AF_HIGHLIGHT_FIELD'; fieldId: string }
   | { type: 'AF_OPEN_APPLICATION'; direct?: boolean }
-  | { type: 'AF_SIGN_IN'; email: string; password: string }
+  | { type: 'AF_SIGN_IN'; email: string; password: string; firstName?: string; lastName?: string; after?: LoginAction | null; allowCreate?: boolean }
   | { type: 'AF_ARM_SUBMIT'; token: string }
   | { type: 'AF_SUBMIT'; token: string; expectKey?: string | null }
   | { type: 'AF_SET_LAUNCHER'; visible: boolean }
@@ -90,6 +91,7 @@ export interface SignInResponse {
   ok: boolean;
   submitted: boolean;
   message: string;
+  action?: LoginAction;
 }
 
 export type ContentResponseMap = {
