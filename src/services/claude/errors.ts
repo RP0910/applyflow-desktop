@@ -15,7 +15,9 @@ export type ClaudeErrorCode =
   | 'parse'
   | 'refusal'
   | 'truncated'
-  | 'aborted';
+  | 'aborted'
+  | 'chat_signed_out'
+  | 'chat_unavailable';
 
 const USER_MESSAGES: Record<ClaudeErrorCode, string> = {
   no_key: 'Add your Claude API key in Settings, or switch the engine to Local.',
@@ -35,6 +37,8 @@ const USER_MESSAGES: Record<ClaudeErrorCode, string> = {
   refusal: 'Claude declined to produce this content. Review the job and resume text, then try again.',
   truncated: 'Claude’s answer was cut off. Increase “Maximum output tokens” in Settings and try again.',
   aborted: 'The request was cancelled.',
+  chat_signed_out: 'Claude.ai is signed out. Click the Claude.ai indicator at the bottom of the sidebar, sign in, and try again.',
+  chat_unavailable: 'Claude.ai Chat is not ready. If a sign-in check or CAPTCHA is showing, finish it in the sign-in window. ApplyFlow will not bypass it.',
 };
 
 export class ClaudeError extends Error {

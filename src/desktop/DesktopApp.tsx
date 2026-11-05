@@ -18,6 +18,7 @@ import { WarningBanner } from '@/components/WarningBanner';
 import { BrandLogo, Icon, type IconName } from '@/components/Icon';
 import { APP_VERSION } from '@/version';
 import { BrowserPane } from './BrowserPane';
+import { ClaudeChatStatus } from './ClaudeChatStatus';
 import { ApplicationsView } from './ApplicationsView';
 import { AnalyticsView } from './AnalyticsView';
 import { PdfStudio } from './PdfStudio';
@@ -96,7 +97,10 @@ export function DesktopApp() {
             <span className="hint">Ctrl+Alt+Shift+F from anywhere</span>
           </span>
         </button>
-        <p className="rail-foot">Version {APP_VERSION}. Not affiliated with Dice or Jobright.</p>
+        <div className="rail-bottom">
+          <ClaudeChatStatus />
+          <p className="rail-foot">Version {APP_VERSION}. Not affiliated with Dice or Jobright.</p>
+        </div>
       </nav>
 
       {/* Apply: always mounted; hidden (not unmounted) on other views. */}
@@ -187,6 +191,7 @@ function Privacy() {
           <li>Your Claude API key and job-site passwords are encrypted with the operating system’s protection (Windows DPAPI) before they’re stored.</li>
           <li>Documents are saved in your ApplyFlow folder (Settings → Saved documents). Deleting an application doesn’t delete its files.</li>
           <li>Your Dice / Jobright browser session lives only in ApplyFlow’s built-in browser profile, separate from Chrome or Edge.</li>
+          <li>If you use Claude.ai Chat, that sign-in stays in its own browser profile on this computer. ApplyFlow does not receive your Claude password.</li>
         </ul>
         <div className="row">
           {info ? (
@@ -197,13 +202,17 @@ function Privacy() {
           <button type="button" className="btn btn-sm btn-danger" onClick={() => void bridge()?.invoke('dice.clearSession')}>
             Sign out of Dice (clear browser data)
           </button>
+          <button type="button" className="btn btn-sm btn-danger" onClick={() => void bridge()?.invoke('claudeChat.signOut')}>
+            Sign out of Claude.ai
+          </button>
         </div>
         <p className="small muted">Back up by copying the data folder while ApplyFlow is closed.</p>
       </section>
       <section className="card stack-sm">
-        <h2 className="section-title">What is sent to Claude (only if you add a key)</h2>
+        <h2 className="section-title">What is sent to Claude</h2>
         <ul className="bullets">
-          <li>Requests go directly from this computer to api.anthropic.com. There is no ApplyFlow server.</li>
+          <li>With the Claude API method, requests go directly from this computer to api.anthropic.com. There is no ApplyFlow server.</li>
+          <li>With Claude.ai Chat, the same resume prompt is typed into a claude.ai conversation in your signed-in session. Each job uses its own chat, titled with the company and role.</li>
           <li>Sent: the job posting (or only its requirements, if you turn off “Send the full job description”) and your confirmed resume facts: name, location, titles, employers, dates, bullets, skills, education and certifications.</li>
           <li>Never sent: email, phone, links, work authorization, salary preferences, saved answers, contacts, notes, or facts marked “Needs review” or “Do not use”.</li>
           <li>Claude returns text only (JSON). The PDF is drawn on this computer by ApplyFlow’s renderer.</li>
@@ -215,7 +224,7 @@ function Privacy() {
           <li>Change the employer names and dates you entered. AI-generated descriptions and achievements are drafts you should verify before use.</li>
           <li>Answer sponsorship, work authorization, clearance, criminal history, disability, veteran, demographic, salary, relocation or unclear experience questions.</li>
           <li>Submit an application without your explicit confirmation, or click anything when Dice’s page looks unfamiliar.</li>
-          <li>Touch CAPTCHAs, MFA or other multi-factor challenges. Email/password sign-in on job sites uses only credentials you stored in Profile settings.</li>
+          <li>Touch CAPTCHAs, MFA or other multi-factor challenges, including a Claude.ai sign-in check. You sign in to Claude.ai yourself from the sidebar indicator. Email/password sign-in on job sites uses only credentials you stored in Profile settings.</li>
           <li>Collect analytics or tracking data.</li>
         </ul>
       </section>

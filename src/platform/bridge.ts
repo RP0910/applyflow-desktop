@@ -86,6 +86,12 @@ export interface BridgeMethods {
   'reminders.clear': (applicationId: string) => void;
   'app.info': () => { version: string; dataDir: string; dbPath: string; platform: string };
   'app.openExternal': (url: string) => void;
+  // Claude.ai chat session (persistent browser profile; the user signs in themselves)
+  'claudeChat.status': () => ClaudeChatStatus;
+  'claudeChat.open': () => void;
+  'claudeChat.signOut': () => void;
+  'claudeChat.complete': (req: ClaudeChatCompleteRequest) => ClaudeChatCompleteResult;
+  'claudeChat.cancel': (requestId: string) => void;
 }
 
 export type BridgeMethod = keyof BridgeMethods;
@@ -95,7 +101,27 @@ export interface BridgeEvents {
   'dice:event': ContentEvent | { type: 'AF_LAUNCHER_CLICKED' };
   'dice:state': BrowserState;
   'app:navigate': { view: DesktopView; focus?: string | null; search?: boolean };
+  'claudeChat:status': ClaudeChatStatus;
 }
+
+export type ClaudeChatState = 'checking' | 'connecting' | 'ready' | 'signed_out' | 'error';
+
+export interface ClaudeChatStatus {
+  state: ClaudeChatState;
+  detail: string;
+  checkedAt: string | null;
+}
+
+export interface ClaudeChatCompleteRequest {
+  requestId: string;
+  prompt: string;
+  title: string;
+  timeoutMs: number;
+}
+
+export type ClaudeChatCompleteResult =
+  | { ok: true; text: string; model: string; renamed: boolean }
+  | { ok: false; code: 'signed_out' | 'challenge' | 'timeout' | 'empty' | 'input' | 'cancelled' | 'limit'; detail: string };
 
 export type DesktopView = 'apply' | 'applications' | 'analytics' | 'library' | 'profile' | 'answers' | 'studio' | 'settings' | 'privacy';
 

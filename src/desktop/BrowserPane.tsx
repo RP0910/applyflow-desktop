@@ -4,7 +4,7 @@
  */
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { bridge, type BrowserState } from '@/platform/bridge';
-import { BrandLogo, Icon } from '@/components/Icon';
+import { Icon } from '@/components/Icon';
 
 const EMPTY: BrowserState = { url: '', title: '', searchUrl: null, onSearch: false, onApplication: false, canGoBack: false, canGoForward: false, loading: true, ready: false };
 
@@ -51,11 +51,23 @@ export function BrowserPane({ visible }: { visible: boolean }) {
     return () => mo.disconnect();
   }, []);
 
-  // Hide the native WebContentsView while a dialog, workflow veil, or page load overlay is up —
-  // otherwise the React overlay sits under the browser and the user can't see it.
+  // Page loads that finish quickly don't flash the loading strip.
   const pageLoading = state.ready && state.loading;
-  const showVeil = opening.show || pageLoading;
-  const hideBrowser = dialogOpen || showVeil;
+  const [slowLoad, setSlowLoad] = useState(false);
+  useEffect(() => {
+    if (!pageLoading) {
+      setSlowLoad(false);
+      return;
+    }
+    const t = setTimeout(() => setSlowLoad(true), 300);
+    return () => clearTimeout(t);
+  }, [pageLoading]);
+
+  // The loading strip sits above the page (the host shrinks to make room), so the page stays
+  // visible and readable while it shows. The native view is hidden only for dialogs, which
+  // would otherwise be covered by it.
+  const showVeil = opening.show || slowLoad;
+  const hideBrowser = dialogOpen;
 
   useEffect(() => {
     const b = bridge();
@@ -139,23 +151,27 @@ export function BrowserPane({ visible }: { visible: boolean }) {
           Go
         </button>
       </form>
+      {showVeil ? (
+        <div className="browser-loading-strip" role="status" aria-live="polite" aria-busy="true">
+          <span className="sk sk-dot" aria-hidden="true" />
+          <span className="browser-loading-text">
+            <strong>{veilLabel}</strong>
+            <span className="browser-loading-hint">{veilHint}</span>
+          </span>
+          <span className="browser-loading-skeleton" aria-hidden="true">
+            <span className="sk sk-bar" />
+            <span className="sk sk-bar sk-bar-md" />
+            <span className="sk sk-bar sk-bar-sm" />
+          </span>
+        </div>
+      ) : null}
       <div className="browser-host" ref={hostRef}>
         {!state.ready ? (
           <div className="browser-wait">
             <span className="spinner spinner-dark" aria-hidden="true" /> Loading Dice…
           </div>
         ) : null}
-        {showVeil ? (
-          <div className="browser-loading-overlay" role="status" aria-live="polite" aria-busy="true">
-            <div className="browser-loading-card">
-              <BrandLogo height={40} />
-              <span className="spinner spinner-lg" aria-hidden="true" />
-              <p>{veilLabel}</p>
-              <span className="browser-loading-hint">{veilHint}</span>
-            </div>
-          </div>
-        ) : null}
-        {dialogOpen && !showVeil ? <div className="browser-wait">The Dice page is hidden while a dialog is open.</div> : null}
+        {dialogOpen ? <div className="browser-wait">The Dice page is hidden while a dialog is open.</div> : null}
       </div>
     </section>
   );

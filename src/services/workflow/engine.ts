@@ -10,6 +10,7 @@ import type {
 import { buildAtsPlan, docFromMaster, docFromTailored, extractJobKeywords, forbiddenTerms, scanResume } from '@/services/ats';
 import { optimizeForAts, promptPlan, refineFindings } from '@/services/tailoring/atsTailor';
 import { ClaudeProvider, type UsageReporter } from '@/services/claude/provider';
+import { ClaudeChatProvider, type ChatCompleteRequest } from '@/services/claude/chatResume';
 import { compactFacts, compactJob, compactPlan, draftFromTailored, letterText, toTailorReply } from '@/prompts/application';
 import { ClaudeError } from '@/services/claude/errors';
 import type { AnalyzeJobReply } from '@/prompts/analyzeJob';
@@ -38,6 +39,17 @@ export interface EngineDeps {
   signal?: AbortSignal;
   /** Receives the tokens each Claude request used. */
   onUsage?: UsageReporter;
+  /** Tests inject this instead of the desktop Claude.ai session. */
+  chatComplete?: (req: ChatCompleteRequest) => Promise<{ text: string; model: string }>;
+}
+
+interface ResumeModel {
+  analyzeJob: ClaudeProvider['analyzeJob'];
+  writeApplication: ClaudeProvider['writeApplication'];
+  refineApplication: ClaudeProvider['refineApplication'];
+  writeLetter: ClaudeProvider['writeLetter'];
+  researchCompanies: ClaudeProvider['researchCompanies'];
+  generateCv: ClaudeProvider['generateCv'];
 }
 
 export type PhaseCallback = (p: ProgressPhase) => void;
@@ -46,7 +58,18 @@ function useClaude(deps: EngineDeps): boolean {
   return deps.settings.engine === 'claude' && Boolean(deps.apiKey);
 }
 
-function provider(deps: EngineDeps): ClaudeProvider {
+/** Resume JSON can come from the API or from a signed-in Claude.ai chat. Other Claude calls stay on the API. */
+function useResumeModel(deps: EngineDeps): boolean {
+  return deps.settings.engine === 'claude' && (deps.settings.resumeGenerationMethod === 'chat' || Boolean(deps.apiKey));
+}
+
+function resumeModelError(deps: EngineDeps): string {
+  if (deps.settings.resumeGenerationMethod === 'chat') return 'Turn on “Write documents with Claude” and sign in to Claude.ai from the sidebar indicator. Resume generation will not use the local rewrite engine.';
+  return 'Add a Claude API key and select the Claude engine in Settings. AI generation cannot use the local rewrite engine.';
+}
+
+function provider(deps: EngineDeps): ResumeModel {
+  if (deps.settings.resumeGenerationMethod === 'chat') return new ClaudeChatProvider(deps);
   return deps.providerFactory ? deps.providerFactory(deps.apiKey!, deps.settings) : new ClaudeProvider(deps.apiKey, deps.settings, { onUsage: deps.onUsage });
 }
 
@@ -329,7 +352,7 @@ export async function runCoverLetter(
   onPhase: PhaseCallback = () => undefined,
 ): Promise<{ coverLetter: CoverLetter; notice: string | null }> {
   if (session.resume?.contentSource === 'cv-generate') {
-    if (!useClaude(deps)) throw new Error('Configure Claude in Settings to write the cover letter.');
+    if (!useResumeModel(deps)) throw new Error(deps.settings.resumeGenerationMethod === 'chat' ? 'Sign in to Claude.ai from the sidebar indicator to write the cover letter.' : 'Configure Claude in Settings to write the cover letter.');
     onPhase('generating_cover_letter');
     const r = await provider(deps).generateCv(compactFacts(master, profile), compactJob(session.job, deps.settings.sendFullJobDescription, 40000), deps.signal,
       JSON.stringify({resume:session.resume, task:'Keep the resume content unchanged. Write a cover letter consistent with this exact draft.',tone,action,current:session.coverLetter?.text}));
@@ -412,7 +435,7 @@ export async function runDocuments(
   onPhase: PhaseCallback = () => undefined,
 ): Promise<{ resume: TailoredResume; tailoredScore: MatchScore; coverLetter: CoverLetter | null; notices: string[]; atsPlan: AtsPlan; atsMaster: AtsReport; atsTailored: AtsReport; companyResearch?: CompanyResearchReply | null }> {
   if (!session.analysis) throw new Error('Analyze the job first.');
-  if (!useClaude(deps)) throw new Error('Add a Claude API key and select the Claude engine in Settings. AI generation cannot use the local rewrite engine.');
+  if (!useResumeModel(deps)) throw new Error(resumeModelError(deps));
   const baseFacts = compactFacts(master, profile);
   if (!Object.keys(baseFacts.jobIds).length) throw new Error('Add employer names and dates in Profile settings.');
   // Token savings: prefer structured lists; cap full description when the user allows it.

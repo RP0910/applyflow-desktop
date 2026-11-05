@@ -3,6 +3,9 @@ import { DEFAULT_RESUME_FORMAT, type ResumeFormat } from './ats';
 
 export type AiEngine = 'claude' | 'local';
 
+/** Claude API uses api.anthropic.com. Claude.ai Chat reuses a signed-in claude.ai session. */
+export type ResumeGenerationMethod = 'api' | 'chat';
+
 export type ApiVersion = '2026-10-21' | '2023-06-01';
 
 export interface ModelOption {
@@ -15,6 +18,8 @@ export interface ModelOption {
 /** Non-secret settings. The API key is stored separately and never part of this object. */
 export interface Settings {
   engine: AiEngine;
+  /** Which Claude connection writes resume JSON. The PDF path after that is the same either way. */
+  resumeGenerationMethod: ResumeGenerationMethod;
   model: string;
   availableModels: ModelOption[];
   modelsRefreshedAt: string | null;
@@ -68,6 +73,7 @@ export const FALLBACK_MODELS: ModelOption[] = [
 
 export const DEFAULT_SETTINGS: Settings = {
   engine: 'claude',
+  resumeGenerationMethod: 'api',
   model: 'claude-sonnet-5-5',
   availableModels: FALLBACK_MODELS,
   modelsRefreshedAt: null,

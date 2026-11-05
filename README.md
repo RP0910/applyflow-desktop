@@ -71,13 +71,15 @@ Coming from the 1.x extension? In the extension: History → **Export JSON**. He
 
 **Apply.** Open any Dice job in the built-in browser (search box at the top, or paste a link). The estimated match and ATS check appear without a click. Press **Tailor & Apply** (in the panel or on the Dice page): ApplyFlow writes the documents, opens Dice's application, replaces your profile resume with the tailored one, attaches the cover letter, fills what it safely can and presses Next — and stops for questions it must not guess (one tap each) and at Dice's review step. Press **Submit application**. Done: recorded, files saved, follow-up reminder set.
 
-**A recruiter calls.** Press **Ctrl+Alt+Shift+F** (works even when ApplyFlow is in the background), type any part of their number, their name, the company or a word from the job. Phone numbers and emails in job postings are saved as contacts automatically; add the recruiter yourself with **Add contact**. The application shows the resume and cover letter that were sent (Preview / Open / PDF Studio), the job posting, your notes and a quick call log.
+**Running in the background.** Closing the window doesn't exit ApplyFlow — it keeps running in the system tray (the menu bar on macOS), so reminders and the shortcut below keep working. Click the tray icon (or launch ApplyFlow again) to bring the window back; right-click it → **Quit ApplyFlow**, or use File → Exit, to exit for real. On Windows 11 a new tray icon may sit under the **^** next to the clock until you drag it out.
+
+**A recruiter calls.** Press **Ctrl+Alt+Shift+F** (works even when ApplyFlow is in the background or its window is closed), type any part of their number, their name, the company or a word from the job. Phone numbers and emails in job postings are saved as contacts automatically; add the recruiter yourself with **Add contact**. The application shows the resume and cover letter that were sent (Preview / Open / PDF Studio), the job posting, your notes and a quick call log.
 
 **PDF Studio.** Open any saved resume (or a JSON file, or JSON Resume), edit the JSON, pick a template (Classic, Modern accent, Compact), font and size, and save PDF or DOCX — all local.
 
 **Files.** `Documents\ApplyFlow\<Company>\<date>_<Job-Title>\` — `resume_tailored.pdf/.docx`, `cover_letter.pdf/.txt`, `resume.json`, `job_description.txt`, `application_metadata.json`, `job_url.txt`. Change the location in Settings → Saved documents.
 
-**Your data.** `%APPDATA%\ApplyFlow\applyflow.sqlite` (Privacy & data → Open data folder). Back up by copying that folder while ApplyFlow is closed. See [docs/PRIVACY.md](docs/PRIVACY.md).
+**Your data.** `%APPDATA%\ApplyFlow\applyflow.sqlite` (Privacy & data → Open data folder). Back up by copying that folder after quitting ApplyFlow (tray icon → Quit ApplyFlow). See [docs/PRIVACY.md](docs/PRIVACY.md).
 
 ---
 

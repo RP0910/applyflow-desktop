@@ -1,3 +1,7 @@
+# 2.2.6
+
+Added: Claude.ai Chat as a resume generation method. Sign in once from the sidebar indicator and ApplyFlow writes each job in its own Claude.ai conversation, titled with the company and role, then validates the JSON and renders the PDF with the existing PDF Studio path. The Claude API method is unchanged. See RELEASE-2.2.6.md.
+
 # 2.2.5
 
 Fixed: the browser loading veil no longer covers Jobright while Tailor & Apply is writing the resume and cover letter. It appears only when opening the employer application (Step 2). See RELEASE-2.2.5.md.

@@ -57,6 +57,30 @@ export function SettingsForm({ ctl, compact = false }: { ctl: SettingsController
           Write documents with Claude
         </label>
         <span className="hint">Claude is required for resume generation. PDF rendering and scoring run on this device. API errors are shown without silently substituting employer-only content.</span>
+        <div className="field">
+          <span id="set-method-label">Resume generation method</span>
+          <div className="stack-sm" role="radiogroup" aria-labelledby="set-method-label">
+            <label className="check">
+              <input type="radio" name="resume-method" checked={s.resumeGenerationMethod !== 'chat'} onChange={() => void update({ resumeGenerationMethod: 'api' })} />
+              <span>
+                Claude API
+                <span className="hint" style={{ display: 'block' }}>Send resume requests to api.anthropic.com with your API key. This is the existing workflow.</span>
+              </span>
+            </label>
+            <label className="check">
+              <input type="radio" name="resume-method" checked={s.resumeGenerationMethod === 'chat'} onChange={() => void update({ resumeGenerationMethod: 'chat', engine: 'claude' })} />
+              <span>
+                Claude.ai Chat
+                <span className="hint" style={{ display: 'block' }}>Use the Claude.ai session you sign in to from the sidebar. Each job gets its own chat, titled with the company and the role. The PDF is still built here.</span>
+              </span>
+            </label>
+          </div>
+        </div>
+        {s.resumeGenerationMethod === 'chat' ? (
+          <WarningBanner tone="info" title="Claude.ai Chat">
+            Sign in once with the indicator at the bottom of the sidebar. ApplyFlow reuses that session until it expires, and it will not solve a CAPTCHA or other sign-in check. If Google blocks the sign-in window, use Claude’s email sign-in. Company research and the resume both use that session. The API key below stays available when you switch back to Claude API.
+          </WarningBanner>
+        ) : null}
         <WarningBanner tone="info" title="Your API key stays on this device">
           It’s encrypted with your operating system’s own protection (Windows DPAPI) inside ApplyFlow’s database, sent only to api.anthropic.com, never logged and never put in the Dice page. Use a key with a spend limit and delete it here when you’re done.
         </WarningBanner>

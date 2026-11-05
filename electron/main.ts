@@ -8,14 +8,15 @@
  *
  * The React UI talks to this process only through the IPC methods in src/platform/bridge.ts.
  */
-import { app, BrowserWindow, dialog, globalShortcut, ipcMain, Menu, nativeImage, net, Notification, protocol, safeStorage, session, shell, WebContentsView } from 'electron';
+import { app, BrowserWindow, dialog, globalShortcut, ipcMain, Menu, nativeImage, net, Notification, protocol, safeStorage, session, shell, Tray, WebContentsView } from 'electron';
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, extname, isAbsolute, join, normalize, relative, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { Store } from './db';
 import { DiceInput, type TrustedRequest } from './diceInput';
 import { backTargetIndex, DICE_SEARCH_HOME, isDiceApplicationUrl, isDiceSearchUrl, searchIndex } from '../src/services/platforms/dice/navigation';
-import type { BridgeMethod, BrowserState } from '../src/platform/bridge';
+import type { BridgeMethod, BrowserState, ClaudeChatCompleteRequest, ClaudeChatStatus } from '../src/platform/bridge';
+import { startClaudeChat, type ClaudeChatController } from './claudeChat';
 import type { PanelToContent } from '../src/types/messages';
 import type { SiteCredential } from '../src/types';
 
@@ -29,6 +30,8 @@ const SETTINGS_KEY = 'applyflow.settings.v1';
 const LAST_SEARCH_KEY = 'applyflow.dice.lastSearchUrl';
 // Ctrl+Alt alone is AltGr on many keyboards; with Shift it doesn't block typing anywhere.
 const FIND_SHORTCUT = 'CommandOrControl+Alt+Shift+F';
+/** Set once the "still running in the tray" tip has been shown. */
+const TRAY_HINT_KEY = 'applyflow.trayHintShown';
 
 app.setName(APP_NAME);
 // Development/testing only: a separate data folder, and mock Dice pages (nothing reaches dice.com).
@@ -46,6 +49,10 @@ const rendererDir = resolve(here, '../dist/renderer');
 const iconPath = resolve(here, '../build/icon.png');
 
 let win: BrowserWindow | null = null;
+/** The tray (Windows/Linux) or menu-bar (macOS) icon that keeps ApplyFlow reachable while its window is closed. */
+let tray: Tray | null = null;
+/** True once ApplyFlow is really exiting; until then, closing the window only hides it. */
+let quitting = false;
 let dice: WebContentsView | null = null;
 let diceReady = false;
 let diceVisible = true;
@@ -54,6 +61,8 @@ let store: Store;
 let mainWorldScript = '';
 /** Real clicks and file-chooser answers for the Dice view (created when the app is ready). */
 let diceInput: DiceInput | null = null;
+let claudeChat: ClaudeChatController | null = null;
+const CLAUDE_CHAT_IDLE: ClaudeChatStatus = { state: 'checking', detail: 'Checking Claude.ai…', checkedAt: null };
 
 // ---------------- helpers ----------------
 function settings(): { saveLocation?: string } {
@@ -519,6 +528,11 @@ function registerIpc(): void {
     'app.openExternal': (url: string) => {
       if (/^https?:\/\//i.test(url)) void shell.openExternal(url);
     },
+    'claudeChat.status': () => claudeChat?.status() ?? CLAUDE_CHAT_IDLE,
+    'claudeChat.open': () => claudeChat?.openLogin(),
+    'claudeChat.signOut': () => claudeChat?.signOut() ?? Promise.resolve(),
+    'claudeChat.cancel': (requestId: string) => claudeChat?.cancel(requestId),
+    'claudeChat.complete': (req: ClaudeChatCompleteRequest) => claudeChat?.complete(req) ?? Promise.resolve({ ok: false as const, code: 'input' as const, detail: 'Claude.ai Chat is still starting.' }),
   };
   ipcMain.handle('af:invoke', async (e, method: BridgeMethod, args: unknown[]) => {
     if (e.sender !== win?.webContents) throw new Error('Not allowed.');
@@ -620,10 +634,65 @@ function createWindow(): void {
   void dice.webContents.loadURL(DICE_HOME);
 
   void win.loadURL('app://applyflow/index.html');
+  // Closing the window keeps ApplyFlow running in the tray / menu bar. Quit there (or File ▸ Exit, ⌘Q) to exit.
+  win.on('close', (e) => {
+    if (quitting) return;
+    e.preventDefault();
+    win?.hide();
+    showTrayHint();
+  });
+  // Windows doesn't send before-quit on shutdown or sign-out; never hold those up.
+  win.on('session-end', () => {
+    quitting = true;
+  });
   win.on('closed', () => {
     win = null;
     dice = null;
   });
+}
+
+// ---------------- tray / menu bar ----------------
+function trayImage(): Electron.NativeImage {
+  // Small sizes drawn for each display scale, so the icon stays sharp at 100–300%.
+  const img = nativeImage.createEmpty();
+  for (const [size, scaleFactor] of [[16, 1], [24, 1.5], [32, 2], [48, 3]] as const) {
+    const file = resolve(here, `../build/icons/${size}x${size}.png`);
+    if (existsSync(file)) img.addRepresentation({ scaleFactor, buffer: readFileSync(file) });
+  }
+  if (!img.isEmpty() || !existsSync(iconPath)) return img;
+  return nativeImage.createFromPath(iconPath).resize({ width: 16, height: 16, quality: 'best' });
+}
+
+function createTray(): void {
+  tray = new Tray(trayImage());
+  tray.setToolTip(APP_NAME);
+  tray.setContextMenu(
+    Menu.buildFromTemplate([
+      { label: `Open ${APP_NAME}`, click: focusWindow },
+      { type: 'separator' },
+      { label: `Quit ${APP_NAME}`, click: () => app.quit() },
+    ]),
+  );
+  // Windows/Linux: a left click opens the window (right click shows the menu). macOS: a click shows the menu.
+  if (process.platform !== 'darwin') tray.on('click', focusWindow);
+}
+
+/** The first time the window is closed, say where ApplyFlow went. */
+function showTrayHint(): void {
+  if (store.kvGet(TRAY_HINT_KEY) || !Notification.isSupported()) return;
+  store.kvSet(TRAY_HINT_KEY, true);
+  const body =
+    process.platform === 'darwin'
+      ? `${APP_NAME} is still running. Click its icon in the menu bar to open it again or to quit.`
+      : `${APP_NAME} is still running in the system tray (click ^ next to the clock if you don't see it). Click its icon to open it again; right-click it to quit.`;
+  const n = new Notification({ title: `${APP_NAME} is still running`, body, icon: existsSync(iconPath) ? iconPath : undefined });
+  liveNotifications.add(n);
+  n.on('close', () => liveNotifications.delete(n));
+  n.on('click', () => {
+    liveNotifications.delete(n);
+    focusWindow();
+  });
+  n.show();
 }
 
 function buildMenu(): void {
@@ -660,6 +729,15 @@ function buildMenu(): void {
 }
 
 app.on('second-instance', focusWindow);
+// macOS: clicking the Dock icon brings the hidden window back.
+app.on('activate', focusWindow);
+// Every real exit (tray Quit, File ▸ Exit, ⌘Q, macOS shutdown) passes through here.
+app.on('before-quit', () => {
+  quitting = true;
+  // The hidden Claude.ai windows can stall a normal close (their page never finishes unloading), which
+  // would cancel the quit and leave ApplyFlow running with no window. Destroy them first.
+  claudeChat?.dispose();
+});
 
 app.whenReady().then(() => {
   const dataDir = app.getPath('userData');
@@ -691,6 +769,8 @@ app.whenReady().then(() => {
   registerIpc();
   buildMenu();
   createWindow();
+  claudeChat = startClaudeChat({ getWindow: () => win, emit: (status) => send('claudeChat:status', status) });
+  createTray();
   setInterval(checkReminders, 60_000);
   setTimeout(checkReminders, 5_000);
   // When a recruiter calls: this shortcut brings ApplyFlow to the front with search ready.
@@ -700,12 +780,16 @@ app.whenReady().then(() => {
   });
 });
 
+// Only reached when quitting (closing the window just hides it).
 app.on('window-all-closed', () => {
   app.quit();
 });
 
 app.on('will-quit', () => {
   globalShortcut.unregisterAll();
+  claudeChat?.dispose();
+  tray?.destroy();
+  tray = null;
   diceInput?.cleanup();
   try {
     store?.close();
