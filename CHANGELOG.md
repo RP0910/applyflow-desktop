@@ -1,3 +1,7 @@
+# 2.2.20
+
+Fixed: Claude.ai Chat keeps job titles in their own conversation, replaces a background tab that never opens, and waits until resume JSON is complete. The Claude.ai sign-in window stays above ApplyFlow’s header so clicks reach the page. See RELEASE-2.2.20.md.
+
 # 2.2.19
 
 Changed: Tailor & Apply asks Claude for JD-aligned job titles (no company names) before CV generation, keeps a verified profile title when a suggestion does not fit, and falls back to a seniority ladder if that step fails. CV generation rewrites experience for those titles and no longer receives master-resume bullets. See RELEASE-2.2.19.md.

@@ -55,6 +55,7 @@ export class ClaudeSignInWindow {
   private onUserClose: (() => void) | null = null;
   private timer: ReturnType<typeof setInterval> | null = null;
   private inset: { left: number; top: number; right: number; bottom: number } | null = null;
+  private headerReady: Promise<unknown> = Promise.resolve();
 
   constructor(
     private readonly opts: {
@@ -71,6 +72,10 @@ export class ClaudeSignInWindow {
     const host = this.ensureHost();
     const helper = await this.opts.helper();
     if (!helper) return false;
+    // Electron adds its own input window for the header page once that page is up; embedding after it keeps
+    // the Claude.ai page above it (raise() below also repairs the order if it changes later).
+    await this.headerReady;
+    if (host.isDestroyed()) return false;
     if (!this.embedded) {
       try {
         await helper.embed(this.opts.page, handleOf(host));
@@ -87,7 +92,7 @@ export class ClaudeSignInWindow {
     await this.layout();
     this.timer ??= setInterval(() => {
       this.showAddress();
-      void this.checkInset();
+      void this.checkInset().then(() => this.raise());
     }, 800);
     return true;
   }
@@ -137,7 +142,8 @@ export class ClaudeSignInWindow {
     host.setMenu(null);
     host.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
     host.webContents.on('will-navigate', (e) => e.preventDefault());
-    void host.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(headerHtml(iconData(this.opts.icon)))}`);
+    const loaded = host.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(headerHtml(iconData(this.opts.icon)))}`).catch(() => undefined);
+    this.headerReady = Promise.race([loaded, new Promise<void>((resolve) => setTimeout(resolve, 3_000))]);
     host.on('page-title-updated', (e) => e.preventDefault());
     host.on('close', (e) => {
       if (this.disposed) return;
@@ -182,6 +188,15 @@ export class ClaudeSignInWindow {
       await helper.crop(page, inset.left, inset.top, inset.left + width, inset.top + height).catch(() => undefined);
     }
     await helper.show(page, true).catch(() => undefined);
+    await helper.raise(page).catch(() => false);
+  }
+
+  /** The page must stay above the host's own windows, or it shows but every click goes to the host. */
+  private async raise(): Promise<void> {
+    const host = this.host;
+    if (!host || host.isDestroyed() || !host.isVisible() || !this.embedded) return;
+    const helper = await this.opts.helper();
+    await helper?.raise(this.opts.page).catch(() => false);
   }
 
   private async checkInset(): Promise<void> {

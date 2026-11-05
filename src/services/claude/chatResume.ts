@@ -62,7 +62,13 @@ export function parseClaudeChatJson<T>(text: string): T {
   }
   const picked = pickPayload(parsed);
   if (picked !== undefined) return picked as T;
-  if (text.includes('{')) throw new ClaudeError('truncated', { retryable: true, detail: text.slice(0, 180) });
+  if (text.includes('{')) {
+    throw new ClaudeError('truncated', {
+      retryable: true,
+      detail:
+        'Claude.ai’s reply was cut off before ApplyFlow had complete JSON. Wait until Claude.ai finishes writing, then run Tailor again. For large resumes, use Claude API in Settings or fewer jobs in Profile.',
+    });
+  }
   throw new ClaudeError('parse', { retryable: true, detail: text.slice(0, 180) });
 }
 
@@ -202,7 +208,17 @@ function chatFailure(res: Extract<ClaudeChatCompleteResult, { ok: false }>): Cla
     case 'cancelled': return new ClaudeError('aborted', { detail: res.detail });
     case 'limit': return new ClaudeError('rate_limit', { retryable: true, detail: res.detail });
     case 'empty':
-    case 'input': return new ClaudeError('truncated', { retryable: true, detail: res.detail });
+      return new ClaudeError('truncated', { retryable: true, detail: res.detail });
+    case 'input': {
+      const d = res.detail ?? '';
+      if (/time limit|background tab|fresh Claude\.ai tab/i.test(d)) {
+        return new ClaudeError('chat_unavailable', { retryable: true, detail: d });
+      }
+      if (/without the JSON|incomplete/i.test(d)) {
+        return new ClaudeError('truncated', { retryable: true, detail: d });
+      }
+      return new ClaudeError('truncated', { retryable: true, detail: d });
+    }
     default: return new ClaudeError('chat_unavailable', { detail: res.detail });
   }
 }

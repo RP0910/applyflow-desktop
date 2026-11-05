@@ -64,7 +64,14 @@ export class ClaudeError extends Error {
   }
 
   get userMessage(): string {
-    if (this.code === 'timeout' && this.detail?.trim()) return this.detail;
+    const d = this.detail?.trim();
+    if (d) {
+      if (this.code === 'timeout') return d;
+      if (this.code === 'chat_unavailable' || this.code === 'chat_signed_out') return d;
+      if (this.code === 'truncated' && /claude\.ai|JSON|incomplete|message box|time limit|background tab/i.test(d)) {
+        return d.endsWith('.') ? d : `${d}. Try again.`;
+      }
+    }
     return this.message;
   }
 }

@@ -1,4 +1,4 @@
-const JSON_MARKERS = /"company_name"|"companies"/;
+const JSON_MARKERS = /"company_name"|"companies"|"roles"|"experience"|"contact"|"summary"/;
 
 export function claudeReplyBody(assistant: string, prompt: string): string {
   const text = assistant.replace(/\s+/g, ' ').trim();

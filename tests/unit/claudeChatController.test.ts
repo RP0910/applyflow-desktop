@@ -186,6 +186,19 @@ describe('Claude.ai Chat job runner', () => {
     expect(tab.composerText).toBe('');
   });
 
+  it('replaces the tab when a page never opened in time, so the retry does not reuse it', async () => {
+    await settle(chat.complete({ requestId: 'r0', prompt: 'Research employers. Reply with JSON.', title: 'Research — Acme — Engineer', timeoutMs: 60_000 }));
+    tab.loadTrouble = 'stuck';
+    const before = tab.workers;
+    const res = await settle(chat.complete({ requestId: 'r1', prompt: 'Write resume JSON for this role.', title: 'Acme — Engineer', timeoutMs: 60_000 }));
+    expect(res).toMatchObject({ ok: false, code: 'input' });
+    expect(tab.closed).toBeGreaterThan(0);
+    tab.loadTrouble = null;
+    const again = await settle(chat.complete({ requestId: 'r2', prompt: 'Write resume JSON for this role.', title: 'Acme — Engineer', timeoutMs: 60_000 }));
+    expect(again.ok).toBe(true);
+    expect(tab.workers).toBe(before + 1);
+  });
+
   it('records where a failed job stopped and why, for the diagnostics report', async () => {
     recorded.length = 0;
     tab.sendWorks = false;

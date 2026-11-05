@@ -85,6 +85,15 @@ public static class AfWin {
     if (area == 0) return "";
     return (best.Left - w.Left) + ":" + (best.Top - w.Top) + ":" + (w.Right - best.Right) + ":" + (w.Bottom - best.Bottom);
   }
+  [DllImport("user32.dll")] static extern IntPtr GetWindow(IntPtr hWnd, uint cmd);
+  // Puts an embedded window above its siblings. The host's own (invisible) input window must not sit on top:
+  // it would take every click while the embedded page still shows through it.
+  public static bool Raise(long hwnd) {
+    var h = new IntPtr(hwnd);
+    if (GetWindow(h, 3) == IntPtr.Zero) return false;
+    SetWindowPos(h, IntPtr.Zero, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010);
+    return true;
+  }
   public static void Crop(long hwnd, int l, int t, int r, int b) {
     SetWindowRgn(new IntPtr(hwnd), CreateRectRgn(l, t, r, b), true);
   }
@@ -112,6 +121,7 @@ while (($line = [Console]::In.ReadLine()) -ne $null) {
       'content' { reply ("content " + [AfWin]::Content([int64]$p[1])) }
       'crop' { [AfWin]::Crop([int64]$p[1], [int]$p[2], [int]$p[3], [int]$p[4], [int]$p[5]); reply 'ok' }
       'tool' { [AfWin]::Tool([int64]$p[1]); reply 'ok' }
+      'raise' { reply $(if ([AfWin]::Raise([int64]$p[1])) { 'raised' } else { 'ok' }) }
       'place' { [void][AfWin]::MoveWindow(([IntPtr][int64]$p[1]), [int]$p[2], [int]$p[3], [int]$p[4], [int]$p[5], $true); reply 'ok' }
       'show' { [void][AfWin]::ShowWindow(([IntPtr][int64]$p[1]), [int]$p[2]); reply 'ok' }
       'alive' { reply $(if ([AfWin]::IsWindow(([IntPtr][int64]$p[1]))) { 'yes' } else { 'no' }) }
@@ -245,6 +255,11 @@ export class Win32Embed {
 
   front(hwnd: bigint, owner: bigint | null): Promise<void> {
     return this.call(`front ${hwnd} ${owner ?? 0n}`).then(() => undefined);
+  }
+
+  /** Keeps an embedded window on top of its siblings; true when something had covered it. */
+  raise(hwnd: bigint): Promise<boolean> {
+    return this.call(`raise ${hwnd}`).then((line) => line.trim() === 'raised');
   }
 
   toolWindow(hwnd: bigint): Promise<void> {

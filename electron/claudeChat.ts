@@ -118,8 +118,17 @@ export function startClaudeChat(opts: {
   const ensureWorker = async (): Promise<ClaudeTab> => {
     const b = await getBrowser();
     if (worker && !worker.isDestroyed()) return worker;
-    worker = guardTab(await limit(b.openWorker(), OPEN_LIMIT_MS, 'Claude.ai could not open its background tab.'));
-    return worker;
+    let last: unknown;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        worker = guardTab(await limit(b.openWorker(), OPEN_LIMIT_MS, 'Claude.ai could not open its background tab.'));
+        return worker;
+      } catch (e) {
+        last = e;
+        if (attempt === 0) await delay(2000);
+      }
+    }
+    throw last;
   };
 
   /** A page that stopped answering scripts is closed, so the next job (or retry) gets a fresh tab. */
@@ -160,7 +169,7 @@ export function startClaudeChat(opts: {
     const detail = current.detail || 'Claude.ai is not connected. Click the sidebar indicator and wait until it says Connected, then tailor again.';
     if (current.state === 'signed_out') return { ok: false, code: 'signed_out', detail };
     // A page that didn't load or answer is worth another try; only a security check needs the user.
-    if (current.state === 'error') return { ok: false, code: 'input', detail: `Claude.ai didn’t respond: ${detail}` };
+    if (current.state === 'error' && detail !== CHALLENGE) return { ok: false, code: 'input', detail: `Claude.ai didn’t respond: ${detail}` };
     return { ok: false, code: 'challenge', detail };
   };
 
@@ -177,7 +186,21 @@ export function startClaudeChat(opts: {
       // Only when the tab really reached that page: a navigation that never happened leaves it on the
       // previous chat, and a prompt sent there would land in the wrong conversation.
       const arrived = url === HOME ? isClaudeUrl(at) : samePath(at, url);
-      if (e instanceof StuckError || !arrived || wc.onChallengePage()) throw e;
+      if (e instanceof StuckError || wc.onChallengePage()) throw e;
+      if (!arrived) {
+        const message = e instanceof Error ? e.message : 'Could not open Claude.ai.';
+        // The navigation never happened in time (a blocked unload, a wedged renderer, a pending dialog).
+        // Retrying in this same tab fails the same way, so the caller gets a fresh tab instead.
+        if (!/time limit/i.test(message)) throw e;
+        diagnostics.record({
+          partition: browser?.partition ?? CLAUDE_PARTITION,
+          source: 'claude chat',
+          kind: 'navigation-error',
+          url: redactChatUrl(at),
+          detail: `Opening ${redactChatUrl(url)} timed out; the tab stayed on ${redactChatUrl(at) || 'a blank page'}, so it will be replaced`,
+        });
+        throw new StuckError(message);
+      }
       diagnostics.record({
         partition: browser?.partition ?? CLAUDE_PARTITION,
         source: 'claude chat',
@@ -210,6 +233,11 @@ export function startClaudeChat(opts: {
       challengeAt = 0;
       emit(statusFromSnap(snap));
     } catch (e) {
+      // A page held on Cloudflare's check never finishes loading; say so instead of "time limit".
+      if (worker && !worker.isDestroyed() && worker.onChallengePage()) {
+        await needUser();
+        return;
+      }
       if (e instanceof StuckError) recycleWorker();
       emit({ state: 'error', detail: e instanceof Error ? e.message : 'Could not reach Claude.ai.', checkedAt: new Date().toISOString() });
     }
@@ -335,15 +363,21 @@ export function startClaudeChat(opts: {
     if (current.state !== 'ready') await checkStatus();
     if (cancelled.has(requestId)) return { ok: false, code: 'cancelled', detail: 'Cancelled.' };
     if (current.state !== 'ready') return sessionNotReady();
-    const research = /^Research\s*[—-]/i.test(title) || prompt.includes('"task":"company_research"');
+    const slotKind = chatSlotKind(title, prompt);
     const step = (detail: string) => {
       jobStep = detail.replace(/…$/, '');
       emit({ state: 'ready', detail, checkedAt: new Date().toISOString() });
     };
-    step(research ? 'Opening Claude.ai for company research…' : 'Opening Claude.ai for CV generation…');
+    step(
+      slotKind === 'research'
+        ? 'Opening Claude.ai for company research…'
+        : slotKind === 'titles'
+          ? 'Opening Claude.ai for job titles…'
+          : 'Opening Claude.ai for CV generation…',
+    );
     try {
       const wc = await ensureWorker();
-      const slotKey = chatSlotKey(research, title);
+      const slotKey = chatSlotKey(slotKind, title);
       const savedChat = liveChatSlot(chatSlots, slotKey);
       let reused = false;
       if (wc.onChallengePage()) {
@@ -352,12 +386,18 @@ export function startClaudeChat(opts: {
         lastLoad = Date.now();
         composerDirty = false;
       } else if (savedChat && isExistingChatUrl(savedChat)) {
-        step(research ? 'Continuing company research chat on Claude.ai…' : 'Continuing CV generation chat on Claude.ai…');
+        step(
+          slotKind === 'research'
+            ? 'Continuing company research chat on Claude.ai…'
+            : slotKind === 'titles'
+              ? 'Continuing job titles chat on Claude.ai…'
+              : 'Continuing CV generation chat on Claude.ai…',
+        );
         if (wc.getURL() !== savedChat) await openPage(wc, savedChat, 30_000);
         reused = true;
         lastLoad = Date.now();
         composerDirty = false;
-      } else if (research) {
+      } else if (slotKind === 'research') {
         if (!isNewChatUrl(wc.getURL()) || composerDirty) {
           step('Starting a new Claude.ai chat…');
           await openPage(wc, NEW_CHAT, 25_000);
@@ -376,7 +416,13 @@ export function startClaudeChat(opts: {
       if (opened) return await settleFailure(opened);
       await ensureApi(wc);
       composerDirty = true;
-      step(research ? 'Sending company research to Claude.ai…' : 'Sending CV Generate prompt to Claude.ai…');
+      step(
+        slotKind === 'research'
+          ? 'Sending company research to Claude.ai…'
+          : slotKind === 'titles'
+            ? 'Sending job title request to Claude.ai…'
+            : 'Sending CV Generate prompt to Claude.ai…',
+      );
       const inserted = await wc.run(`globalThis.__afPrompt = ${JSON.stringify(prompt)}; globalThis.__afClaude.insert()`, true);
       if (inserted !== true) return await settleFailure({ ok: false, code: 'input', detail: 'Claude.ai did not accept the prompt in the message box.' });
       let sent = await wc.run('globalThis.__afClaude.clickSend()', true);
@@ -385,7 +431,13 @@ export function startClaudeChat(opts: {
         sent = await wc.run('globalThis.__afClaude.clickSend()', true);
       }
       if (sent !== true) return await settleFailure({ ok: false, code: 'input', detail: 'Claude.ai did not enable Send. Sign in again from the sidebar if the session expired.' });
-      step(research ? 'Waiting for company research from Claude.ai…' : 'Waiting for CV JSON from Claude.ai…');
+      step(
+        slotKind === 'research'
+          ? 'Waiting for company research from Claude.ai…'
+          : slotKind === 'titles'
+            ? 'Waiting for job titles from Claude.ai…'
+            : 'Waiting for CV JSON from Claude.ai…',
+      );
       const before = (await snap(wc)).assistant;
       const reply = await waitForReply(wc, requestId, timeoutMs, before, prompt, reused);
       if (!reply.ok) {
@@ -486,14 +538,14 @@ export function startClaudeChat(opts: {
         }
       }
       const found = parseAssistantJson(s.assistant, prompt);
-      const json = found && (found !== stale || s.fresh) ? found : null;
+      const json = found && parses(found) && (found !== stale || s.fresh) ? found : null;
       if (json) {
         jsonStable = json === lastJson ? jsonStable + 1 : 0;
         lastJson = json;
-        if (!s.stop) {
+        if (!s.stop && jsonStable >= 2) {
           return { ok: true, text: json, model: s.model || 'claude.ai', renamed: false };
         }
-        if (jsonStable >= 1) {
+        if (s.stop && jsonStable >= 1) {
           return { ok: true, text: json, model: s.model || 'claude.ai', renamed: false };
         }
       } else {
@@ -503,7 +555,17 @@ export function startClaudeChat(opts: {
       await delay(700);
     }
     const tail = (lastSnap ? parseAssistantJson(lastSnap.assistant, prompt) : null);
-    if (tail && (tail !== stale || lastSnap?.fresh)) return { ok: true, text: tail, model: lastSnap?.model || 'claude.ai', renamed: false };
+    if (tail && parses(tail) && (tail !== stale || lastSnap?.fresh)) {
+      return { ok: true, text: tail, model: lastSnap?.model || 'claude.ai', renamed: false };
+    }
+    if (saw && lastSnap?.stop && lastBody.includes('{')) {
+      return {
+        ok: false,
+        code: 'input',
+        detail:
+          'Claude.ai stopped but the resume JSON looks incomplete. Wait until the reply fully finishes on Claude.ai, then try Tailor again.',
+      };
+    }
     diagnostics.record({
       partition: browser?.partition ?? CLAUDE_PARTITION,
       source: 'claude chat',
@@ -576,7 +638,7 @@ function isNewChatUrl(url: string): boolean {
 
 /** Page scripts normally answer in milliseconds; one that hangs (page frozen, or mid-navigation) must not stall the job queue. */
 const RUN_LIMIT_MS = 30_000;
-const OPEN_LIMIT_MS = 45_000;
+const OPEN_LIMIT_MS = 60_000;
 
 export class StuckError extends Error {}
 
@@ -672,8 +734,15 @@ function isExistingChatUrl(url: string): boolean {
   }
 }
 
-function chatSlotKey(research: boolean, title: string): string {
-  const kind = research ? 'research' : 'resume';
+type ChatSlotKind = 'research' | 'titles' | 'resume';
+
+function chatSlotKind(title: string, prompt: string): ChatSlotKind {
+  if (prompt.includes('"task":"company_research"') || /^Research\s*[—-]/i.test(title)) return 'research';
+  if (prompt.includes('"task":"suggest_role_titles"') || /^Titles\s*[—-]/i.test(title)) return 'titles';
+  return 'resume';
+}
+
+function chatSlotKey(kind: ChatSlotKind, title: string): string {
   const norm = title.replace(/\s+/g, ' ').trim().toLowerCase();
   return `${kind}:${norm}`;
 }
