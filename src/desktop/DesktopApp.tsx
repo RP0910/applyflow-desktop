@@ -8,6 +8,7 @@ import { CandidateSetup } from '@/components/CandidateSetup';
 import { ProfileForm } from '@/components/ProfileForm';
 import { ScreeningAnswersForm } from '@/components/ScreeningAnswersForm';
 import { SettingsForm } from '@/components/SettingsForm';
+import { DataManagement } from '@/components/DataManagement';
 import { EducationSettings } from '@/components/EducationSettings';
 import { WarningBanner } from '@/components/WarningBanner';
 import { BrandLogo, Icon, type IconName } from '@/components/Icon';
@@ -36,7 +37,7 @@ const LEDES: Partial<Record<DesktopView, string>> = {
   studio: 'Turn resume JSON into a PDF or Word file with ApplyFlow’s own renderer. Edit any saved resume and re-render it — no AI, no tokens.',
   profile: 'Contact details, full address and job-site logins used to fill applications. Employers and education are below.',
   answers: 'Review common screening questions, save answers by input type, and reuse them when similar wording appears on another application — all stored locally, with no AI.',
-  settings: 'Claude connection, documents, privacy and where files are saved.',
+  settings: 'Claude connection, documents, privacy, where files are saved, and moving your data between computers.',
   privacy: 'Exactly what ApplyFlow stores, what it sends, and what it refuses to do.',
 };
 
@@ -130,6 +131,7 @@ export function DesktopApp() {
             <div className="stack">
               <UsageCard />
               <SettingsForm ctl={settingsCtl} />
+              <DataManagement />
             </div>
           ) : null}
           {view === 'privacy' ? <Privacy /> : null}

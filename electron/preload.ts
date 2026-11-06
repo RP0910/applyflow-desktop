@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron';
 
-const EVENTS = new Set(['dice:event', 'dice:state', 'browser:tabs', 'app:navigate', 'claudeChat:status']);
+const EVENTS = new Set(['dice:event', 'dice:state', 'browser:tabs', 'app:navigate', 'claudeChat:status', 'sync:progress']);
 
 contextBridge.exposeInMainWorld('applyflow', {
   invoke: (method: string, ...args: unknown[]) => ipcRenderer.invoke('af:invoke', method, args),

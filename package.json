@@ -1,6 +1,6 @@
 {
   "name": "applyflow-desktop",
-  "version": "2.3.2",
+  "version": "2.3.3",
   "private": true,
   "description": "ApplyFlow Desktop — truthful, ATS-optimized resumes and one-click applications on Dice and Jobright (Greenhouse, Lever, Ashby), with every application, resume and recruiter contact in a local SQLite database.",
   "type": "module",

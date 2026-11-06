@@ -2,7 +2,9 @@ import { app, BrowserWindow, dialog, globalShortcut, ipcMain, Menu, nativeImage,
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, extname, isAbsolute, join, normalize, relative, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { hostname } from 'node:os';
 import { Store } from './db';
+import { SyncService, SYNC_EXTENSION } from './sync/service';
 import { DiceInput, type TrustedRequest } from './diceInput';
 import { backTargetIndex, DICE_SEARCH_HOME, isDiceApplicationUrl, isDiceSearchUrl, searchIndex } from '../src/services/platforms/dice/navigation';
 import type { BridgeMethod, BrowserState, ClaudeChatCompleteRequest, ClaudeChatStatus } from '../src/platform/bridge';
@@ -53,6 +55,9 @@ let store: Store;
 let mainWorldScript = '';
 let diceInput: DiceInput | null = null;
 let claudeChat: ClaudeChatController | null = null;
+let sync: SyncService | null = null;
+/** .applyflow files the user picked or saved in this session; only these can be inspected or shown. */
+const syncFiles = new Set<string>();
 let tabs: BrowserTabs | null = null;
 const browserDiagnostics = new BrowserDiagnostics();
 let diceMonitor: SessionMonitor | null = null;
@@ -85,10 +90,16 @@ function allowedFile(p: string): boolean {
     return r === '' || (!r.startsWith('..') && !isAbsolute(r));
   };
   if (inside(join(baseDir(), 'ApplyFlow')) || inside(app.getPath('userData'))) return true;
+  if (syncFiles.has(target)) return true;
   return store.isKnownFile(p);
 }
 
 const OPENABLE = /\.(pdf|docx?|txt|md|json|csv)$/i;
+
+function syncService(): SyncService {
+  if (!sync) throw new Error('ApplyFlow is still starting.');
+  return sync;
+}
 
 function uniquePath(p: string): string {
   if (!existsSync(p)) return p;
@@ -568,6 +579,38 @@ function registerIpc(): void {
       delete all[id];
       store.kvSet(REMINDERS_KEY, all);
     },
+    'sync.export': async (opts: { password?: string | null }) => {
+      const r = await dialog.showSaveDialog(win!, {
+        title: 'Export all ApplyFlow data',
+        defaultPath: join(app.getPath('documents'), `ApplyFlow-${hostname().replace(/[^\w-]+/g, '-')}-${new Date().toISOString().slice(0, 10)}.${SYNC_EXTENSION}`),
+        filters: [{ name: 'ApplyFlow data', extensions: [SYNC_EXTENSION] }],
+      });
+      if (r.canceled || !r.filePath) return null;
+      const target = extname(r.filePath).toLowerCase() === `.${SYNC_EXTENSION}` ? r.filePath : `${r.filePath}.${SYNC_EXTENSION}`;
+      const out = await syncService().exportTo(target, opts?.password || null);
+      syncFiles.add(resolve(out.path));
+      return out;
+    },
+    'sync.pickImport': async () => {
+      const r = await dialog.showOpenDialog(win!, {
+        title: 'Import ApplyFlow data',
+        properties: ['openFile'],
+        filters: [{ name: 'ApplyFlow data', extensions: [SYNC_EXTENSION] }, { name: 'All files', extensions: ['*'] }],
+      });
+      const p = r.canceled ? null : (r.filePaths[0] ?? null);
+      if (p) syncFiles.add(resolve(p));
+      return p;
+    },
+    'sync.inspect': (req: { path: string; password?: string | null }) => {
+      if (!syncFiles.has(resolve(String(req?.path ?? '')))) throw new Error('Choose the file again.');
+      return syncService().inspect(req.path, req.password || null);
+    },
+    'sync.apply': (req: { token: string; applySettings: boolean }) => syncService().apply(String(req.token), { applySettings: Boolean(req.applySettings) }),
+    'sync.discard': (token: string) => syncService().discard(String(token)),
+    'sync.history': () => syncService().history(),
+    'sync.backups': () => syncService().listBackups(),
+    'sync.backupNow': () => syncService().backupNow(),
+    'sync.restore': (name: string) => syncService().restore(String(name)),
     'app.info': () => ({ version: app.getVersion(), dataDir: app.getPath('userData'), dbPath: store.path, platform: process.platform }),
     'app.openExternal': (url: string) => {
       if (/^https?:\/\//i.test(url)) void shell.openExternal(url);
@@ -795,6 +838,18 @@ app.whenReady().then(() => {
   const dataDir = app.getPath('userData');
   mkdirSync(dataDir, { recursive: true });
   store = new Store(join(dataDir, 'applyflow.sqlite'));
+  sync = new SyncService({
+    store: () => store,
+    replaceStore: (next) => {
+      store = next;
+    },
+    userDataDir: dataDir,
+    baseDir,
+    appVersion: app.getVersion(),
+    deviceName: hostname(),
+    platform: process.platform,
+    progress: (p) => send('sync:progress', p),
+  });
   diceInput = new DiceInput(join(app.getPath('temp'), 'ApplyFlow-uploads'));
   const mw = join(here, 'main-world.js');
   mainWorldScript = existsSync(mw) ? readFileSync(mw, 'utf8') : '';

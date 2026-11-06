@@ -4,8 +4,11 @@ import type { ApplicationRecord, CareerProfile, JobSession, MasterResume, SiteCr
 import type { Contact, SearchHit, StoredDocument, StoredDocumentInput, UsageInput, UsageSummary } from '../src/platform/bridge';
 import { extractContacts, formatPhone, phoneDigits } from '../src/utils/contacts';
 import { withSyncedLocation } from '../src/utils/address';
+import { parseClock, stampChanges } from './sync/clock';
+import type { TombstoneEntity } from './sync/types';
+import { randomUUID } from 'node:crypto';
 
-const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 
 type Row = Record<string, unknown>;
 
@@ -68,8 +71,60 @@ export class Store {
       CREATE VIRTUAL TABLE IF NOT EXISTS search USING fts5(
         application_id UNINDEXED, company, title, people, body,
         tokenize = 'unicode61 remove_diacritics 2');
+      CREATE TABLE IF NOT EXISTS sync_tombstones (
+        entity TEXT NOT NULL, id TEXT NOT NULL, match_key TEXT, deleted_at TEXT NOT NULL,
+        PRIMARY KEY (entity, id));
+      CREATE INDEX IF NOT EXISTS sync_tombstones_key ON sync_tombstones(entity, match_key);
+      CREATE TABLE IF NOT EXISTS sync_aliases (
+        entity TEXT NOT NULL, from_id TEXT NOT NULL, to_id TEXT NOT NULL, created_at TEXT,
+        PRIMARY KEY (entity, from_id));
+      CREATE TABLE IF NOT EXISTS sync_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL, kind TEXT NOT NULL, ok INTEGER NOT NULL,
+        file TEXT, peer TEXT, summary TEXT, log_path TEXT, error TEXT);
     `);
+    this.addColumn('applications', 'sync_clock', 'TEXT');
+    this.addColumn('applications', 'synced_at', 'TEXT');
+    this.addColumn('contacts', 'updated_at', 'TEXT');
+    this.addColumn('usage', 'gid', 'TEXT');
+    this.db.exec(`
+      UPDATE contacts SET updated_at = COALESCE(created_at, '') WHERE updated_at IS NULL;
+      CREATE UNIQUE INDEX IF NOT EXISTS usage_gid ON usage(gid);
+    `);
+    if (!this.one("SELECT value FROM meta WHERE key = 'device_id'")) {
+      this.run("INSERT INTO meta(key, value) VALUES ('device_id', ?)", randomUUID());
+    }
+    this.run("UPDATE usage SET gid = ? || ':' || id WHERE gid IS NULL", this.deviceId);
     this.db.prepare('INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?)').run('schema', String(SCHEMA_VERSION));
+  }
+
+  private addColumn(table: string, column: string, type: string): void {
+    const cols = this.db.prepare(`PRAGMA table_info(${table})`).all() as Row[];
+    if (!cols.some((c) => c.name === column)) this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
+  }
+
+  /** Stable identifier of this installation's database, used to label exports. */
+  get deviceId(): string {
+    return String(this.one("SELECT value FROM meta WHERE key = 'device_id'")?.value ?? '');
+  }
+
+  metaGet(key: string): string | null {
+    const r = this.one('SELECT value FROM meta WHERE key = ?', key);
+    return r ? String(r.value) : null;
+  }
+  metaSet(key: string, value: string): void {
+    this.run('INSERT INTO meta(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value', key, value);
+  }
+
+  /** Remembers a deletion so an older export from another device cannot bring the record back. */
+  private tombstone(entity: TombstoneEntity, id: string, matchKey: string | null = null): void {
+    this.run(
+      `INSERT INTO sync_tombstones(entity, id, match_key, deleted_at) VALUES (?, ?, ?, ?)
+       ON CONFLICT(entity, id) DO UPDATE SET match_key = COALESCE(excluded.match_key, sync_tombstones.match_key), deleted_at = excluded.deleted_at`,
+      entity, id, matchKey, now(),
+    );
+  }
+  private untombstone(entity: TombstoneEntity, id: string): void {
+    this.run('DELETE FROM sync_tombstones WHERE entity = ? AND id = ?', entity, id);
   }
 
   private all(sql: string, ...params: SQLInputValue[]): Row[] {
@@ -84,7 +139,7 @@ export class Store {
     this.db.prepare(sql).run(...params);
   }
 
-  private tx<T>(fn: () => T): T {
+  tx<T>(fn: () => T): T {
     this.db.exec('BEGIN');
     try {
       const out = fn();
@@ -136,6 +191,7 @@ export class Store {
            source_data = excluded.source_data, updated_at = excluded.updated_at`,
         next.id, next.name, next.isDefault ? 1 : 0, JSON.stringify({ ...rest, sourceData: null }), bytes, next.createdAt, next.updatedAt,
       );
+      this.untombstone('resume', next.id);
       return next;
     });
   }
@@ -146,6 +202,7 @@ export class Store {
     this.tx(() => {
       const wasDefault = this.one('SELECT is_default FROM resumes WHERE id = ?', id)?.is_default;
       this.run('DELETE FROM resumes WHERE id = ?', id);
+      this.tombstone('resume', id);
       if (wasDefault) {
         const next = this.one('SELECT id FROM resumes ORDER BY updated_at DESC LIMIT 1');
         if (next) this.run('UPDATE resumes SET is_default = 1 WHERE id = ?', String(next.id));
@@ -201,6 +258,7 @@ export class Store {
       'INSERT INTO sessions(job_key, data, updated_at) VALUES (?, ?, ?) ON CONFLICT(job_key) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at',
       next.jobKey, JSON.stringify(next), next.updatedAt,
     );
+    this.untombstone('session', next.jobKey);
     if (next.applicationId) this.reindex(next.applicationId);
     return next;
   }
@@ -210,8 +268,11 @@ export class Store {
     return r ? parse<JobSession>(r.data) : null;
   }
   deleteSession(jobKey: string): void {
-    this.run('DELETE FROM sessions WHERE job_key = ?', jobKey);
-    this.run('DELETE FROM company_research WHERE job_key = ?', jobKey);
+    this.tx(() => {
+      if (this.one('SELECT 1 AS x FROM sessions WHERE job_key = ?', jobKey)) this.tombstone('session', jobKey, jobKey);
+      this.run('DELETE FROM sessions WHERE job_key = ?', jobKey);
+      this.run('DELETE FROM company_research WHERE job_key = ?', jobKey);
+    });
   }
 
   getCompanyResearch(jobKey: string): CompanyResearchReply | null {
@@ -241,48 +302,24 @@ export class Store {
     return this.all('SELECT data FROM applications WHERE job_key = ?', jobKey).map((r) => parse<ApplicationRecord>(r.data));
   }
   private normalize(r: ApplicationRecord): ApplicationRecord {
-    const t = now();
-    return {
-      ...r,
-      jobKey: r.jobKey ?? `import:${r.id}`,
-      jobId: r.jobId ?? null,
-      jobUrl: r.jobUrl ?? '',
-      title: r.title ?? '',
-      company: r.company ?? '',
-      location: r.location ?? '',
-      remoteStatus: r.remoteStatus ?? 'unknown',
-      technologies: Array.isArray(r.technologies) ? r.technologies : [],
-      salary: r.salary ?? null,
-      matchScore: r.matchScore ?? null,
-      tailoredScore: r.tailoredScore ?? null,
-      resumeVersion: r.resumeVersion ?? 0,
-      coverLetterVersion: r.coverLetterVersion ?? 0,
-      resumeFileName: r.resumeFileName ?? null,
-      coverLetterFileName: r.coverLetterFileName ?? null,
-      keywords: Array.isArray(r.keywords) ? r.keywords : [],
-      missingQualifications: Array.isArray(r.missingQualifications) ? r.missingQualifications : [],
-      datePrepared: r.datePrepared ?? r.createdAt ?? t,
-      dateApplied: r.dateApplied ?? null,
-      followUpDate: r.followUpDate ?? null,
-      notes: Array.isArray(r.notes) ? r.notes : [],
-      folderPath: r.folderPath ?? null,
-      files: Array.isArray(r.files) ? r.files : [],
-      stageHistory: Array.isArray(r.stageHistory) ? r.stageHistory : [],
-      createdAt: r.createdAt ?? t,
-      updatedAt: r.updatedAt ?? t,
-    };
+    return normalizeApplication(r);
   }
 
   private putApplication(input: ApplicationRecord): void {
     const rec = this.normalize(input);
+    const prev = this.one('SELECT data, sync_clock FROM applications WHERE id = ?', rec.id);
+    const clock = stampChanges(prev ? parseClock(prev.sync_clock) : null, prev ? parse<ApplicationRecord>(prev.data) : null, rec, rec.updatedAt);
     this.run(
-      `INSERT INTO applications(id, job_key, company, title, location, stage, job_url, date_prepared, date_applied, follow_up_date, data, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO applications(id, job_key, company, title, location, stage, job_url, date_prepared, date_applied, follow_up_date, data, updated_at, sync_clock)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET job_key = excluded.job_key, company = excluded.company, title = excluded.title,
          location = excluded.location, stage = excluded.stage, job_url = excluded.job_url, date_prepared = excluded.date_prepared,
-         date_applied = excluded.date_applied, follow_up_date = excluded.follow_up_date, data = excluded.data, updated_at = excluded.updated_at`,
+         date_applied = excluded.date_applied, follow_up_date = excluded.follow_up_date, data = excluded.data, updated_at = excluded.updated_at,
+         sync_clock = excluded.sync_clock`,
       rec.id, rec.jobKey, rec.company, rec.title, rec.location, rec.stage, rec.jobUrl, rec.datePrepared, rec.dateApplied, rec.followUpDate, JSON.stringify(rec), rec.updatedAt,
+      JSON.stringify(clock),
     );
+    this.untombstone('application', rec.id);
     this.run('UPDATE documents SET application_id = ? WHERE job_key = ? AND application_id IS NULL', rec.id, rec.jobKey);
   }
   saveApplication(record: ApplicationRecord): ApplicationRecord {
@@ -296,6 +333,9 @@ export class Store {
   }
   deleteApplication(id: string): void {
     this.tx(() => {
+      const jk = this.one('SELECT job_key FROM applications WHERE id = ?', id)?.job_key as string | undefined;
+      if (jk !== undefined) this.tombstone('application', id, jk);
+      for (const c of this.all('SELECT id FROM contacts WHERE application_id = ?', id)) this.tombstone('contact', String(c.id));
       this.run('DELETE FROM applications WHERE id = ?', id);
       this.run('DELETE FROM contacts WHERE application_id = ?', id);
       this.run('DELETE FROM search WHERE application_id = ?', id);
@@ -346,15 +386,17 @@ export class Store {
   saveContact(c: Contact, reindex = true): Contact {
     const next = { ...c, id: c.id || rid('ct'), phone: c.phone ? formatPhone(c.phone) : '', createdAt: c.createdAt || now() };
     this.run(
-      `INSERT INTO contacts(id, application_id, name, role, phone, phone_digits, email, source, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT(id) DO UPDATE SET name = excluded.name, role = excluded.role, phone = excluded.phone, phone_digits = excluded.phone_digits, email = excluded.email`,
-      next.id, next.applicationId, next.name, next.role, next.phone, next.phone ? phoneDigits(next.phone) : '', next.email, next.source, next.createdAt,
+      `INSERT INTO contacts(id, application_id, name, role, phone, phone_digits, email, source, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET name = excluded.name, role = excluded.role, phone = excluded.phone, phone_digits = excluded.phone_digits, email = excluded.email,
+         updated_at = excluded.updated_at`,
+      next.id, next.applicationId, next.name, next.role, next.phone, next.phone ? phoneDigits(next.phone) : '', next.email, next.source, next.createdAt, now(),
     );
     if (reindex) this.reindex(next.applicationId);
     return next;
   }
   deleteContact(id: string): void {
     const r = this.one('SELECT application_id FROM contacts WHERE id = ?', id);
+    if (r) this.tombstone('contact', id);
     this.run('DELETE FROM contacts WHERE id = ?', id);
     if (r) this.reindex(String(r.application_id));
   }
@@ -424,8 +466,8 @@ export class Store {
 
   addUsage(u: UsageInput): void {
     this.run(
-      'INSERT INTO usage(job_key, application_id, task, model, input_tokens, cache_read, cache_write, output_tokens, at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      u.jobKey, u.applicationId, u.task, u.model, u.inputTokens, u.cacheReadTokens, u.cacheWriteTokens, u.outputTokens, now(),
+      'INSERT INTO usage(job_key, application_id, task, model, input_tokens, cache_read, cache_write, output_tokens, at, gid) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      u.jobKey, u.applicationId, u.task, u.model, u.inputTokens, u.cacheReadTokens, u.cacheWriteTokens, u.outputTokens, now(), `${this.deviceId}:${randomUUID()}`,
     );
   }
   usageSummary(filter: { jobKey?: string; sinceIso?: string }): UsageSummary {
@@ -532,4 +574,37 @@ export class Store {
     if (!application) return null;
     return { application, matchedOn, snippet, contacts: this.listContacts(id) };
   }
+}
+
+export function normalizeApplication(r: ApplicationRecord): ApplicationRecord {
+  const t = now();
+  return {
+    ...r,
+    jobKey: r.jobKey ?? `import:${r.id}`,
+    jobId: r.jobId ?? null,
+    jobUrl: r.jobUrl ?? '',
+    title: r.title ?? '',
+    company: r.company ?? '',
+    location: r.location ?? '',
+    remoteStatus: r.remoteStatus ?? 'unknown',
+    technologies: Array.isArray(r.technologies) ? r.technologies : [],
+    salary: r.salary ?? null,
+    matchScore: r.matchScore ?? null,
+    tailoredScore: r.tailoredScore ?? null,
+    resumeVersion: r.resumeVersion ?? 0,
+    coverLetterVersion: r.coverLetterVersion ?? 0,
+    resumeFileName: r.resumeFileName ?? null,
+    coverLetterFileName: r.coverLetterFileName ?? null,
+    keywords: Array.isArray(r.keywords) ? r.keywords : [],
+    missingQualifications: Array.isArray(r.missingQualifications) ? r.missingQualifications : [],
+    datePrepared: r.datePrepared ?? r.createdAt ?? t,
+    dateApplied: r.dateApplied ?? null,
+    followUpDate: r.followUpDate ?? null,
+    notes: Array.isArray(r.notes) ? r.notes : [],
+    folderPath: r.folderPath ?? null,
+    files: Array.isArray(r.files) ? r.files : [],
+    stageHistory: Array.isArray(r.stageHistory) ? r.stageHistory : [],
+    createdAt: r.createdAt ?? t,
+    updatedAt: r.updatedAt ?? t,
+  };
 }

@@ -24,6 +24,14 @@ Everything is in **one SQLite database** in ApplyFlow's data folder — on Windo
 
 If you turn off **Save job descriptions in application history**, the description text is removed from stored data once the application is submitted (title, company and URL are kept).
 
+## Moving data between computers (Settings → Data management)
+
+**Export all data** writes one `.applyflow` file wherever you choose. ApplyFlow never uploads it; you move it yourself (USB drive, local network, and so on). It holds the tables above except `site_credentials`, the Claude API key, the Claude.ai sign-in and browser cookies, plus your saved documents and original resume files. Your save location and Claude model list are left out because they describe that computer. The file holds your contact details, recruiter contacts and job history, so treat it like the database. **Protect the file with a password** encrypts it with AES-256-GCM using a key derived from the password with scrypt; without the password the contents cannot be read or changed undetected.
+
+**Import and merge** shows a preview, backs up the database to `%APPDATA%\ApplyFlow\backups\` and then merges in one transaction. If anything fails, the database is left unchanged and any documents written so far are removed. Each export and import writes a plain-text log to `%APPDATA%\ApplyFlow\sync-logs\`.
+
+To support merging, the database also keeps a device identifier, the time each application field last changed, the identifiers of deleted records (`sync_tombstones`, so an old export cannot bring them back), identifiers merged as duplicates (`sync_aliases`), and the import/export history (`sync_log`).
+
 ## What is sent to Claude (only with a key)
 
 Requests go from your computer straight to `https://api.anthropic.com`. There is no intermediary. One request per job writes the resume content and the cover letter.

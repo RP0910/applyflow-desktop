@@ -214,3 +214,8 @@ html, body, #root { height: 100%; overflow: hidden; }
   .textarea.code { min-height: 360px; }
   .analytics-grid, .analytics-grid-2 { grid-template-columns: 1fr; }
 }
+
+/* Data management: indeterminate progress while a step has no countable parts. */
+.sync-progress-indeterminate > span { animation: sync-progress-slide 1.2s ease-in-out infinite; }
+@keyframes sync-progress-slide { from { transform: translateX(-100%); } to { transform: translateX(290%); } }
+@media (prefers-reduced-motion: reduce) { .sync-progress-indeterminate > span { animation: none; width: 100% !important; opacity: 0.5; } }

@@ -1,3 +1,7 @@
+# 2.3.3
+
+Added: Settings → Data management. Export all data to one `.applyflow` file (optionally password-encrypted), and import files from other computers. Imports merge rather than replace: duplicates are combined, the newest change to each field wins, deletions carry over, and documents are restored into this computer’s save folder. Each import shows a preview first and makes an automatic backup. Also: import/export history and restore from backup. Database schema 2 adds sync metadata; existing data migrates automatically. See RELEASE-2.3.3.md.
+
 # 2.3.2
 
 Fixed: the Claude.ai sign-in window takes keyboard focus, so typing reaches Claude.ai instead of the header. See RELEASE-2.3.2.md.

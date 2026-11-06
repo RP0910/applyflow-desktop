@@ -1,6 +1,7 @@
 import type { CompanyResearchReply } from '@/prompts/companyResearch';
 import type { ApplicationRecord, CareerProfile, JobSession, MasterResume, SiteCredential } from '@/types';
 import type { ContentEvent, ContentResponseMap, PanelToContent } from '@/types/messages';
+import type { SyncBackupInfo, SyncExportResult, SyncImportResult, SyncInspectResult, SyncLogEntry, SyncProgress } from './syncTypes';
 
 export interface BridgeMethods {
   'kv.get': (key: string) => unknown;
@@ -76,6 +77,15 @@ export interface BridgeMethods {
   'browser.diagnostics': () => BrowserDiagnosticsReport;
   'reminders.set': (r: { applicationId: string; whenIso: string; label: string }) => void;
   'reminders.clear': (applicationId: string) => void;
+  'sync.export': (opts: { password?: string | null }) => SyncExportResult | null;
+  'sync.pickImport': () => string | null;
+  'sync.inspect': (req: { path: string; password?: string | null }) => SyncInspectResult;
+  'sync.apply': (req: { token: string; applySettings: boolean }) => SyncImportResult;
+  'sync.discard': (token: string) => void;
+  'sync.history': () => SyncLogEntry[];
+  'sync.backups': () => SyncBackupInfo[];
+  'sync.backupNow': () => SyncBackupInfo;
+  'sync.restore': (name: string) => { restored: SyncBackupInfo; safetyBackup: SyncBackupInfo };
   'app.info': () => { version: string; dataDir: string; dbPath: string; platform: string };
   'app.openExternal': (url: string) => void;
   'claudeChat.status': () => ClaudeChatStatus;
@@ -93,6 +103,7 @@ export interface BridgeEvents {
   'browser:tabs': BrowserTabsState;
   'app:navigate': { view: DesktopView; focus?: string | null; search?: boolean };
   'claudeChat:status': ClaudeChatStatus;
+  'sync:progress': SyncProgress;
 }
 
 export type ClaudeChatState = 'checking' | 'connecting' | 'ready' | 'signed_out' | 'error';
