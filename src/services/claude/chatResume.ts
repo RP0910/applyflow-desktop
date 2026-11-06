@@ -13,6 +13,9 @@ export interface ChatCompleteRequest {
   title: string;
   timeoutMs: number;
   signal?: AbortSignal;
+  model?: string;
+  modelName?: string;
+  effort?: Settings['effort'];
 }
 
 export interface ChatResumeDeps {
@@ -161,17 +164,24 @@ export class ClaudeChatProvider {
     throw present(last);
   }
 
+  private chatModel(): { model: string; modelName: string; effort: Settings['effort'] } {
+    const { model, availableModels, effort } = this.deps.settings;
+    const known = availableModels.find((m) => m.id === model);
+    return { model, modelName: known?.displayName || model, effort };
+  }
+
   private async ask(prompt: string, title: string, signal?: AbortSignal): Promise<{ text: string; model: string }> {
     if (signal?.aborted) throw new ClaudeError('aborted');
     const timeoutMs = this.timeoutMs();
-    if (this.deps.chatComplete) return this.deps.chatComplete({ prompt, title, timeoutMs, signal });
+    const model = this.chatModel();
+    if (this.deps.chatComplete) return this.deps.chatComplete({ prompt, title, timeoutMs, signal, ...model });
     const b = bridge();
     if (!b) throw new ClaudeError('chat_unavailable');
     const requestId = newId('chat');
     const onAbort = () => { void b.invoke('claudeChat.cancel', requestId).catch(() => undefined); };
     signal?.addEventListener('abort', onAbort, { once: true });
     try {
-      const res = await b.invoke('claudeChat.complete', { requestId, prompt, title, timeoutMs });
+      const res = await b.invoke('claudeChat.complete', { requestId, prompt, title, timeoutMs, ...model });
       if (signal?.aborted) throw new ClaudeError('aborted');
       if (!res.ok) throw chatFailure(res);
       return { text: res.text, model: res.model || 'claude.ai' };
@@ -213,6 +223,9 @@ function chatFailure(res: Extract<ClaudeChatCompleteResult, { ok: false }>): Cla
       const d = res.detail ?? '';
       if (/time limit|background tab|fresh Claude\.ai tab/i.test(d)) {
         return new ClaudeError('chat_unavailable', { retryable: true, detail: d });
+      }
+      if (/did not switch this chat|plan upgrade for|did not show its model menu/i.test(d)) {
+        return new ClaudeError('chat_unavailable', { detail: d });
       }
       if (/without the JSON|incomplete/i.test(d)) {
         return new ClaudeError('truncated', { retryable: true, detail: d });

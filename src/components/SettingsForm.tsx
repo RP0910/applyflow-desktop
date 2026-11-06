@@ -149,9 +149,11 @@ export function SettingsForm({ ctl, compact = false }: { ctl: SettingsController
             </button>
           </div>
           <span className="hint">
-            {s.modelsRefreshedAt
-              ? `List loaded from the Anthropic Models API on ${new Date(s.modelsRefreshedAt).toLocaleDateString()}.`
-              : 'Showing suggested defaults. Refresh to load the exact models your key can use.'}
+            {s.resumeGenerationMethod === 'chat'
+              ? 'Each new Claude.ai chat starts on this model and the Speed setting below. A chat already in progress keeps the model it started with.'
+              : s.modelsRefreshedAt
+                ? `List loaded from the Anthropic Models API on ${new Date(s.modelsRefreshedAt).toLocaleDateString()}.`
+                : 'Showing suggested defaults. Refresh to load the exact models your key can use.'}
           </span>
         </div>
         <div className="field">

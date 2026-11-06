@@ -203,11 +203,163 @@ globalThis.__afClaude = (function () {
     if (text.length > 400000) return text.slice(text.length - 400000);
     return text;
   }
+  function shown(el) {
+    if (!el || !el.getBoundingClientRect) return false;
+    if (el.getAttribute && (el.getAttribute('aria-hidden') === 'true' || el.hidden)) return false;
+    var r = el.getBoundingClientRect();
+    return r.width > 8 && r.height > 8;
+  }
+  function rowText(el) {
+    return ((el && (el.innerText || el.textContent)) || '').replace(/\\s+/g, ' ').trim();
+  }
+  function press(el) {
+    if (el && el.click) el.click();
+  }
+  function closeMenu() {
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true }));
+  }
+  function describeModel(spec) {
+    var id = String(spec && spec.id || '');
+    var name = String(spec && spec.name || '');
+    var blob = (name + ' ' + id).toLowerCase();
+    var family = '';
+    if (/\\bopus\\b/.test(blob)) family = 'opus';
+    else if (/\\bsonnet\\b/.test(blob)) family = 'sonnet';
+    else if (/\\bhaiku\\b/.test(blob)) family = 'haiku';
+    else if (/\\bfable\\b/.test(blob)) family = 'fable';
+    var version = '';
+    var dated = id.match(/claude-(\\d+)-(\\d+)-(?:opus|sonnet|haiku|fable)/i);
+    var modern = id.match(/(?:opus|sonnet|haiku|fable)-(\\d+)(?:-(\\d+))?(?:-|$)/i);
+    if (dated) version = dated[1] + '.' + dated[2];
+    else if (modern && modern[1].length < 3) version = modern[2] && modern[2].length < 3 ? modern[1] + '.' + modern[2] : modern[1];
+    if (!version) {
+      var fromName = name.match(/\\b(\\d+\\.\\d+|\\d+)\\b/);
+      if (fromName) version = fromName[1];
+    }
+    var effort = String(spec && spec.effort || '');
+    if (effort !== 'low' && effort !== 'medium' && effort !== 'high') effort = '';
+    return { family: family, version: version, effort: effort };
+  }
+  function modelMatches(text, family, version) {
+    var flat = String(text || '').replace(/\\s+/g, ' ');
+    if (!new RegExp('\\\\b' + family + '\\\\b', 'i').test(flat)) return false;
+    if (!version) return true;
+    var ver = String(version).replace(/\\./g, '\\\\.');
+    var tail = String(version).indexOf('.') === -1 ? '(?![\\\\d.])' : '(?!\\\\d)';
+    if (new RegExp('\\\\b' + family + '\\\\s+' + ver + tail, 'i').test(flat)) return true;
+    return new RegExp('\\\\b' + ver + tail + '\\\\s+' + family + '\\\\b', 'i').test(flat);
+  }
+  function effortOnLabel(text, effort) {
+    if (effort === 'low') return /\\blow\\b/i.test(text);
+    if (effort === 'medium') return /\\bmedium\\b/i.test(text);
+    if (effort === 'high') return /\\bhigh\\b/i.test(text);
+    return true;
+  }
+  function modelTrigger() {
+    var marked = queryAll('[data-testid="model-selector-dropdown"]');
+    for (var i = 0; i < marked.length; i++) if (shown(marked[i])) return marked[i];
+    var buttons = queryAll('button, [role="button"]');
+    var best = null;
+    var bestTop = -1;
+    for (var j = 0; j < buttons.length; j++) {
+      var b = buttons[j];
+      if (!shown(b)) continue;
+      var t = rowText(b);
+      if (t.length >= 80 || !/\\b(sonnet|opus|haiku|fable)\\b/i.test(t) || !/\\d/.test(t)) continue;
+      var top = b.getBoundingClientRect().bottom;
+      if (top >= bestTop) { best = b; bestTop = top; }
+    }
+    return best;
+  }
+  function triggerLabel(trigger) {
+    return rowText(trigger) || (trigger.getAttribute && trigger.getAttribute('aria-label')) || '';
+  }
+  function menuItems() {
+    return queryAll('[role="menuitemradio"], [role="menuitem"], [role="option"]').filter(function (el) { return shown(el); });
+  }
+  function isUpgrade(el) {
+    var buttons = el.querySelectorAll ? el.querySelectorAll('button') : [];
+    for (var i = 0; i < buttons.length; i++) if (/^upgrade\\b/i.test(rowText(buttons[i]))) return true;
+    return false;
+  }
+  function pickModel(want, depth) {
+    var items = menuItems();
+    var target = null;
+    var more = null;
+    for (var i = 0; i < items.length; i++) {
+      var t = rowText(items[i]);
+      if (!t || t.length > 160) continue;
+      if (/^more models\\b/i.test(t)) { more = items[i]; continue; }
+      if (/^effort\\b/i.test(t)) continue;
+      if (modelMatches(t, want.family, want.version)) { target = items[i]; break; }
+    }
+    if (target) {
+      if (isUpgrade(target)) { closeMenu(); return Promise.resolve({ ok: false, reason: 'upgrade' }); }
+      if (target.getAttribute('aria-checked') === 'true') { closeMenu(); return Promise.resolve({ ok: true }); }
+      press(target);
+      return Promise.resolve({ ok: true });
+    }
+    if (more && depth < 1) {
+      press(more);
+      return sleep(220).then(function () { return pickModel(want, depth + 1); });
+    }
+    closeMenu();
+    return Promise.resolve({ ok: false, reason: 'missing' });
+  }
+  function pickEffort(want) {
+    var word = want.effort === 'low' ? 'Low' : want.effort === 'medium' ? 'Medium' : want.effort === 'high' ? 'High' : '';
+    if (!word) return Promise.resolve({ ok: true });
+    var trigger = modelTrigger();
+    if (!trigger) return Promise.resolve({ ok: true });
+    if (modelMatches(triggerLabel(trigger), want.family, want.version) && effortOnLabel(triggerLabel(trigger), want.effort)) {
+      return Promise.resolve({ ok: true });
+    }
+    // Clicking the picker again would close a menu that is already open.
+    var opened = menuItems().some(function (el) { return /^effort\\b/i.test(rowText(el)); });
+    if (!opened) press(trigger);
+    return sleep(opened ? 30 : 220).then(function () {
+      var items = menuItems();
+      var effort = null;
+      for (var i = 0; i < items.length; i++) if (/^effort\\b/i.test(rowText(items[i]))) { effort = items[i]; break; }
+      if (!effort) { closeMenu(); return { ok: true }; }
+      press(effort);
+      return sleep(200).then(function () {
+        var levels = menuItems();
+        var level = null;
+        var levelRe = new RegExp('^' + word + '\\\\b', 'i');
+        for (var j = 0; j < levels.length; j++) if (levelRe.test(rowText(levels[j]))) { level = levels[j]; break; }
+        if (!level) { closeMenu(); return { ok: true }; }
+        if (level.getAttribute('aria-checked') === 'true') { closeMenu(); return { ok: true }; }
+        press(level);
+        return { ok: true };
+      });
+    });
+  }
+  function selectModel() {
+    var want = describeModel(globalThis.__afModel || {});
+    if (!want.family) return Promise.resolve({ ok: false, reason: 'unknown' });
+    var trigger = modelTrigger();
+    if (!trigger) return Promise.resolve({ ok: false, reason: 'no-picker' });
+    var label = triggerLabel(trigger);
+    var modelOn = modelMatches(label, want.family, want.version);
+    var effortOn = !want.effort || effortOnLabel(label, want.effort);
+    if (modelOn && effortOn) return Promise.resolve({ ok: true, already: true });
+    var chosen = Promise.resolve({ ok: true });
+    if (!modelOn) {
+      press(trigger);
+      chosen = sleep(220).then(function () { return pickModel(want, 0); });
+    }
+    return chosen.then(function (result) {
+      if (!result || !result.ok) return result || { ok: false, reason: 'missing' };
+      if (!want.effort) return result;
+      return pickEffort(want).then(function () { return { ok: true }; });
+    });
+  }
   function modelLabel() {
-    var buttons = queryAll('button');
-    for (var i = 0; i < buttons.length; i++) {
-      var t = (buttons[i].innerText || '').replace(/\\s+/g, ' ').trim();
-      if (/sonnet|opus|haiku|claude/i.test(t) && t.length < 80) return 'claude.ai (' + t + ')';
+    var trigger = modelTrigger();
+    if (trigger) {
+      var label = triggerLabel(trigger);
+      if (label) return 'claude.ai (' + label.slice(0, 80) + ')';
     }
     return 'claude.ai';
   }
@@ -415,7 +567,7 @@ globalThis.__afClaude = (function () {
       return renameViaUi(id, title);
     }).catch(function () { return false; });
   }
-  return { snapshot: snapshot, insert: insert, clickSend: clickSend, clickStop: clickStop, rename: rename, readReply: readReply };
+  return { snapshot: snapshot, insert: insert, clickSend: clickSend, clickStop: clickStop, rename: rename, readReply: readReply, selectModel: selectModel };
 })();
 true;
 `;

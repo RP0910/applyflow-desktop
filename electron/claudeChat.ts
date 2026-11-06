@@ -365,6 +365,7 @@ export function startClaudeChat(opts: {
     if (cancelled.has(requestId)) return { ok: false, code: 'cancelled', detail: 'Cancelled.' };
     if (current.state !== 'ready') return sessionNotReady();
     const slotKind = chatSlotKind(title, prompt);
+    const choice = modelChoice(req);
     const step = (detail: string) => {
       jobStep = detail.replace(/…$/, '');
       emit({ state: 'ready', detail, checkedAt: new Date().toISOString() });
@@ -378,7 +379,7 @@ export function startClaudeChat(opts: {
     );
     try {
       const wc = await ensureWorker();
-      const slotKey = chatSlotKey(slotKind, title);
+      const slotKey = chatSlotKey(slotKind, title, choice);
       const savedChat = liveChatSlot(chatSlots, slotKey);
       let reused = false;
       if (wc.onChallengePage()) {
@@ -416,6 +417,12 @@ export function startClaudeChat(opts: {
       const opened = await waitForComposer(wc, requestId);
       if (opened) return await settleFailure(opened);
       await ensureApi(wc);
+      if (!reused && choice) {
+        step('Selecting the model from Settings…');
+        jobStep = 'Selecting the Claude.ai model from Settings';
+        const selected = await wc.run(`globalThis.__afModel = ${JSON.stringify(choice)}; globalThis.__afClaude.selectModel()`, true);
+        if (!modelSelected(selected)) return await settleFailure({ ok: false, code: 'input', detail: modelSelectionDetail(choice, selected) });
+      }
       composerDirty = true;
       step(
         slotKind === 'research'
@@ -770,9 +777,37 @@ function chatSlotKind(title: string, prompt: string): ChatSlotKind {
   return 'resume';
 }
 
-function chatSlotKey(kind: ChatSlotKind, title: string): string {
+function chatSlotKey(kind: ChatSlotKind, title: string, choice: ModelChoice | null): string {
   const norm = title.replace(/\s+/g, ' ').trim().toLowerCase();
-  return `${kind}:${norm}`;
+  // A different Settings model or speed is a different chat, so the next session starts on that choice.
+  const model = choice ? `${choice.id} ${choice.effort}` : '';
+  return `${kind}:${norm}:${model}`;
+}
+
+interface ModelChoice {
+  id: string;
+  name: string;
+  effort: 'low' | 'medium' | 'high' | 'model_default';
+}
+
+function modelChoice(req: ClaudeChatCompleteRequest): ModelChoice | null {
+  const id = typeof req.model === 'string' ? req.model.trim() : '';
+  const name = typeof req.modelName === 'string' ? req.modelName.trim() : '';
+  if (!id && !name) return null;
+  const effort = req.effort === 'low' || req.effort === 'medium' || req.effort === 'high' || req.effort === 'model_default' ? req.effort : 'model_default';
+  return { id, name: name || id, effort };
+}
+
+function modelSelected(value: unknown): boolean {
+  return !!value && typeof value === 'object' && (value as { ok?: unknown }).ok === true;
+}
+
+function modelSelectionDetail(choice: ModelChoice, value: unknown): string {
+  const label = choice.name && choice.name !== choice.id ? `${choice.name} (${choice.id})` : choice.name || choice.id;
+  const reason = value && typeof value === 'object' ? String((value as { reason?: unknown }).reason ?? '') : '';
+  if (reason === 'upgrade') return `Claude.ai requires a plan upgrade for ${label}. Choose another model in Settings.`;
+  if (reason === 'no-picker') return `Claude.ai did not show its model menu, so ApplyFlow could not select ${label}.`;
+  return `Claude.ai did not switch this chat to ${label}. Choose a model listed in the Claude.ai model menu, then start the job again.`;
 }
 
 /** Reuse a chat only within one Tailor & Apply run (retries and the refine pass), not days later. */
@@ -832,7 +867,7 @@ async function snap(wc: ClaudeTab): Promise<PageSnap> {
 }
 
 async function ensureApi(wc: ClaudeTab): Promise<void> {
-  const ready = await wc.run('typeof globalThis.__afClaude==="object"&&typeof globalThis.__afClaude.snapshot==="function"').catch(() => false);
+  const ready = await wc.run('typeof globalThis.__afClaude==="object"&&typeof globalThis.__afClaude.snapshot==="function"&&typeof globalThis.__afClaude.selectModel==="function"').catch(() => false);
   if (ready === true) return;
   await wc.run(CLAUDE_PAGE_API);
 }

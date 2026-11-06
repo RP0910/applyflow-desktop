@@ -1,4 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
+
+const invoke = vi.hoisted(() => vi.fn());
+vi.mock('@/platform/bridge', () => ({
+  bridge: () => ({ invoke }),
+}));
 import { CLAUDE_PAGE_API } from '../../electron/claudePage';
 import { ClaudeError } from '@/services/claude/errors';
 import { claudeChatResearchTitle, claudeChatRoleTitlesTitle, claudeChatTitle, parseClaudeChatJson, ClaudeChatProvider } from '@/services/claude/chatResume';
@@ -80,7 +85,7 @@ describe('Claude.ai chat resume generation', () => {
     const role_title = roleTitlesForCv(session.job.title, 1, research)[0]!;
     const cvJson = { ...reply, role_title, experience: [{ ...reply.experience[0]!, role_title }] };
     const researchPrompts: string[] = [];
-    const chatComplete = vi.fn(async ({ prompt, title }: { prompt: string; title: string }) => {
+    const chatComplete = vi.fn(async ({ prompt, title }: { prompt: string; title: string; model?: string; modelName?: string; effort?: string }) => {
       titles.push(title);
       if (prompt.includes('"task":"company_research"')) {
         researchPrompts.push(prompt);
@@ -115,6 +120,7 @@ describe('Claude.ai chat resume generation', () => {
     expect(titles[0]).toBe(researchTitle);
     expect(titles[1]).toBe(titlesTitle);
     expect(titles.slice(2).every((title) => title === resumeTitle)).toBe(true);
+    expect(chatComplete.mock.calls[0]?.[0]).toMatchObject({ model: 'claude-sonnet-5-5', modelName: 'Claude Sonnet 5.5', effort: 'low' });
     expect(researchPrompts).toHaveLength(1);
     const instructions = researchPrompts[0]!.split('{"task":"company_research"')[0]!;
     expect(instructions).toMatch(/identify real companies that match a job description/);
@@ -169,5 +175,24 @@ describe('Claude.ai chat resume generation', () => {
     }
     expect(chatComplete).toHaveBeenCalledTimes(2);
     expect(lines).toEqual(['Claude.ai try 1 of 3 didn’t work: Claude.ai did not show the message box. Sign in from the sidebar indicator and try again. Trying again…']);
+  });
+
+  it('asks Claude.ai to open each chat on the Settings model, and does not retry when that model cannot be selected', async () => {
+    invoke.mockReset();
+    invoke.mockResolvedValue({
+      ok: false,
+      code: 'input',
+      detail: 'Claude.ai did not switch this chat to Claude Opus 5.5 (claude-opus-5-5). Choose a model listed in the Claude.ai model menu, then start the job again.',
+    });
+    const provider = new ClaudeChatProvider({
+      settings: { ...DEFAULT_SETTINGS, resumeGenerationMethod: 'chat', model: 'claude-opus-5-5' },
+      apiKey: null,
+    });
+    await expect(provider.researchCompanies(compactFacts(master, profile), { company: 'Acme', title: 'Engineer' }, ['TypeScript'])).rejects.toMatchObject({
+      retryable: false,
+      userMessage: expect.stringMatching(/did not switch this chat to Claude Opus 5.5/),
+    });
+    expect(invoke).toHaveBeenCalledTimes(1);
+    expect(invoke.mock.calls[0]?.[1]).toMatchObject({ model: 'claude-opus-5-5', modelName: 'Claude Opus 5.5', effort: 'low' });
   });
 });

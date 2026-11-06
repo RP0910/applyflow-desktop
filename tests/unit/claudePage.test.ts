@@ -86,6 +86,103 @@ describe('Claude.ai page helper', () => {
     }
   });
 
+  function box(): DOMRect {
+    return { width: 140, height: 32, top: 0, left: 0, bottom: 32, right: 140, x: 0, y: 0, toJSON() { return {}; } };
+  }
+
+  function layout() {
+    document.querySelectorAll<HTMLElement>('button, [role="button"], [role="menuitemradio"], [role="menuitem"], [role="option"]').forEach((el) => {
+      const hidden = el.dataset.hidden === 'true';
+      el.getBoundingClientRect = () => (hidden ? { ...box(), width: 0, height: 0 } : box());
+    });
+  }
+
+  function clicks(): string[] {
+    const seen: string[] = [];
+    document.querySelectorAll<HTMLElement>('button, [role="menuitemradio"], [role="menuitem"]').forEach((el) => {
+      el.addEventListener('click', () => seen.push((el.textContent || '').replace(/\s+/g, ' ').trim()));
+    });
+    return seen;
+  }
+
+  it('reads the model from the picker, not from another Claude button', () => {
+    const api = page('<button>Ask Claude</button><button data-testid="model-selector-dropdown">Haiku 4.5 Low</button>') as unknown as { snapshot: () => { model: string } };
+    layout();
+    expect(api.snapshot().model).toBe('claude.ai (Haiku 4.5 Low)');
+  });
+
+  it('leaves a new chat alone when it already shows the Settings model and speed', async () => {
+    const api = page('<button data-testid="model-selector-dropdown">Sonnet 5.5 Medium</button><div role="menuitemradio">Opus 5.5</div>') as unknown as { selectModel: () => Promise<{ ok: boolean; already?: boolean }> };
+    layout();
+    const pressed = clicks();
+    (globalThis as unknown as { __afModel: unknown }).__afModel = { id: 'claude-sonnet-5-5', name: 'Claude Sonnet 5.5', effort: 'medium' };
+    await expect(api.selectModel()).resolves.toMatchObject({ ok: true, already: true });
+    expect(pressed).toEqual([]);
+  });
+
+  it('selects the Settings model rather than a similarly numbered one, then sets the speed', async () => {
+    const api = page(`
+      <button data-testid="model-selector-dropdown">Opus 5.5 High</button>
+      <div role="menuitemradio" id="opus">Opus 5.5</div>
+      <div role="menuitemradio" id="sonnet5">Sonnet 5</div>
+      <div role="menuitemradio" id="sonnet55">Sonnet 5.5</div>
+      <div role="menuitem" id="effort">Effort</div>
+      <div role="menuitemradio" id="high">High</div>
+      <div role="menuitemradio" id="medium">Medium Recommended</div>
+    `) as unknown as { selectModel: () => Promise<{ ok: boolean }> };
+    layout();
+    const pressed = clicks();
+    (globalThis as unknown as { __afModel: unknown }).__afModel = { id: 'claude-sonnet-5-5', name: 'Claude Sonnet 5.5', effort: 'medium' };
+    document.getElementById('sonnet55')!.addEventListener('click', () => {
+      document.querySelector('[data-testid="model-selector-dropdown"]')!.textContent = 'Sonnet 5.5 High';
+    });
+    await expect(api.selectModel()).resolves.toMatchObject({ ok: true });
+    expect(pressed).toEqual(['Opus 5.5 High', 'Sonnet 5.5', 'Effort', 'Medium Recommended']);
+    expect(pressed).not.toContain('Sonnet 5');
+  });
+
+  it('opens More models when the Settings model is not in the first list', async () => {
+    const api = page(`
+      <button data-testid="model-selector-dropdown">Sonnet 5.5</button>
+      <div role="menuitemradio">Sonnet 5.5</div>
+      <div role="menuitem" id="more">More models</div>
+      <div role="menuitemradio" id="older" data-hidden="true">Sonnet 4.6</div>
+    `) as unknown as { selectModel: () => Promise<{ ok: boolean }> };
+    layout();
+    document.getElementById('more')!.addEventListener('click', () => {
+      document.getElementById('older')!.dataset.hidden = 'false';
+      layout();
+    });
+    const pressed = clicks();
+    (globalThis as unknown as { __afModel: unknown }).__afModel = { id: 'claude-sonnet-4-6-20260205', name: 'Claude Sonnet 4.6', effort: 'model_default' };
+    await expect(api.selectModel()).resolves.toMatchObject({ ok: true });
+    expect(pressed.map((t) => t.replace(/\s+/g, ' '))).toEqual(['Sonnet 5.5', 'More models', 'Sonnet 4.6']);
+  });
+
+  it('does not choose a model the account would have to upgrade for', async () => {
+    const api = page(`
+      <button data-testid="model-selector-dropdown">Sonnet 5.5</button>
+      <div role="menuitemradio" id="opus">Opus 5.5<button type="button">Upgrade</button></div>
+    `) as unknown as { selectModel: () => Promise<{ ok: boolean; reason?: string }> };
+    layout();
+    const pressed = clicks();
+    (globalThis as unknown as { __afModel: unknown }).__afModel = { id: 'claude-opus-5-5', name: 'Claude Opus 5.5', effort: 'high' };
+    await expect(api.selectModel()).resolves.toMatchObject({ ok: false, reason: 'upgrade' });
+    expect(pressed).toEqual(['Sonnet 5.5']);
+  });
+
+  it('selects an older model named with the version before the family', async () => {
+    const api = page(`
+      <button data-testid="model-selector-dropdown">Sonnet 5.5</button>
+      <div role="menuitemradio" id="old">3.5 Sonnet</div>
+    `) as unknown as { selectModel: () => Promise<{ ok: boolean }> };
+    layout();
+    const pressed = clicks();
+    (globalThis as unknown as { __afModel: unknown }).__afModel = { id: 'claude-3-5-sonnet-20241022', name: 'Claude 3.5 Sonnet', effort: 'model_default' };
+    await expect(api.selectModel()).resolves.toMatchObject({ ok: true });
+    expect(pressed).toEqual(['Sonnet 5.5', '3.5 Sonnet']);
+  });
+
   it('skips an earlier code-block answer while the new reply is still being written', () => {
     const page2 = page('<div><div data-testid="user-message">one</div><div data-testid="assistant-message"><pre>{"company_name":"Old"}</pre></div><div data-testid="user-message">two</div><div data-testid="assistant-message">Writing…</div></div>');
     expect(page2.snapshot()).toMatchObject({ assistant: 'Writing…', fresh: true });

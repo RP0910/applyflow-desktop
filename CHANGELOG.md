@@ -1,3 +1,7 @@
+# 2.3.6
+
+Changed: Claude.ai Chat starts each new conversation on the model and Speed chosen in Settings. A chat already in progress keeps the model it started with; changing the model or Speed starts a new chat. If Claude.ai cannot switch to that model, the prompt is not sent. See RELEASE-2.3.6.md.
+
 # 2.3.5
 
 Added: a Closed Job stage when Jobright reports a posting is closed, with a link back to that application. Analytics now shows what you sent, who replied, what is still waiting, and which postings closed, and each row opens that application. See RELEASE-2.3.5.md.

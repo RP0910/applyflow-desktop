@@ -119,6 +119,12 @@ export interface ClaudeChatCompleteRequest {
   prompt: string;
   title: string;
   timeoutMs: number;
+  /** Model id from Settings. Applied when a Claude.ai chat is created. */
+  model?: string;
+  /** Display name from Settings, used to match Claude.ai’s model menu. */
+  modelName?: string;
+  /** Speed from Settings. `model_default` leaves Claude.ai’s effort unchanged. */
+  effort?: 'low' | 'medium' | 'high' | 'model_default';
 }
 
 export type ClaudeChatCompleteResult =

@@ -31,6 +31,11 @@ class FakeTab implements ClaudeTab {
   domText: string | null = null;
   /** The conversation as Claude.ai's API returns it; null = the page helper can't read it. */
   conversation: { prompt: string; text: string; done: boolean } | null = null;
+  /** Models ApplyFlow asked this page to select, in order. */
+  modelPicks: { id?: string; name?: string; effort?: string }[] = [];
+  /** Page actions in the order they ran. */
+  actions: string[] = [];
+  modelSelectResult: { ok: boolean; reason?: string } = { ok: true };
 
   getURL() { return this.url; }
   getTitle() { return 'Claude'; }
@@ -75,7 +80,14 @@ class FakeTab implements ClaudeTab {
       return new Promise(() => undefined);
     }
     if (code.startsWith('typeof globalThis.__afClaude')) return true;
+    if (code.includes('selectModel()')) {
+      this.actions.push('model');
+      const m = /__afModel = (\{.*?\});/.exec(code);
+      this.modelPicks.push(m ? JSON.parse(m[1]!) as { id?: string; name?: string; effort?: string } : {});
+      return this.modelSelectResult;
+    }
     if (code.includes('__afClaude.insert()')) {
+      this.actions.push('insert');
       const m = /globalThis\.__afPrompt = ("(?:[^"\\]|\\.)*")/.exec(code);
       this.composerText += m ? JSON.parse(m[1]!) as string : '';
       return true;
@@ -334,6 +346,46 @@ describe('Claude.ai Chat job runner', () => {
     expect(tab.prepared).toBe(true);
     expect(tab.loads[0]).toBe(NEW_CHAT);
     expect(tab.url).not.toBe(researchUrl);
+  });
+
+  it('selects the Settings model before sending a new chat, and keeps that chat’s model on retry', async () => {
+    const title = 'Research — Acme — Analyst';
+    const req = { requestId: 'r1', prompt: 'Research employers. Reply with JSON.', title, timeoutMs: 60_000, model: 'claude-sonnet-5-5', modelName: 'Claude Sonnet 5.5', effort: 'low' as const };
+    const first = await settle(chat.complete(req));
+    expect(first).toMatchObject({ ok: true, text: REPLY });
+    expect(tab.modelPicks).toEqual([{ id: 'claude-sonnet-5-5', name: 'Claude Sonnet 5.5', effort: 'low' }]);
+    expect(tab.actions.indexOf('model')).toBeLessThan(tab.actions.indexOf('insert'));
+    const chatUrl = tab.url;
+    tab.modelPicks = [];
+    tab.actions = [];
+    tab.loads = [];
+    const retry = await settle(chat.complete({ ...req, requestId: 'r2', prompt: 'Research employers. Return one complete JSON object.' }));
+    expect(retry).toMatchObject({ ok: true, text: REPLY });
+    expect(tab.modelPicks).toEqual([]);
+    expect(tab.loads).not.toContain(NEW_CHAT);
+    expect(tab.url).toBe(chatUrl);
+  });
+
+  it('starts a new chat when Settings switches to another model', async () => {
+    const title = 'Research — Acme — Analyst';
+    await settle(chat.complete({ requestId: 'r1', prompt: 'Research employers. Reply with JSON.', title, timeoutMs: 60_000, model: 'claude-sonnet-5-5', modelName: 'Claude Sonnet 5.5', effort: 'low' }));
+    const firstUrl = tab.url;
+    tab.loads = [];
+    tab.modelPicks = [];
+    const res = await settle(chat.complete({ requestId: 'r2', prompt: 'Research employers. Reply with JSON.', title, timeoutMs: 60_000, model: 'claude-opus-5-5', modelName: 'Claude Opus 5.5', effort: 'high' }));
+    expect(res).toMatchObject({ ok: true, text: REPLY });
+    expect(tab.loads[0]).toBe(NEW_CHAT);
+    expect(tab.url).not.toBe(firstUrl);
+    expect(tab.modelPicks).toEqual([{ id: 'claude-opus-5-5', name: 'Claude Opus 5.5', effort: 'high' }]);
+  });
+
+  it('does not send the prompt when Claude.ai cannot switch to the Settings model', async () => {
+    tab.modelSelectResult = { ok: false, reason: 'missing' };
+    const res = await settle(chat.complete({ requestId: 'r1', prompt: 'Research employers. Reply with JSON.', title: 'Research — Acme — Analyst', timeoutMs: 60_000, model: 'claude-opus-5-5', modelName: 'Claude Opus 5.5', effort: 'medium' }));
+    expect(res).toMatchObject({ ok: false, code: 'input' });
+    expect(res.ok ? '' : res.detail).toMatch(/did not switch this chat to Claude Opus 5.5/);
+    expect(tab.composerText).toBe('');
+    expect(tab.actions).toEqual(['model']);
   });
 
   it('opens a new chat for CV generation even after company research in another thread', async () => {
