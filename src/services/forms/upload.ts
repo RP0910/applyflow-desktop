@@ -18,6 +18,8 @@ export interface TrustedInput {
   setInputFile: (input: HTMLInputElement, file: FilePayload) => Promise<boolean>;
   clickElement: (el: HTMLElement) => Promise<boolean>;
   installPageHelper?: () => Promise<boolean>;
+  /** Marks this job applied on Jobright using the signed-in page session. */
+  postJobrightApplied?: (jobId: string) => Promise<{ status: number; json: unknown } | null>;
 }
 
 export interface UploadDeps {

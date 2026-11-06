@@ -1,3 +1,7 @@
+# 2.3.4
+
+Added: after a Jobright application, ApplyFlow marks the job applied on Jobright using the signed-in page, including when “Did you apply?” is not showing. The submitted screen has **Mark as applied on Jobright** if that step still needs you. See RELEASE-2.3.4.md.
+
 # 2.3.3
 
 Added: Settings → Data management. Export all data to one `.applyflow` file (optionally password-encrypted), and import files from other computers. Imports merge rather than replace: duplicates are combined, the newest change to each field wins, deletions carry over, and documents are restored into this computer’s save folder. Each import shows a preview first and makes an automatic backup. Also: import/export history and restore from backup. Database schema 2 adds sync metadata; existing data migrates automatically. See RELEASE-2.3.3.md.

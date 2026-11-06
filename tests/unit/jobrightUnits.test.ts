@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { countryOf, semanticOf } from '@/services/forms/mapper';
 import { appliedConfirmDialog, confirmAppliedControl, dialogChoice, isJobrightListUrl, jobrightJobId } from '@/services/platforms/jobright/adapter';
+import { jobrightApplyBody, jobrightApplyScript, postJobrightApplied, readJobrightApplyResult } from '@/services/platforms/jobright/markApplied';
+import { createContentController } from '@/content/controller';
 import { backTargetIndex, isDiceApplicationUrl, isDiceSearchUrl } from '@/services/platforms/dice/navigation';
 import { visibleCaptcha, embeddedFormUrl, statusBlocker } from '@/services/platforms/ats/common';
 import { siteName } from '@/services/platforms/registry';
@@ -44,6 +46,62 @@ describe('Jobright “Did you apply?” tracker', () => {
     expect(d?.no?.textContent).toMatch(/No, I didn't apply/i);
     expect(confirmAppliedControl(doc)?.textContent).toMatch(/Yes, I applied/i);
     expect(dialogChoice(doc)).toBeNull();
+  });
+});
+
+describe('Jobright mark-as-applied', () => {
+  it('reads the same response Jobright’s apply call returns', () => {
+    expect(jobrightApplyBody('1ab44883d2f9b6b504be295a')).toEqual({ jobId: '1ab44883d2f9b6b504be295a', source: 0 });
+    expect(readJobrightApplyResult(200, { success: true, result: true })).toMatchObject({ ok: true, settled: true });
+    expect(readJobrightApplyResult(200, { success: false, message: 'already applied' })).toMatchObject({ ok: true, settled: true });
+    expect(readJobrightApplyResult(401, { success: false })).toMatchObject({ ok: false, settled: true, message: /Sign in on Jobright/ });
+    expect(readJobrightApplyResult(0, null)).toMatchObject({ ok: false, settled: false });
+  });
+
+  it('posts { jobId, source: 0 } and stops once Jobright accepts it', async () => {
+    const calls: string[] = [];
+    const result = await postJobrightApplied('1ab44883d2f9b6b504be295a', async (url, init) => {
+      calls.push(url);
+      expect(JSON.parse(init.body)).toEqual({ jobId: '1ab44883d2f9b6b504be295a', source: 0 });
+      return { status: 200, json: async () => ({ success: true }) };
+    }, 'https://jobright.ai');
+    expect(result.ok).toBe(true);
+    expect(calls).toEqual(['https://swan-api.jobright.ai/swan/job/apply']);
+  });
+
+  it('falls back to the job page when the API host doesn’t answer', async () => {
+    const calls: string[] = [];
+    const result = await postJobrightApplied('abc12345', async (url) => {
+      calls.push(url);
+      if (calls.length === 1) throw new Error('network');
+      return { status: 200, json: async () => ({ success: true }) };
+    }, 'https://jobright.ai');
+    expect(result.ok).toBe(true);
+    expect(calls[1]).toBe('https://jobright.ai/swan/job/apply');
+  });
+
+  it('puts the job id in the page script as a JSON string', () => {
+    const id = 'abc");alert(1)';
+    const script = jobrightApplyScript(id);
+    expect(script).toContain(`jobId: ${JSON.stringify(id)}`);
+    expect(script).not.toContain('jobId: abc');
+  });
+
+  it('marks the open job through Jobright when “Did you apply?” is not showing', async () => {
+    const doc = document.implementation.createHTMLDocument('job');
+    doc.body.innerHTML = '<button type="button">APPLY WITH AUTOFILL</button>';
+    const calls: unknown[] = [];
+    const ctl = createContentController({
+      doc,
+      url: () => 'https://jobright.ai/jobs/info/1ab44883d2f9b6b504be295a',
+      version: 'test',
+      fetch: async (_url, init) => {
+        calls.push(JSON.parse(init.body));
+        return { status: 200, json: async () => ({ success: true, result: true }) };
+      },
+    });
+    expect(await ctl.handle({ type: 'AF_CONFIRM_JOBRIGHT_APPLIED' })).toMatchObject({ ok: true, clicked: true, settled: true });
+    expect(calls).toEqual([{ jobId: '1ab44883d2f9b6b504be295a', source: 0 }]);
   });
 });
 

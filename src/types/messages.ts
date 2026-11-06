@@ -111,7 +111,7 @@ export type ContentResponseMap = {
   AF_SET_LAUNCHER: { ok: boolean };
   AF_DIAGNOSE: { ok: boolean; text: string };
   AF_CHECK_SUCCESS: { ok: boolean; success: boolean };
-  AF_CONFIRM_JOBRIGHT_APPLIED: { ok: boolean; clicked: boolean; message: string };
+  AF_CONFIRM_JOBRIGHT_APPLIED: { ok: boolean; clicked: boolean; message: string; settled?: boolean; via?: 'dialog' | 'api' };
 };
 
 export type ContentEvent =

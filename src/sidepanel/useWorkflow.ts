@@ -28,6 +28,7 @@ import { ClaudeError } from '@/services/claude/errors';
 import { newId, newToken } from '@/utils/id';
 import { addDays, nowIso, todayLocal } from '@/utils/dates';
 import { bridge, DICE_TAB_ID } from '@/platform/bridge';
+import { jobrightJobId } from '@/services/platforms/jobright/adapter';
 import { toResumeDocument, renderResumePdf } from '@/resume-renderer';
 
 async function storeDocuments(s: JobSession, applicationId: string | null, paths: { resume?: string | null; cover_letter?: string | null } = {}): Promise<void> {
@@ -119,6 +120,8 @@ export function useWorkflow(inputs: WorkflowInputs, deps: WorkflowDeps) {
   const [view, setView] = useState<PanelView>('home');
   const [tone, setTone] = useState<CoverLetterTone>(settings.defaultCoverLetterTone);
   const [run, setRun] = useState<ApplyRunState>(INITIAL_RUN);
+  const [markingJobright, setMarkingJobright] = useState(false);
+  const [jobrightMarkedKey, setJobrightMarkedKey] = useState<string | null>(null);
 
   const abortRef = useRef<AbortController | null>(null);
   const saveFilesRef = useRef<(rec: ApplicationRecord, s: JobSession, kinds?: SavedFile['kind'][]) => Promise<ApplicationRecord>>(async (r) => r);
@@ -643,20 +646,38 @@ export function useWorkflow(inputs: WorkflowInputs, deps: WorkflowDeps) {
     if (!r.ok) notify('info', r.message);
   }, [application, deps.downloads, notify]);
 
+  const markingJobrightRef = useRef(false);
   const confirmJobrightApplied = useCallback(async (jobUrl: string) => {
-    if (tabId === null || !jobUrl) return;
-    const b = bridge();
-    if (b) await b.invoke('dice.navigate', jobUrl).catch(() => undefined);
-    for (let i = 0; i < 24; i++) {
-      if (abortRef.current?.signal.aborted) return;
-      await sleep(500);
-      const res = await deps.messenger.send(tabId, { type: 'AF_CONFIRM_JOBRIGHT_APPLIED' }).catch(() => null);
-      if (res?.clicked) {
-        notify('success', 'Marked as applied on Jobright.');
-        return;
+    if (tabId === null || !jobUrl || markingJobrightRef.current) return false;
+    markingJobrightRef.current = true;
+    setMarkingJobright(true);
+    try {
+      const want = jobrightJobId(jobUrl);
+      const here = pageRef.current;
+      const alreadyThere = Boolean(want && here?.site === 'jobright' && (here.jobKey === `jobright:${want}` || jobrightJobId(here.url) === want));
+      const b = bridge();
+      if (!alreadyThere && b) await b.invoke('dice.navigate', jobUrl).catch(() => undefined);
+      for (let i = 0; i < 24; i++) {
+        if (abortRef.current?.signal.aborted) return false;
+        await sleep(alreadyThere && i === 0 ? 0 : 500);
+        const res = await deps.messenger.send(tabId, { type: 'AF_CONFIRM_JOBRIGHT_APPLIED' }).catch(() => null);
+        if (res?.clicked) {
+          setJobrightMarkedKey(sessionRef.current?.jobKey ?? null);
+          notify('success', 'Marked as applied on Jobright. It will show under Applied.');
+          if (res.via === 'api' && b) await b.invoke('dice.navigate', jobUrl).catch(() => undefined);
+          return true;
+        }
+        if (res?.settled) {
+          notify('warning', res.message);
+          return false;
+        }
       }
+      notify('info', 'ApplyFlow recorded the application. Press “Mark as applied on Jobright” to add it to Jobright’s Applied list.');
+      return false;
+    } finally {
+      markingJobrightRef.current = false;
+      setMarkingJobright(false);
     }
-    notify('info', 'ApplyFlow recorded the application. If Jobright still asks “Did you apply?”, press “Yes, I applied!” there.');
   }, [tabId, deps.messenger, notify]);
 
   const recordSubmitted = useCallback(async (confirmedByDice: boolean, how: 'applyflow' | 'manual') => {
@@ -749,6 +770,11 @@ export function useWorkflow(inputs: WorkflowInputs, deps: WorkflowDeps) {
   }, [tabId, deps.messenger, recordSubmitted, report]);
 
   const recordManualSubmit = useCallback(() => recordSubmitted(false, 'manual'), [recordSubmitted]);
+  const markOnJobright = useCallback(() => {
+    const s = sessionRef.current;
+    if (!s || s.job.platform !== 'jobright' || !s.job.url) return;
+    return confirmJobrightApplied(s.job.url);
+  }, [confirmJobrightApplied]);
 
   const diagnose = useCallback(async (): Promise<string> => {
     if (tabId === null) return '';
@@ -958,7 +984,7 @@ export function useWorkflow(inputs: WorkflowInputs, deps: WorkflowDeps) {
     tabId, page, session, master, extractionError, phase, busy, progressText, notices, dismiss, notify, duplicates, duplicateApplied, application,
     view, setView, tone, setTone, run, fileName,
     leftApplication, returnToApplication, leaveApplication,
-    detect, quickApply, continueRun, answerQuestion, submit, recordManualSubmit, keepDiceResume, cancel, diagnose,
+    detect, quickApply, continueRun, answerQuestion, submit, recordManualSubmit, markOnJobright, markingJobright, jobrightMarked: Boolean(session && jobrightMarkedKey === session.jobKey), keepDiceResume, cancel, diagnose,
     selectResume, regenerate, optimizeResume, updateResume, autoFixResume, confirmSkills, coverLetterAction, saveLetterText, patchSession, editJob, downloadNow, openFolder,
   };
 }

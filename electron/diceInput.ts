@@ -11,7 +11,8 @@ export type TrustedRequest =
   | { op: 'disarm'; armId: string }
   | { op: 'setInputFile'; marker: string; name: string; base64: string }
   | { op: 'clickMarked'; marker: string }
-  | { op: 'pageHelper' };
+  | { op: 'pageHelper' }
+  | { op: 'jobrightApply'; jobId: string };
 
 interface Arm {
   id: string;

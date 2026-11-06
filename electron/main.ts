@@ -7,6 +7,7 @@ import { Store } from './db';
 import { SyncService, SYNC_EXTENSION } from './sync/service';
 import { DiceInput, type TrustedRequest } from './diceInput';
 import { backTargetIndex, DICE_SEARCH_HOME, isDiceApplicationUrl, isDiceSearchUrl, searchIndex } from '../src/services/platforms/dice/navigation';
+import { jobrightApplyScript } from '../src/services/platforms/jobright/markApplied';
 import type { BridgeMethod, BrowserState, ClaudeChatCompleteRequest, ClaudeChatStatus } from '../src/platform/bridge';
 import { startClaudeChat, type ClaudeChatController } from './claudeChat';
 import { browserUserAgent, isSignInUrl } from './browserPolicy';
@@ -668,6 +669,18 @@ async function trustedFromPage(req: TrustedRequest): Promise<unknown> {
     if (!mainWorldScript || diceMonitor?.onChallengePage(wc) || isSignInUrl(wc.getURL())) return false;
     await wc.executeJavaScript(mainWorldScript, false);
     return true;
+  }
+  if (req.op === 'jobrightApply') {
+    const jobId = typeof req.jobId === 'string' ? req.jobId : '';
+    if (!/^[A-Za-z0-9_-]{4,80}$/.test(jobId)) throw new Error('Not a Jobright job.');
+    let host = '';
+    try {
+      host = new URL(wc.getURL()).hostname;
+    } catch {
+      throw new Error('Open the Jobright job page to mark it as applied there.');
+    }
+    if (!/(^|\.)jobright\.ai$/i.test(host)) throw new Error('Open the Jobright job page to mark it as applied there.');
+    return await wc.executeJavaScript(jobrightApplyScript(jobId), true);
   }
   if (!app.isPackaged && process.env.APPLYFLOW_NO_TRUSTED) throw new Error('Real input is switched off.');
   return diceInput.handle(req);

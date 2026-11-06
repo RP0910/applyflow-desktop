@@ -416,6 +416,17 @@ function Submitted({ wf }: { wf: Workflow }) {
         </p>
         {saved ? <p className="small">Saved {saved} files to {rec?.folderPath}</p> : null}
       </div>
+      {s.job.platform === 'jobright' ? (
+        <div className="row" style={{ justifyContent: 'center' }}>
+          {wf.jobrightMarked ? (
+            <p className="small">Marked as applied on Jobright.</p>
+          ) : (
+            <button type="button" className="btn btn-primary" disabled={wf.markingJobright} onClick={() => void wf.markOnJobright()}>
+              {wf.markingJobright ? 'Marking on Jobright…' : 'Mark as applied on Jobright'}
+            </button>
+          )}
+        </div>
+      ) : null}
       {bridge() ? (
         <div className="row" style={{ justifyContent: 'center' }}>
           <button type="button" className="btn btn-primary" onClick={() => void backToDiceSearch()}>

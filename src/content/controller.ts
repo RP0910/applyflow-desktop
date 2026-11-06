@@ -14,7 +14,8 @@ import { detectCaptcha, detectLoginRequired } from '@/services/platforms/dice/ad
 import { describeWizard, findDocumentCard, findFileInputFor, findNextControl, pageErrors, uploadTargets, wizardStep } from '@/services/platforms/dice/wizard';
 import type { FormSupport, JobSiteAdapter } from '@/services/platforms/types';
 import { ATS_SUCCESS_PATTERNS } from '@/services/platforms/ats/common';
-import { appliedConfirmDialog, confirmAppliedControl } from '@/services/platforms/jobright/adapter';
+import { appliedConfirmDialog, confirmAppliedControl, jobrightJobId } from '@/services/platforms/jobright/adapter';
+import { postJobrightApplied, readJobrightApplyResult } from '@/services/platforms/jobright/markApplied';
 import { controlLabel, visibleText } from '@/services/platforms/dom';
 import { answerFieldAsync, fillFieldsAsync, highlightField, probeComboboxes, scanFields } from '@/services/forms/domFields';
 import { browserUploadDeps, uploadDocument, type UploadDeps } from '@/services/forms/upload';
@@ -30,6 +31,8 @@ export interface ControllerEnv {
   uploadDeps?: UploadDeps;
   sleep?: (ms: number) => Promise<void>;
   navigate?: (url: string) => void;
+  /** Used when the desktop page session isn’t available (tests). */
+  fetch?: (url: string, init: { method: string; credentials: 'include'; headers: Record<string, string>; body: string }) => Promise<{ status: number; json: () => Promise<unknown> }>;
 }
 
 const DICE_FORMS: FormSupport = {
@@ -278,17 +281,32 @@ export function createContentController(env: ControllerEnv) {
     return loginStep(doc, name, input);
   }
 
-  function confirmJobrightApplied(): ContentResponseMap['AF_CONFIRM_JOBRIGHT_APPLIED'] {
+  async function confirmJobrightApplied(): Promise<ContentResponseMap['AF_CONFIRM_JOBRIGHT_APPLIED']> {
     const adapter = adapterForUrl(env.url());
     if (adapter?.id !== 'jobright') {
-      return { ok: false, clicked: false, message: 'Open the Jobright job page to mark it as applied there.' };
+      return { ok: false, clicked: false, settled: false, message: 'Open the Jobright job page to mark it as applied there.' };
     }
     const btn = confirmAppliedControl(env.doc);
-    if (!btn) {
-      return { ok: false, clicked: false, message: 'Jobright’s “I applied” confirmation isn’t on this page yet.' };
+    if (btn) {
+      btn.click();
+      return { ok: true, clicked: true, settled: true, via: 'dialog', message: 'Marked as applied on Jobright.' };
     }
-    btn.click();
-    return { ok: true, clicked: true, message: 'Marked as applied on Jobright.' };
+    const jobId = jobrightJobId(env.url());
+    if (!jobId) return { ok: false, clicked: false, settled: false, message: 'Open the Jobright job page to mark it as applied there.' };
+    try {
+      const trusted = env.uploadDeps?.trusted?.postJobrightApplied;
+      let posted: ReturnType<typeof readJobrightApplyResult> | null = null;
+      if (trusted) {
+        const raw = await trusted(jobId);
+        posted = readJobrightApplyResult(raw?.status ?? 0, raw?.json ?? null);
+      } else if (env.fetch) {
+        posted = await postJobrightApplied(jobId, env.fetch, new URL(env.url()).origin);
+      }
+      if (!posted) return { ok: false, clicked: false, settled: false, message: 'Jobright’s “I applied” confirmation isn’t on this page yet.' };
+      return { ok: posted.ok, clicked: posted.ok, settled: posted.settled, via: 'api', message: posted.message };
+    } catch {
+      return { ok: false, clicked: false, settled: false, message: 'Jobright didn’t record this application.' };
+    }
   }
 
   async function openApplication(direct = false): Promise<OpenApplicationResponse> {
@@ -377,7 +395,7 @@ export function createContentController(env: ControllerEnv) {
       case 'AF_DIAGNOSE':
         return { ok: true, text: describeWizard(env.doc) } as ContentResponseMap[K];
       case 'AF_CONFIRM_JOBRIGHT_APPLIED':
-        return confirmJobrightApplied() as ContentResponseMap[K];
+        return confirmJobrightApplied() as Promise<ContentResponseMap[K]>;
       default:
         throw new Error('Unknown message');
     }
