@@ -152,7 +152,12 @@ html, body, #root { height: 100%; overflow: hidden; }
 .studio-canvas .pdf-frame { border-radius: var(--radius); max-height: none !important; }
 .studio-busy { position: absolute; top: 10px; right: 12px; display: inline-flex; gap: 6px; align-items: center; font-size: 12.5px; color: var(--muted); background: var(--surface); padding: 3px 8px; border-radius: var(--pill); box-shadow: var(--shadow); }
 
-.analytics-toolbar { margin-bottom: 4px; }
+.analytics-toolbar { margin-bottom: 4px; align-items: center; gap: 12px; }
+.analytics-asof { margin: 0; font-size: 12.5px; color: var(--muted); white-space: nowrap; }
+.analytics-insights { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
+.analytics-insights li { font-size: 13.5px; line-height: 1.45; }
+.analytics-bar-extra { display: inline-flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.analytics-go { white-space: nowrap; }
 .analytics-stats {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
@@ -189,11 +194,16 @@ html, body, #root { height: 100%; overflow: hidden; }
   padding: 8px 2px 0; overflow-x: auto;
 }
 .analytics-week-col { flex: 1 1 28px; min-width: 28px; display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.analytics-week.dense { gap: 3px; }
+.analytics-week.dense .analytics-week-col { min-width: 16px; flex-basis: 16px; }
+.analytics-week.dense .analytics-week-bar { width: 7px; }
 .analytics-week-bars { display: flex; align-items: flex-end; gap: 3px; height: 120px; width: 100%; justify-content: center; }
 .analytics-week-bar { width: 10px; min-height: 2px; border-radius: 3px 3px 0 0; }
 .analytics-week-bar.prepared { background: #94a3b8; }
 .analytics-week-bar.applied { background: var(--blue); }
-.analytics-week-label { font-size: 10.5px; color: var(--muted); white-space: nowrap; }
+.analytics-week-col.current .analytics-week-label { color: var(--ink); font-weight: 700; }
+.analytics-week-bar.current { box-shadow: inset 0 0 0 1px var(--ink); }
+.analytics-week-label { font-size: 10.5px; color: var(--muted); white-space: nowrap; min-height: 14px; }
 .analytics-legend { display: inline-flex; align-items: center; gap: 6px; margin-right: 14px; font-size: 12.5px; color: var(--muted); }
 .analytics-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; }
 .analytics-legend i.prepared { background: #94a3b8; }

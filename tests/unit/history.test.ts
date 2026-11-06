@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { EMPTY_FILTERS, type ApplicationRecord } from '@/types';
-import { csvCell, toCsv, toJson, parseImport, findDuplicates, filterApplications, setStage, addNote, duplicateApplication, recordFromSession, isFollowUpDue, hasApplied } from '@/services/history/history';
+import { csvCell, toCsv, toJson, parseImport, findDuplicates, filterApplications, setStage, addNote, duplicateApplication, recordFromSession, isFollowUpDue, hasApplied, closeJobRecord } from '@/services/history/history';
 import { emptySession, mockJob } from '../helpers';
 
 function rec(over: Partial<ApplicationRecord> = {}): ApplicationRecord {
@@ -27,6 +27,7 @@ describe('duplicate detection', () => {
 
   it('knows which stages count as already applied', () => {
     expect(hasApplied(rec({ stage: 'Interview' }))).toBe(true);
+    expect(hasApplied(rec({ stage: 'Closed Job' }))).toBe(true);
     expect(hasApplied(rec({ stage: 'Resume Ready' }))).toBe(false);
   });
 });
@@ -38,6 +39,11 @@ describe('history records', () => {
     expect(r.dateApplied).toBeTruthy();
     const next = setStage(r, 'Interview');
     expect(next.stageHistory.map((s) => s.stage)).toEqual(['Applied', 'Interview']);
+    const closed = closeJobRecord(r, { source: 'jobright' });
+    expect(closed?.stage).toBe('Closed Job');
+    expect(closed?.notes.some((n) => /Jobright reports this posting is closed/.test(n.text))).toBe(true);
+    expect(closeJobRecord(next, { source: 'jobright' })).toBeNull();
+    expect(closeJobRecord(next, { force: true, source: 'manual' })?.stage).toBe('Closed Job');
     expect(addNote(next, '  Recruiter call Tuesday ').notes[0]!.text).toBe('Recruiter call Tuesday');
     const dup = duplicateApplication(next);
     expect(dup.id).not.toBe(next.id);

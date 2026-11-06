@@ -9,7 +9,7 @@ import { TabUnreachableError } from '@/services/messaging';
 import { getApiKey } from '@/storage/settingsStore';
 import { onDataChange } from '@/storage/events';
 import { formKeyFor } from '@/services/platforms/registry';
-import { ensureSiteCredential, saveSiteCredential, getApplication, getSession, latestSession, listApplications, saveApplication, saveProfile, saveSession } from '@/storage/repositories';
+import { ensureSiteCredential, saveSiteCredential, findApplicationsByJobKey, getApplication, getSession, latestSession, listApplications, saveApplication, saveProfile, saveSession } from '@/storage/repositories';
 import { planAts, runAnalysis, runCoverLetter, runDocuments, revalidateEdited, revalidateLetter, scanTailored, scoreMaster, scoreTailored, type EngineDeps } from '@/services/workflow/engine';
 import { saveResume } from '@/storage/repositories';
 import { parseCheckPdf } from '@/services/ats/parseCheck';
@@ -18,7 +18,7 @@ import { missingQualifications } from '@/services/analysis/localAnalyzer';
 import { applyAutoFixes } from '@/services/tailoring/autofix';
 import { masterStamp } from '@/services/resume/facts';
 import { validateTailoredResume } from '@/services/tailoring/validator';
-import { findDuplicates, hasApplied, recordFromSession, type DuplicateCheck } from '@/services/history/history';
+import { addNote, closeJobRecord, findDuplicates, hasApplied, recordFromSession, type DuplicateCheck } from '@/services/history/history';
 import { buildAllDocs, uploadFileName, uploadPayload } from '@/services/export/bundle';
 import { folderFor, planApplicationFiles } from '@/services/downloads/planner';
 import { downloadFiles, showInFolder, type DownloadsApi } from '@/services/downloads/downloader';
@@ -105,6 +105,15 @@ function syncOpeningOverlay(run: ApplyRunState): void {
   window.dispatchEvent(new CustomEvent('af:opening', { detail: { show, label } }));
 }
 
+async function applicationFor(s: JobSession): Promise<ApplicationRecord | null> {
+  if (s.applicationId) {
+    const byId = await getApplication(s.applicationId);
+    if (byId) return byId;
+  }
+  const matches = await findApplicationsByJobKey(s.jobKey);
+  return matches[0] ?? null;
+}
+
 export function useWorkflow(inputs: WorkflowInputs, deps: WorkflowDeps) {
   const { settings, resumes, profile } = inputs;
   const [tabId, setTabId] = useState<number | null>(deps.pinnedTabId ?? null);
@@ -172,6 +181,27 @@ export function useWorkflow(inputs: WorkflowInputs, deps: WorkflowDeps) {
     return { settings, apiKey: await getApiKey(), signal: abortRef.current.signal, onUsage, onStatus: setStep, ...deps.engine };
   }, [settings, deps.engine, setStep]);
 
+  const markJobClosed = useCallback(async () => {
+    const s = sessionRef.current;
+    if (!s) return;
+    const source = page?.site === 'jobright' ? 'jobright' : 'manual';
+    const note = source === 'jobright' ? 'Jobright reports this posting is closed.' : 'Marked as a closed job posting.';
+    let app = await applicationFor(s);
+    if (app) {
+      const next = closeJobRecord(app, { force: true, source });
+      if (!next) {
+        setApplication(app);
+        return;
+      }
+      app = await saveApplication(next);
+    } else {
+      app = await saveApplication(addNote(recordFromSession(s, 'Closed Job'), note));
+    }
+    setApplication(app);
+    const cur = sessionRef.current ?? s;
+    if (cur.applicationId !== app.id) await setSession({ ...cur, applicationId: app.id });
+  }, [page?.site, setSession]);
+
   const upsertRecord = useCallback(async (s: JobSession, stage: ApplicationStage, extra: Partial<ApplicationRecord> = {}) => {
     const existing = s.applicationId ? await getApplication(s.applicationId) : undefined;
     const order: ApplicationStage[] = ['Saved', 'Analyzed', 'Resume Ready', 'Ready to Apply', 'Applied'];
@@ -223,8 +253,14 @@ export function useWorkflow(inputs: WorkflowInputs, deps: WorkflowDeps) {
         if (existing.jobKey !== sessionRef.current?.jobKey) report(INITIAL_RUN);
         let s = existing;
         if (!s.analysis && master) s = await analyzeSession(s, master);
+        let app = await applicationFor(s);
+        if (state.site === 'jobright' && state.blocker?.kind === 'closed' && app) {
+          const closed = closeJobRecord(app, { source: 'jobright' });
+          if (closed) app = await saveApplication(closed);
+        }
+        if (app && s.applicationId !== app.id) s = { ...s, applicationId: app.id };
         await setSession(s);
-        setApplication(s.applicationId ? (await getApplication(s.applicationId)) ?? null : null);
+        setApplication(app);
         setDuplicates(findDuplicates(await listApplications(), s.jobKey, s.job.url, s.job.company, s.job.title));
         return;
       }
@@ -984,7 +1020,7 @@ export function useWorkflow(inputs: WorkflowInputs, deps: WorkflowDeps) {
     tabId, page, session, master, extractionError, phase, busy, progressText, notices, dismiss, notify, duplicates, duplicateApplied, application,
     view, setView, tone, setTone, run, fileName,
     leftApplication, returnToApplication, leaveApplication,
-    detect, quickApply, continueRun, answerQuestion, submit, recordManualSubmit, markOnJobright, markingJobright, jobrightMarked: Boolean(session && jobrightMarkedKey === session.jobKey), keepDiceResume, cancel, diagnose,
+    detect, quickApply, continueRun, answerQuestion, submit, recordManualSubmit, markOnJobright, markingJobright, jobrightMarked: Boolean(session && jobrightMarkedKey === session.jobKey), markJobClosed, keepDiceResume, cancel, diagnose,
     selectResume, regenerate, optimizeResume, updateResume, autoFixResume, confirmSkills, coverLetterAction, saveLetterText, patchSession, editJob, downloadNow, openFolder,
   };
 }

@@ -13,6 +13,7 @@ export const APPLICATION_STAGES = [
   'Rejected',
   'Withdrawn',
   'No Response',
+  'Closed Job',
 ] as const;
 
 export type ApplicationStage = (typeof APPLICATION_STAGES)[number];

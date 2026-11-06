@@ -32,7 +32,7 @@ const NAV: { id: DesktopView; label: string; icon: IconName; hint?: string }[] =
 
 const LEDES: Partial<Record<DesktopView, string>> = {
   applications: 'Search by company, recruiter, phone number, email, job title or skill — see exactly which resume you sent.',
-  analytics: 'Your local activity dashboard — applications, pipeline, weekly volume, companies and Claude usage. Nothing is sent anywhere.',
+  analytics: 'Applications through the current time: what you sent, who replied, what is waiting, and which Jobright postings closed.',
   library: 'Employer details are managed in Profile settings.',
   studio: 'Turn resume JSON into a PDF or Word file with ApplyFlow’s own renderer. Edit any saved resume and re-render it — no AI, no tokens.',
   profile: 'Contact details, full address and job-site logins used to fill applications. Employers and education are below.',
@@ -45,6 +45,7 @@ const SECTION_TO_VIEW: Record<string, DesktopView> = { library: 'profile', profi
 export function DesktopApp() {
   const [view, setView] = useState<DesktopView>('apply');
   const [focus, setFocus] = useState<string | null>(null);
+  const [focusTick, setFocusTick] = useState(0);
   const [searchSignal, setSearchSignal] = useState(0);
   const [studioDoc, setStudioDoc] = useState<{ json: string; title: string } | null>(null);
   const settingsCtl = useSettings();
@@ -54,10 +55,19 @@ export function DesktopApp() {
     const b = bridge();
     const offNav = b?.on('app:navigate', (n) => {
       setView(n.view === 'library' ? 'profile' : n.view);
-      if (n.focus) setFocus(n.focus);
+      if (n.focus) {
+        setFocus(n.focus);
+        setFocusTick((x) => x + 1);
+      }
       if (n.search) setSearchSignal((x) => x + 1);
     });
-    const onSection = (section: string) => setView(SECTION_TO_VIEW[section] ?? 'apply');
+    const onSection = (section: string, focusId?: string) => {
+      setView(SECTION_TO_VIEW[section] ?? 'apply');
+      if (focusId) {
+        setFocus(focusId);
+        setFocusTick((x) => x + 1);
+      }
+    };
     navigateListeners.add(onSection);
     return () => {
       offNav?.();
@@ -68,6 +78,12 @@ export function DesktopApp() {
   const openStudio = useCallback((json: string, title: string) => {
     setStudioDoc({ json, title });
     setView('studio');
+  }, []);
+
+  const openApplication = useCallback((id: string) => {
+    setFocus(id);
+    setFocusTick((n) => n + 1);
+    setView('applications');
   }, []);
 
   const current = NAV.find((n) => n.id === view)!;
@@ -110,8 +126,8 @@ export function DesktopApp() {
         <main className={`ws-main desktop-main${view === 'applications' || view === 'studio' || view === 'analytics' ? ' desktop-main-wide' : ''}`}>
           <h1>{current.label}</h1>
           {LEDES[view] ? <p className="lede">{LEDES[view]}</p> : null}
-          {view === 'applications' ? <ApplicationsView focus={focus} searchSignal={searchSignal} onOpenStudio={openStudio} /> : null}
-          {view === 'analytics' ? <AnalyticsView onOpenApplications={() => setView('applications')} /> : null}
+          {view === 'applications' ? <ApplicationsView focus={focus} focusTick={focusTick} searchSignal={searchSignal} onOpenStudio={openStudio} /> : null}
+          {view === 'analytics' ? <AnalyticsView onOpenApplication={openApplication} /> : null}
           {view === 'studio' ? <PdfStudio initial={studioDoc} /> : null}
           {view === 'profile' ? (
             <>

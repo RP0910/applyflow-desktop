@@ -26,6 +26,7 @@ const MATCH_LABEL: Record<SearchHit['matchedOn'][number], string> = {
 
 function stageTone(stage: ApplicationStage): string {
   if (['Interview', 'Technical Interview', 'Offer', 'Recruiter Contacted'].includes(stage)) return 'chip-green';
+  if (stage === 'Closed Job') return 'chip-amber';
   if (['Rejected', 'Withdrawn', 'No Response'].includes(stage)) return 'chip-red';
   if (stage === 'Applied') return 'chip-blue';
   return '';
@@ -42,19 +43,23 @@ function Snippet({ text }: { text: string }) {
   );
 }
 
-export function ApplicationsView({ focus, searchSignal, onOpenStudio }: { focus: string | null; searchSignal: number; onOpenStudio: (json: string, title: string) => void }) {
+export function ApplicationsView({ focus, focusTick = 0, searchSignal, onOpenStudio }: { focus: string | null; focusTick?: number; searchSignal: number; onOpenStudio: (json: string, title: string) => void }) {
   const [query, setQuery] = useState('');
   const [hits, setHits] = useState<SearchHit[]>([]);
   const [selected, setSelected] = useState<string | null>(focus);
   const [mode, setMode] = useState<'search' | 'table'>('search');
   const [tick, setTick] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
+  const listRef = useRef<HTMLUListElement>(null);
   const history = useHistory();
 
   useEffect(() => onDataChange((t) => (t === 'applications' || t === 'sessions') && setTick((n) => n + 1)), []);
   useEffect(() => {
-    if (focus) setSelected(focus);
-  }, [focus]);
+    if (!focus) return;
+    setSelected(focus);
+    setMode('search');
+    setQuery('');
+  }, [focus, focusTick]);
   useEffect(() => {
     if (!searchSignal) return;
     setMode('search');
@@ -81,6 +86,20 @@ export function ApplicationsView({ focus, searchSignal, onOpenStudio }: { focus:
       clearTimeout(t);
     };
   }, [query, tick]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const shown = useMemo(() => {
+    if (!selected || hits.some((h) => h.application.id === selected)) return hits;
+    const rec = history.records.find((r) => r.id === selected);
+    if (!rec) return hits;
+    const pinned: SearchHit = { application: rec, matchedOn: [], snippet: null, contacts: [] };
+    return [pinned, ...hits];
+  }, [hits, selected, history.records]);
+
+  useEffect(() => {
+    if (!selected) return;
+    const esc = typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(selected) : selected.replace(/"/g, '');
+    listRef.current?.querySelector<HTMLElement>(`[data-app-id="${esc}"]`)?.scrollIntoView({ block: 'nearest' });
+  }, [selected, shown, focusTick]);
 
   if (mode === 'table') {
     return (
@@ -112,17 +131,17 @@ export function ApplicationsView({ focus, searchSignal, onOpenStudio }: { focus:
           />
         </div>
         <div className="row-between apps-list-head">
-          <span className="small muted">{query.trim() ? `${hits.length} match${hits.length === 1 ? '' : 'es'}` : `${hits.length} most recent`}</span>
+          <span className="small muted">{query.trim() ? `${shown.length} match${shown.length === 1 ? '' : 'es'}` : `${shown.length} most recent`}</span>
           <button type="button" className="btn btn-quiet btn-sm" onClick={() => setMode('table')}>
             Table view
           </button>
         </div>
-        <ul className="list-plain apps-results">
-          {hits.map((h) => {
+        <ul className="list-plain apps-results" ref={listRef}>
+          {shown.map((h) => {
             const a = h.application;
             return (
               <li key={a.id}>
-                <button type="button" className="apps-item" aria-current={selected === a.id ? 'true' : undefined} onClick={() => setSelected(a.id)}>
+                <button type="button" className="apps-item" data-app-id={a.id} aria-current={selected === a.id ? 'true' : undefined} onClick={() => setSelected(a.id)}>
                   <span className="row-between">
                     <span className="apps-company">{a.company || 'Unknown company'}</span>
                     <span className={`chip ${stageTone(a.stage)}`}>{a.stage}</span>
@@ -147,7 +166,7 @@ export function ApplicationsView({ focus, searchSignal, onOpenStudio }: { focus:
               </li>
             );
           })}
-          {!hits.length ? (
+          {!shown.length ? (
             <li className="empty">
               {query.trim() ? (
                 <>

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { ApplicationRecord } from '@/types';
 import { buildAnalytics, rangeStartIso } from '@/services/history/analytics';
+import { addDays, todayLocal } from '@/utils/dates';
 
 function app(partial: Partial<ApplicationRecord> & Pick<ApplicationRecord, 'id' | 'stage'>): ApplicationRecord {
   const now = '2026-11-01T12:00:00.000Z';
@@ -52,6 +53,42 @@ describe('application analytics', () => {
     expect(snap.topCompanies[0]).toMatchObject({ name: 'Acme', count: 2 });
     expect(snap.screeningAnswers).toBe(1);
     expect(snap.responseRate).toBeGreaterThan(0);
-    expect(rangeStartIso('7d', now)).toMatch(/^2026-10-27/);
+    expect(snap.activity.at(-1)?.current).toBe(true);
+    expect(snap.activity.at(-1)?.key).toBe(todayLocal(new Date(now)));
+    const start = rangeStartIso('7d', now)!;
+    expect(todayLocal(new Date(start))).toBe(addDays(todayLocal(new Date(now)), -6));
+    expect(new Date(start).getHours()).toBe(0);
+  });
+
+  it('includes an application saved at the current time and ignores closed jobs as replies', () => {
+    const now = Date.parse('2026-11-06T15:45:00.000Z');
+    const today = new Date(now).toISOString();
+    const todayDay = todayLocal(new Date(now));
+    const windowStart = addDays(todayDay, -6);
+    const earlier = new Date(now - 2 * 86_400_000).toISOString();
+    const records = [
+      app({ id: 'now', stage: 'Applied', dateApplied: today, datePrepared: today, createdAt: today, updatedAt: today }),
+      app({ id: 'edge', stage: 'Saved', datePrepared: windowStart, dateApplied: null, createdAt: windowStart, updatedAt: windowStart }),
+      app({
+        id: 'closed',
+        stage: 'Closed Job',
+        dateApplied: earlier,
+        datePrepared: earlier,
+        createdAt: earlier,
+        updatedAt: today,
+        stageHistory: [{ stage: 'Closed Job', at: today }],
+      }),
+      app({ id: 'silent', stage: 'No Response', dateApplied: earlier, datePrepared: earlier, createdAt: earlier, updatedAt: earlier }),
+    ];
+    const snap = buildAnalytics(records, { range: '7d', now });
+    expect(snap.inRange).toBe(4);
+    expect(snap.appliedToday).toBe(1);
+    expect(snap.activity.at(-1)?.applied).toBe(1);
+    expect(snap.activity[0]?.key).toBe(snap.rangeStart);
+    expect(snap.closedJobs).toBe(1);
+    expect(snap.replies).toBe(0);
+    expect(snap.responseRate).toBe(0);
+    expect(snap.byStage.some((s) => s.stage === 'Closed Job' && s.count === 1)).toBe(true);
+    expect(snap.insights.some((line) => /today|Closed Job|reply/i.test(line))).toBe(true);
   });
 });

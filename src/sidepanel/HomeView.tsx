@@ -395,6 +395,35 @@ function Review({ wf }: { wf: Workflow }) {
   );
 }
 
+function ClosedJobBanner({ wf }: { wf: Workflow }) {
+  const blocker = wf.page?.blocker;
+  if (blocker?.kind !== 'closed') return null;
+  const rec = wf.application;
+  const tracked = rec?.stage === 'Closed Job';
+  return (
+    <WarningBanner
+      tone="warning"
+      title="This job posting is closed"
+      actions={
+        wf.session ? (
+          tracked && rec ? (
+            <button type="button" className="btn btn-sm" onClick={() => openWorkspace('history', rec.id)}>
+              Go to this application
+            </button>
+          ) : (
+            <button type="button" className="btn btn-sm" disabled={wf.busy} onClick={() => void wf.markJobClosed()}>
+              {rec ? 'Mark as Closed Job' : 'Save as Closed Job'}
+            </button>
+          )
+        ) : undefined
+      }
+    >
+      {blocker.message}
+      {tracked ? ' Recorded as Closed Job.' : ' You can record it as Closed Job.'}
+    </WarningBanner>
+  );
+}
+
 function Submitted({ wf }: { wf: Workflow }) {
   const s = wf.session!;
   const rec = wf.application;
@@ -444,8 +473,8 @@ function Submitted({ wf }: { wf: Workflow }) {
             <Icon name="download" size={14} /> Save files
           </button>
         )}
-        <button type="button" className="btn btn-sm btn-outline" onClick={() => openWorkspace('history')}>
-          <Icon name="briefcase" size={14} /> Applications
+        <button type="button" className="btn btn-sm btn-outline" onClick={() => openWorkspace('history', rec?.id)}>
+          <Icon name="briefcase" size={14} /> {rec ? 'Go to this application' : 'Applications'}
         </button>
       </div>
     </section>
@@ -473,6 +502,7 @@ export function HomeView({ wf, lib, settings, hasKey }: { wf: Workflow; lib: Lib
   if (!s) {
     return (
       <div className="stack">
+        <ClosedJobBanner wf={wf} />
         {wf.extractionError ? (
           <WarningBanner
             tone="warning"
@@ -514,8 +544,17 @@ export function HomeView({ wf, lib, settings, hasKey }: { wf: Workflow; lib: Lib
   return (
     <div className="stack">
       <JobCard wf={wf} />
+      <ClosedJobBanner wf={wf} />
       {wf.duplicateApplied && wf.duplicates?.exact && !s.duplicateAcknowledged ? (
-        <WarningBanner tone="warning" title="You already applied to this job">
+        <WarningBanner
+          tone="warning"
+          title="You already applied to this job"
+          actions={
+            <button type="button" className="btn btn-sm" onClick={() => openWorkspace('history', wf.duplicates!.exact!.id)}>
+              Go to this application
+            </button>
+          }
+        >
           Recorded as “{wf.duplicates.exact.stage}” on {formatDisplayDate(wf.duplicates.exact.dateApplied ?? wf.duplicates.exact.datePrepared)}.
         </WarningBanner>
       ) : null}

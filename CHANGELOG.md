@@ -1,3 +1,7 @@
+# 2.3.5
+
+Added: a Closed Job stage when Jobright reports a posting is closed, with a link back to that application. Analytics now shows what you sent, who replied, what is still waiting, and which postings closed, and each row opens that application. See RELEASE-2.3.5.md.
+
 # 2.3.4
 
 Added: after a Jobright application, ApplyFlow marks the job applied on Jobright using the signed-in page, including when “Did you apply?” is not showing. The submitted screen has **Mark as applied on Jobright** if that step still needs you. See RELEASE-2.3.4.md.

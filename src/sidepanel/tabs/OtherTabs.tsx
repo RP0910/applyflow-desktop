@@ -4,15 +4,16 @@ import { HistoryList } from '@/components/HistoryTable';
 import { SettingsForm } from '@/components/SettingsForm';
 import { Icon } from '@/components/Icon';
 
-export const navigateListeners = new Set<(section: string) => void>();
+export const navigateListeners = new Set<(section: string, focusId?: string) => void>();
 
-export function openWorkspace(section: 'library' | 'profile' | 'history' | 'settings' | 'privacy'): void {
+export function openWorkspace(section: 'library' | 'profile' | 'history' | 'settings' | 'privacy', focusId?: string): void {
   if (navigateListeners.size) {
-    navigateListeners.forEach((l) => l(section));
+    navigateListeners.forEach((l) => l(section, focusId));
     return;
   }
-  if (typeof chrome !== 'undefined' && chrome.tabs && chrome.runtime?.getURL) void chrome.tabs.create({ url: chrome.runtime.getURL(`options.html#${section}`) });
-  else window.open(`options.html#${section}`, '_blank', 'noopener');
+  const hash = focusId ? `${section}?id=${encodeURIComponent(focusId)}` : section;
+  if (typeof chrome !== 'undefined' && chrome.tabs && chrome.runtime?.getURL) void chrome.tabs.create({ url: chrome.runtime.getURL(`options.html#${hash}`) });
+  else window.open(`options.html#${hash}`, '_blank', 'noopener');
 }
 
 export function HistoryTab({ h }: { h: HistoryController }) {

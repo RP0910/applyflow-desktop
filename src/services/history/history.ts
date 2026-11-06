@@ -115,7 +115,19 @@ export function findDuplicates(records: ApplicationRecord[], jobKey: string, url
 }
 
 export function hasApplied(r: ApplicationRecord | null): boolean {
-  return Boolean(r && (ACTIVE_STAGES.includes(r.stage) || r.stage === 'Rejected' || r.stage === 'Withdrawn' || r.stage === 'No Response'));
+  return Boolean(r && (ACTIVE_STAGES.includes(r.stage) || r.stage === 'Rejected' || r.stage === 'Withdrawn' || r.stage === 'No Response' || r.stage === 'Closed Job'));
+}
+
+/** Stages ApplyFlow may move to Closed Job when Jobright reports the posting closed. Later outcomes stay as they are until you change them. */
+const AUTO_CLOSE_STAGES: ApplicationStage[] = ['Saved', 'Analyzed', 'Resume Ready', 'Ready to Apply', 'Applied', 'No Response'];
+
+export function closeJobRecord(r: ApplicationRecord, opts: { force?: boolean; source?: 'jobright' | 'manual' } = {}): ApplicationRecord | null {
+  if (r.stage === 'Closed Job') return null;
+  if (!opts.force && !AUTO_CLOSE_STAGES.includes(r.stage)) return null;
+  const staged = setStage(r, 'Closed Job');
+  const note = opts.source === 'jobright' ? 'Jobright reports this posting is closed.' : 'Marked as a closed job posting.';
+  if (staged.notes.some((n) => n.text === note)) return staged;
+  return addNote(staged, note);
 }
 
 export function isFollowUpDue(r: ApplicationRecord, today = todayLocal()): boolean {

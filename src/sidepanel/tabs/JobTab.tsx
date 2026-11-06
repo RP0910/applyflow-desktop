@@ -6,6 +6,7 @@ import { JobDetailsEditor } from '@/components/JobDetailsEditor';
 import { Icon } from '@/components/Icon';
 import { formatDisplayDate } from '@/utils/dates';
 import { jobKeyFor } from '@/utils/jobKey';
+import { openWorkspace } from './OtherTabs';
 
 const REMOTE: Record<JobPosting['remoteStatus'], string> = { remote: 'Remote', hybrid: 'Hybrid', onsite: 'On-site', unknown: 'Not stated' };
 
@@ -95,8 +96,36 @@ export function JobTab({ wf }: { wf: Workflow }) {
       ) : null}
       {s ? (
         <>
+          {wf.page?.blocker?.kind === 'closed' ? (
+            <WarningBanner
+              tone="warning"
+              title="This job posting is closed"
+              actions={
+                wf.application?.stage === 'Closed Job' ? (
+                  <button type="button" className="btn btn-sm" onClick={() => openWorkspace('history', wf.application!.id)}>
+                    Go to this application
+                  </button>
+                ) : (
+                  <button type="button" className="btn btn-sm" disabled={wf.busy} onClick={() => void wf.markJobClosed()}>
+                    {wf.application ? 'Mark as Closed Job' : 'Save as Closed Job'}
+                  </button>
+                )
+              }
+            >
+              {wf.page.blocker.message}
+              {wf.application?.stage === 'Closed Job' ? ' Recorded as Closed Job.' : ' You can record it as Closed Job.'}
+            </WarningBanner>
+          ) : null}
           {wf.duplicateApplied && wf.duplicates?.exact ? (
-            <WarningBanner tone="warning" title="You already applied to this job">
+            <WarningBanner
+              tone="warning"
+              title="You already applied to this job"
+              actions={
+                <button type="button" className="btn btn-sm" onClick={() => openWorkspace('history', wf.duplicates!.exact!.id)}>
+                  Go to this application
+                </button>
+              }
+            >
               Recorded as “{wf.duplicates.exact.stage}” on {formatDisplayDate(wf.duplicates.exact.dateApplied ?? wf.duplicates.exact.datePrepared)}.
             </WarningBanner>
           ) : wf.duplicates?.similar.length ? (
