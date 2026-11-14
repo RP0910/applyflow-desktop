@@ -1,3 +1,7 @@
+# 2.3.7
+
+Fixed: signing out of Claude.ai no longer loads the login page in the hidden tab, so account windows stay open and a different account can sign in. The sign-in window stays up until that account finishes, and closing it while it is still opening does not bring it back. See RELEASE-2.3.7.md.
+
 # 2.3.6
 
 Changed: Claude.ai Chat starts each new conversation on the model and Speed chosen in Settings. A chat already in progress keeps the model it started with; changing the model or Speed starts a new chat. If Claude.ai cannot switch to that model, the prompt is not sent. See RELEASE-2.3.6.md.

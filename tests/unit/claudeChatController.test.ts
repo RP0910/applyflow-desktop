@@ -39,15 +39,29 @@ class FakeTab implements ClaudeTab {
 
   getURL() { return this.url; }
   getTitle() { return 'Claude'; }
-  isDestroyed() { return false; }
   onChallengePage() { return false; }
   focus() {}
   closed = 0;
   /** Page scripts that never answer (a frozen page): the next N snapshot calls hang. */
   hangSnapshots = 0;
   workers = 0;
-  close() { this.closed++; }
-  onClosed() {}
+  /** When set, close() destroys the tab so a sign-in watch stops. The background tab leaves this off. */
+  destroyOnClose = false;
+  destroyed = false;
+  /** Record the navigation but leave the current page in place (a sign-in window still showing the old account). */
+  deferNavigation = false;
+  private closedListeners = new Set<() => void>();
+  isDestroyed() { return this.destroyed; }
+  close() {
+    this.closed++;
+    if (this.destroyOnClose) this.destroyed = true;
+    for (const cb of this.closedListeners) cb();
+    this.closedListeners.clear();
+  }
+  onClosed(cb: () => void) {
+    if (this.destroyed) cb();
+    else this.closedListeners.add(cb);
+  }
 
   /** 'late': the page arrives but its load event never fires in time; 'stuck': the navigation never happens. */
   loadTrouble: 'late' | 'stuck' | null = null;
@@ -62,6 +76,7 @@ class FakeTab implements ClaudeTab {
 
   async load(url: string) {
     this.loads.push(url);
+    if (this.deferNavigation) return;
     if (this.blockLeave && /\/chat\//.test(this.url) && /\/new\/?$/.test(new URL(url).pathname)) {
       throw new Error('Could not open Claude.ai before the time limit.');
     }
@@ -136,7 +151,7 @@ class FakeTab implements ClaudeTab {
   }
 }
 
-function fakeBrowser(tab: FakeTab): ClaudeBrowser {
+function fakeBrowser(tab: FakeTab, loginOf: () => FakeTab | null): ClaudeBrowser {
   return {
     kind: 'chrome',
     partition: 'test',
@@ -145,7 +160,11 @@ function fakeBrowser(tab: FakeTab): ClaudeBrowser {
       tab.workers++;
       return tab;
     },
-    openLogin: async () => tab,
+    openLogin: async (url: string) => {
+      const target = loginOf() ?? tab;
+      await target.load(url);
+      return target;
+    },
     onMainResponse: () => () => undefined,
     reset: async () => undefined,
     close: () => undefined,
@@ -164,14 +183,16 @@ async function settle<T>(p: Promise<T>): Promise<T> {
 
 describe('Claude.ai Chat job runner', () => {
   let tab: FakeTab;
+  let loginTab: FakeTab | null;
   let seen: ClaudeChatStatus[];
   let chat: ClaudeChatController;
 
   beforeEach(async () => {
     vi.useFakeTimers();
     tab = new FakeTab();
+    loginTab = null;
     seen = [];
-    chat = startClaudeChat({ emit: (s) => seen.push(s), openBrowser: async () => fakeBrowser(tab), diagnostics });
+    chat = startClaudeChat({ emit: (s) => seen.push(s), openBrowser: async () => fakeBrowser(tab, () => loginTab), diagnostics });
     await vi.advanceTimersByTimeAsync(4_000);
     expect(chat.status().state).toBe('ready');
     seen = [];
@@ -409,6 +430,43 @@ describe('Claude.ai Chat job runner', () => {
     expect(res.ok).toBe(true);
     expect(tab.loads.slice(loadsBefore)).toContain(NEW_CHAT);
     expect(tab.composerText).toBe('Second prompt for the employer research.');
+  });
+
+  it('does not load the login page in the background after sign-out', async () => {
+    await settle(chat.signOut());
+    expect(chat.status()).toMatchObject({ state: 'signed_out' });
+    expect(tab.loads).not.toContain('https://claude.ai/login');
+    const loads = tab.loads.length;
+    await vi.advanceTimersByTimeAsync(91_000);
+    expect(tab.loads.slice(loads)).toEqual([]);
+    expect(chat.status().state).toBe('signed_out');
+  });
+
+  it('keeps the sign-in window open after sign-out until a different account finishes signing in', async () => {
+    await settle(chat.signOut());
+    loginTab = new FakeTab();
+    loginTab.destroyOnClose = true;
+    loginTab.deferNavigation = true;
+    loginTab.signedIn = true;
+    loginTab.url = NEW_CHAT;
+    chat.openLogin();
+    await vi.advanceTimersByTimeAsync(8_000);
+    expect(loginTab.closed).toBe(0);
+    expect(chat.status().detail).toMatch(/still signed in/);
+    expect(loginTab.loads.filter((url) => url === 'https://claude.ai/login').length).toBeLessThanOrEqual(2);
+
+    loginTab.deferNavigation = false;
+    loginTab.signedIn = false;
+    loginTab.url = 'https://claude.ai/login';
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(loginTab.closed).toBe(0);
+    expect(chat.status().state).toBe('connecting');
+
+    loginTab.signedIn = true;
+    loginTab.url = NEW_CHAT;
+    await vi.advanceTimersByTimeAsync(8_000);
+    expect(loginTab.closed).toBe(1);
+    expect(chat.status()).toMatchObject({ state: 'ready', detail: 'Connected' });
   });
 
   it('does not report a cut-off reply when the session is signed out', async () => {

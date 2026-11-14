@@ -56,6 +56,8 @@ export class ClaudeSignInWindow {
   private timer: ReturnType<typeof setInterval> | null = null;
   private inset: { left: number; top: number; right: number; bottom: number } | null = null;
   private headerReady: Promise<unknown> = Promise.resolve();
+  /** Bumped when the window is hidden, so an open() still in progress cannot show it again. */
+  private openGeneration = 0;
 
   constructor(
     private readonly opts: {
@@ -68,29 +70,34 @@ export class ClaudeSignInWindow {
   ) {}
 
   async open(onUserClose: () => void): Promise<boolean> {
+    const generation = ++this.openGeneration;
     this.onUserClose = onUserClose;
     const host = this.ensureHost();
     const helper = await this.opts.helper();
-    if (!helper) return false;
+    if (generation !== this.openGeneration || !helper) return false;
     // Electron adds its own input window for the header page once that page is up; embedding after it keeps
     // the Claude.ai page above it (raise() below also repairs the order if it changes later).
     await this.headerReady;
-    if (host.isDestroyed()) return false;
+    if (generation !== this.openGeneration || host.isDestroyed()) return false;
     if (!this.embedded) {
       try {
         await helper.embed(this.opts.page, handleOf(host));
+        if (generation !== this.openGeneration || host.isDestroyed()) return false;
         this.embedded = true;
       } catch {
         return false;
       }
     }
+    if (generation !== this.openGeneration || host.isDestroyed()) return false;
     if (!host.isVisible()) {
       this.center(host);
       host.show();
     }
     host.focus();
     await this.layout();
+    if (generation !== this.openGeneration || host.isDestroyed()) return false;
     await this.focusPage();
+    if (generation !== this.openGeneration) return false;
     this.timer ??= setInterval(() => {
       this.showAddress();
       void this.checkInset().then(() => this.raise()).then(() => this.focusPage());
@@ -107,6 +114,7 @@ export class ClaudeSignInWindow {
   }
 
   hide(): void {
+    this.openGeneration++;
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
     this.onUserClose = null;
@@ -173,9 +181,9 @@ export class ClaudeSignInWindow {
 
   private async layout(): Promise<void> {
     const host = this.host;
-    if (!host || host.isDestroyed() || !this.embedded) return;
+    if (!host || host.isDestroyed() || !host.isVisible() || !this.embedded) return;
     const helper = await this.opts.helper();
-    if (!helper) return;
+    if (!helper || host.isDestroyed() || !host.isVisible()) return;
     const page = this.opts.page;
     const [w, h] = host.getContentSize();
     const scale = screen.getDisplayMatching(host.getBounds()).scaleFactor || 1;

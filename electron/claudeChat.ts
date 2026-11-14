@@ -7,11 +7,14 @@ import { claudeReplyBody, parseAssistantJson } from './claudeReply';
 
 const HOME = 'https://claude.ai/';
 const NEW_CHAT = 'https://claude.ai/new';
+const LOGIN = 'https://claude.ai/login';
 const CHALLENGE_GRACE_MS = 20_000;
 const CHALLENGE_PAUSE_MS = 15 * 60_000;
 const CHALLENGE = 'Claude.ai wants a quick security check. Click the Claude.ai indicator and finish it in the window that opens. ApplyFlow will not bypass it.';
 const CHALLENGE_IN_WINDOW = 'Claude.ai is running a security check. If it asks, confirm you’re human in the sign-in window. ApplyFlow will not bypass it.';
 const SIGN_IN = 'Finish signing in to Claude.ai. ApplyFlow will not complete a CAPTCHA or security check for you.';
+const SWITCH_ACCOUNT = 'This Claude.ai account is still signed in. Log out of it in this window, then sign in with the other account. ApplyFlow will leave the window open.';
+const SIGNED_OUT = 'Signed out of Claude.ai. Click the indicator to sign in again.';
 const CHALLENGE_LOOP = 'Claude.ai’s security check keeps coming back, so it may not accept this browser on this network. ApplyFlow stopped reloading it. Try again later or from another network, or switch resume generation to the Claude API in Settings.';
 const SIGN_IN_HOSTS = /(^|\.)(accounts\.google\.com|login\.microsoftonline\.com|login\.live\.com|appleid\.apple\.com)$/i;
 
@@ -54,6 +57,9 @@ export function startClaudeChat(opts: {
   let worker: ClaudeTab | null = null;
   let login: ClaudeTab | null = null;
   let loginStarting = false;
+  /** Set after Sign out so the hidden Claude tab is not sent to the login page (that page opens windows we then close). */
+  let userSignedOut = false;
+  let disposed = false;
   let lastLoad = 0;
   let composerDirty = false;
   /** One Claude.ai thread per research title and one per resume title (retries reuse the same chat). */
@@ -213,7 +219,10 @@ export function startClaudeChat(opts: {
   };
 
   const checkStatus = async () => {
-    if (loginOpen()) return;
+    if (disposed || loginOpen()) return;
+    // A signed-out Claude.ai page opens account choosers. Those windows belong to the hidden tab, so ApplyFlow
+    // closes them as soon as they appear and the person never gets to sign in. Stay signed out until they use the sign-in window.
+    if (userSignedOut || current.state === 'signed_out') return;
     if (challengeAt && Date.now() - challengeAt < CHALLENGE_PAUSE_MS) return;
     const showWait = current.state !== 'ready';
     if (showWait) emit({ state: 'checking', detail: 'Checking Claude.ai…', checkedAt: current.checkedAt });
@@ -232,7 +241,9 @@ export function startClaudeChat(opts: {
         return;
       }
       challengeAt = 0;
-      emit(statusFromSnap(snap));
+      const next = statusFromSnap(snap);
+      if (next.state === 'signed_out') await holdSignedOut();
+      emit(next);
     } catch (e) {
       // A page held on Cloudflare's check never finishes loading; say so instead of "time limit".
       if (worker && !worker.isDestroyed() && worker.onChallengePage()) {
@@ -244,13 +255,27 @@ export function startClaudeChat(opts: {
     }
   };
 
+  /** Park the hidden tab off the login page so it stops opening account windows. */
+  const holdSignedOut = async () => {
+    userSignedOut = true;
+    const wc = worker;
+    if (!wc || wc.isDestroyed() || !onSignInPage(wc.getURL())) return;
+    try {
+      await wc.load('about:blank', 5_000);
+    } catch {
+    }
+    lastLoad = Date.now();
+  };
+
   const openLogin = () => {
+    if (disposed) return;
     if (login && !login.isDestroyed()) {
       login.focus();
       return;
     }
     if (loginStarting) return;
-    const closeWhenReady = current.state !== 'ready';
+    const switching = userSignedOut || current.state === 'signed_out';
+    const closeWhenReady = switching || current.state !== 'ready';
     challengeAt = 0;
     loginStarting = true;
     emit({ state: 'connecting', detail: SIGN_IN, checkedAt: current.checkedAt });
@@ -259,13 +284,21 @@ export function startClaudeChat(opts: {
     void (async () => {
       try {
         const b = await getBrowser();
-        const tab = await b.openLogin(NEW_CHAT);
+        if (disposed) return;
+        const tab = await b.openLogin(switching ? LOGIN : NEW_CHAT);
+        if (disposed || tab.isDestroyed()) {
+          if (!tab.isDestroyed()) tab.close();
+          return;
+        }
         login = tab;
         tab.onClosed(() => {
           if (login === tab) login = null;
+          if (!disposed && userSignedOut && current.state !== 'ready') {
+            emit({ state: 'signed_out', detail: SIGNED_OUT, checkedAt: new Date().toISOString() });
+          }
           scheduleCheck();
         });
-        void watchLogin(tab, closeWhenReady);
+        void watchLogin(tab, closeWhenReady, switching);
       } catch (e) {
         emit({ state: 'error', detail: e instanceof Error ? `Could not open the Claude.ai sign-in window: ${e.message}` : 'Could not open the Claude.ai sign-in window.', checkedAt: new Date().toISOString() });
       } finally {
@@ -274,26 +307,52 @@ export function startClaudeChat(opts: {
     })();
   };
 
-  const watchLogin = async (tab: ClaudeTab, closeWhenReady: boolean) => {
+  const watchLogin = async (tab: ClaudeTab, closeWhenReady: boolean, switching: boolean) => {
     let challengeSince = 0;
-    while (!tab.isDestroyed()) {
-      let snap: PageSnap | null = null;
+    let sawSignedOut = false;
+    let promptedLogin = false;
+    while (!disposed && !tab.isDestroyed()) {
+      let page: PageSnap | null = null;
       try {
-        snap = await readAuth(tab, 4_000);
+        page = await readAuth(tab, 4_000);
       } catch {
-        snap = null;
+        page = null;
       }
-      if (tab.isDestroyed()) return;
-      if (snap?.composer && !snap.signedOut && !snap.challenge && isClaudeUrl(snap.href)) {
-        challengeAt = 0;
-        emit({ state: 'ready', detail: 'Connected', checkedAt: new Date().toISOString() });
+      if (disposed || tab.isDestroyed()) return;
+      if (page?.signedOut || (page && onSignInPage(page.href))) sawSignedOut = true;
+      const signedIn = !!page && signedInSnap(page);
+      // The page still showing the account we just signed out of is not a new sign-in. Closing here
+      // made the window open and shut before the other account could be used.
+      if (signedIn && switching && !sawSignedOut) {
+        if (!promptedLogin) {
+          promptedLogin = true;
+          try {
+            await tab.load(LOGIN, 20_000);
+          } catch {
+          }
+        }
+        if (disposed || tab.isDestroyed()) return;
+        emit({ state: 'connecting', detail: SWITCH_ACCOUNT, checkedAt: current.checkedAt });
+        await delay(1500);
+        continue;
+      }
+      if (signedIn) {
         if (closeWhenReady) {
           await delay(900);
-          tab.close();
+          if (disposed || tab.isDestroyed()) return;
+          const again = await snap(tab).catch(() => null);
+          if (!again || !signedInSnap(again)) {
+            if (again?.signedOut || (again && onSignInPage(again.href))) sawSignedOut = true;
+            continue;
+          }
         }
+        userSignedOut = false;
+        challengeAt = 0;
+        emit({ state: 'ready', detail: 'Connected', checkedAt: new Date().toISOString() });
+        if (closeWhenReady) tab.close();
         return;
       }
-      if (snap?.challenge) {
+      if (page?.challenge) {
         challengeSince ||= Date.now();
         if (Date.now() - challengeSince >= CHALLENGE_STUCK_MS) checkNotAccepted(tab, tab.getURL(), `Security check still showing after ${CHALLENGE_STUCK_MS / 1000} s`);
       } else {
@@ -302,30 +361,41 @@ export function startClaudeChat(opts: {
       if (loopReported === tab) {
         if (current.detail !== CHALLENGE_LOOP) emit({ state: 'error', detail: CHALLENGE_LOOP, checkedAt: new Date().toISOString() });
       } else {
-        emit({ state: 'connecting', detail: snap?.challenge ? CHALLENGE_IN_WINDOW : SIGN_IN, checkedAt: current.checkedAt });
+        emit({ state: 'connecting', detail: page?.challenge ? CHALLENGE_IN_WINDOW : SIGN_IN, checkedAt: current.checkedAt });
       }
       await delay(1500);
     }
   };
 
-  const signOut = () => enqueue(async () => {
-    emit({ state: 'checking', detail: 'Signing out of Claude.ai…', checkedAt: current.checkedAt });
-    try {
-      await (await getBrowser()).reset();
-    } catch {
+  const signOut = () => {
+    userSignedOut = true;
+    const open = login;
+    if (open && !open.isDestroyed()) {
+      login = null;
+      open.close();
     }
-    lastLoad = 0;
-    challengeAt = 0;
-    chatSlots.clear();
-    composerDirty = false;
-    if (worker && !worker.isDestroyed()) {
+    return enqueue(async () => {
+      emit({ state: 'checking', detail: 'Signing out of Claude.ai…', checkedAt: current.checkedAt });
       try {
-        await worker.load('https://claude.ai/login', 30_000);
+        await (await getBrowser()).reset();
       } catch {
       }
-    }
-    emit({ state: 'signed_out', detail: 'Signed out of Claude.ai. Click the indicator to sign in again.', checkedAt: new Date().toISOString() });
-  });
+      lastLoad = 0;
+      challengeAt = 0;
+      chatSlots.clear();
+      composerDirty = false;
+      // Leave the hidden tab blank. Loading the login page there opens account windows, and ApplyFlow closes
+      // every window that tab opens, so the sign-in window flashes and a different account cannot sign in.
+      if (worker && !worker.isDestroyed() && isClaudeUrl(worker.getURL())) {
+        try {
+          await worker.load('about:blank', 5_000);
+        } catch {
+        }
+      }
+      recycleWorker();
+      emit({ state: 'signed_out', detail: SIGNED_OUT, checkedAt: new Date().toISOString() });
+    });
+  };
 
   const cancel = (requestId: string) => {
     if (!requestId) return;
@@ -628,7 +698,10 @@ export function startClaudeChat(opts: {
 
   const settleFailure = async (res: Failure): Promise<Failure> => {
     if (res.code === 'challenge') await needUser();
-    else if (res.code === 'signed_out') emit({ state: 'signed_out', detail: res.detail, checkedAt: new Date().toISOString() });
+    else if (res.code === 'signed_out') {
+      await holdSignedOut();
+      emit({ state: 'signed_out', detail: res.detail, checkedAt: new Date().toISOString() });
+    }
     else scheduleCheck();
     return res;
   };
@@ -643,6 +716,7 @@ export function startClaudeChat(opts: {
     complete,
     cancel,
     dispose: () => {
+      disposed = true;
       stopResponses?.();
       stopResponses = null;
       if (startupTimer) clearTimeout(startupTimer);
@@ -823,6 +897,10 @@ function liveChatSlot(slots: Map<string, ChatSlot>, key: string): string | undef
 
 function rememberChatSlot(slots: Map<string, ChatSlot>, key: string, url: string): void {
   if (isExistingChatUrl(url)) slots.set(key, { url, at: Date.now() });
+}
+
+function signedInSnap(snap: PageSnap): boolean {
+  return snap.composer && !snap.signedOut && !snap.challenge && isClaudeUrl(snap.href) && !onSignInPage(snap.href);
 }
 
 function onSignInPage(href: string): boolean {

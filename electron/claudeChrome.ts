@@ -121,7 +121,9 @@ class ClaudeChrome implements ClaudeBrowser {
   }
 
   alive(): boolean {
-    return !this.closed && !this.cdp.closed && !this.signInLost;
+    // Losing the sign-in window (the account page closed it) is not a dead browser. Relaunching Chrome here
+    // closed the window the person was using and opened another one.
+    return !this.closed && !this.cdp.closed;
   }
 
   async openWorker(): Promise<ClaudeTab> {
@@ -145,6 +147,8 @@ class ClaudeChrome implements ClaudeBrowser {
     if (!this.signInSurface || this.signInSurface.isDestroyed()) this.signInSurface = await this.attach(this.signInTarget, 'claude sign-in');
     const session = new SignInSession(this.signInSurface, win);
     const ok = await win.open(() => session.end());
+    // The person closed the window while it was opening. Another window would just flash open and shut.
+    if (session.isDestroyed()) return session;
     if (!ok) return null;
     void this.signInSurface.navigate(url).catch(() => undefined);
     return session;
@@ -221,9 +225,20 @@ class ClaudeChrome implements ClaudeBrowser {
   }
 
   async reset(): Promise<void> {
-    await this.cdp.send('Storage.clearCookies').catch(() => undefined);
-    for (const origin of ['https://claude.ai', 'https://www.claude.ai', 'https://anthropic.com']) {
-      await this.cdp.send('Storage.clearDataForOrigin', { origin, storageTypes: 'all' }).catch(() => undefined);
+    try {
+      const got = await this.cdp.send<{ cookies?: { domain?: string }[] }>('Network.getAllCookies');
+      await this.cdp.send('Network.clearBrowserCookies');
+      const origins = new Set<string>(['https://claude.ai', 'https://www.claude.ai', 'https://anthropic.com', 'https://accounts.google.com']);
+      for (const cookie of got.cookies ?? []) {
+        const host = (cookie.domain ?? '').replace(/^\./, '');
+        if (host) origins.add(`https://${host}`);
+      }
+      for (const origin of origins) await this.cdp.send('Storage.clearDataForOrigin', { origin, storageTypes: 'all' }).catch(() => undefined);
+    } catch {
+      await this.cdp.send('Storage.clearCookies').catch(() => undefined);
+      for (const origin of ['https://claude.ai', 'https://www.claude.ai', 'https://anthropic.com']) {
+        await this.cdp.send('Storage.clearDataForOrigin', { origin, storageTypes: 'all' }).catch(() => undefined);
+      }
     }
     for (const tab of this.tabs.values()) tab.challenge = false;
     this.opts.diagnostics.record({ partition: PARTITION, source: 'settings', kind: 'session-reset' });
@@ -296,6 +311,8 @@ class ClaudeChrome implements ClaudeBrowser {
     const p = event.params;
     if (event.method === 'Target.targetCreated') {
       const info = p.targetInfo as { targetId?: string; type?: string; openerId?: string } | undefined;
+      // Popups from the hidden tab (not the sign-in window) are closed. The hidden tab must not sit on the
+      // login page, or this closes the account chooser as fast as Claude.ai opens it.
       if (info?.targetId && info.type === 'page' && info.openerId && info.openerId === this.workerTarget) {
         void this.cdp.send('Target.closeTarget', { targetId: info.targetId }).catch(() => undefined);
       }
