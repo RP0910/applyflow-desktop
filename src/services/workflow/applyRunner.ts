@@ -5,6 +5,13 @@ import { proposeFieldValues, rememberAnswer, toScreeningControl } from '@/servic
 import { classifyCapture, isLongFormQuestion, type PageLearnItem } from '@/services/applymind/capture';
 import { countryFromLocation, matchFactQuestion, optionsKey, resolvedFactKey, type StoredFact } from '@/services/applymind/factRules';
 import { formKeyFor } from '@/services/platforms/registry';
+import {
+  identityFromSession,
+  isConfidentMatch,
+  matchJobIdentity,
+  observedFromPage,
+  pageLeftThisJob,
+} from '@/services/workflow/jobIdentity';
 
 export type StageKey = 'documents' | 'open' | 'attach' | 'questions' | 'review';
 export type StageState = 'todo' | 'active' | 'done' | 'skipped' | 'error';
@@ -125,11 +132,31 @@ function stopFor(io: RunnerIO, b: PageBlocker): 'external' | 'stopped' {
 
 const siteOf = (s: Pick<PageState, 'siteName'> | null | undefined) => s?.siteName || 'the site';
 
+function identityOpts(io: RunnerIO) {
+  const r = io.state();
+  return { formKey: r.formKey, formUrl: r.formUrl };
+}
+
+function verifyAgainstSession(io: RunnerIO, st: PageState) {
+  const session = io.session();
+  if (!session) return null;
+  return matchJobIdentity(identityFromSession(session), observedFromPage(st), identityOpts(io));
+}
+
 function formOpened(io: RunnerIO, st: PageState): 'open' | 'stopped' {
   const key = formKeyFor(st.url);
   const prev = io.state().formKey;
   if (prev && prev !== key) {
     return attention(io, `This page isn’t the application ApplyFlow opened for this job (${siteOf(st)}). Go back to that application to continue, or open the job you want and press Tailor & Apply there. Nothing was filled here.`, 'Different application');
+  }
+  const match = verifyAgainstSession(io, st);
+  if (match?.verdict === 'mismatch') {
+    stage(io, 'open', 'error');
+    return attention(
+      io,
+      `This application doesn’t match the job used for your tailored resume (${io.session()?.job.title || 'this job'} at ${io.session()?.job.company || 'the employer'}). ${match.reasons[0] ?? ''} Open the correct job, then press Continue.`.trim(),
+      'Wrong job application',
+    );
   }
   stage(io, 'open', 'done');
   if (!prev) patch(io, { formKey: key, formUrl: st.url });
@@ -141,15 +168,27 @@ function formOpened(io: RunnerIO, st: PageState): 'open' | 'stopped' {
  * application (e.g. Jobright closed its job drawer and dropped ?jobId=). Its
  * Apply buttons belong to other jobs, so nothing may be pressed there.
  */
-export function leftThisJob(st: PageState | null | undefined, session: Pick<JobSession, 'jobKey'> | null | undefined): boolean {
-  if (!st || !session || st.hasApplicationForm) return false;
-  if (st.pageType === 'search') return true;
-  return st.pageType === 'job-detail' && Boolean(st.jobKey) && st.jobKey !== session.jobKey && (st.site === 'dice' || st.site === 'jobright');
+export function leftThisJob(st: PageState | null | undefined, session: Pick<JobSession, 'jobKey' | 'job'> | null | undefined): boolean {
+  return pageLeftThisJob(st, session);
 }
 
 /** Where to send the job tab to get back to this job: the form already opened, else the job page. */
 export function returnUrl(run: Pick<ApplyRunState, 'formUrl'>, session: Pick<JobSession, 'job'> | null | undefined): string | null {
   return run.formUrl || session?.job.url || null;
+}
+
+function landedOnThisJob(io: RunnerIO, s: PageState): boolean {
+  if (s.blocker) return true;
+  const match = verifyAgainstSession(io, s);
+  if (!match) return false;
+  if (s.hasApplicationForm) {
+    if (isConfidentMatch(match)) return true;
+    const r = io.state();
+    if (r.formUrl && s.url.split('#')[0] === r.formUrl.split('#')[0]) return true;
+    if (r.formKey && formKeyFor(s.url) === r.formKey) return true;
+    return false;
+  }
+  return s.pageType === 'job-detail' && isConfidentMatch(match);
 }
 
 async function returnToJob(io: RunnerIO, st: PageState): Promise<PageState | 'stopped'> {
@@ -167,25 +206,72 @@ async function returnToJob(io: RunnerIO, st: PageState): Promise<PageState | 'st
     await io.sleep(poll);
     const s = await safe(io.send({ type: 'AF_GET_PAGE_STATE' }));
     if (!s || s.url === st.url) continue;
-    if (s.hasApplicationForm || s.blocker || (s.pageType === 'job-detail' && s.jobKey === io.session()?.jobKey)) return s;
+    if (landedOnThisJob(io, s)) return s;
   }
   stage(io, 'open', 'error');
   return attention(io, `ApplyFlow couldn’t get back to ${io.session()?.job.title || 'this job'}. Open it in the Jobs tab, then press Continue.`, 'Go back to the job');
 }
 
+/**
+ * Before clicking Apply, require the Jobs tab to show this session’s job (or its
+ * already-opened form). Recover by navigating to the job/form URL when needed.
+ */
+async function ensureOnThisJob(io: RunnerIO, st: PageState | null): Promise<PageState | 'stopped'> {
+  if (!st) return attention(io, 'ApplyFlow can’t reach this page. Reload it and try again.') as 'stopped';
+  const session = io.session();
+  if (!session) return attention(io, 'Open the job first.') as 'stopped';
+
+  if (st.hasApplicationForm) {
+    const match = verifyAgainstSession(io, st);
+    if (match?.verdict === 'mismatch') {
+      const back = await returnToJob(io, st);
+      return back;
+    }
+    return st;
+  }
+
+  const match = verifyAgainstSession(io, st);
+  if (match && isConfidentMatch(match)) return st;
+
+  // Already at the session job URL but signals are thin — still safe to open Apply.
+  if (match && match.verdict === 'unknown' && st.pageType === 'job-detail') {
+    const atJobUrl = returnUrl({ formUrl: null }, session) && st.url.split('#')[0] === session.job.url.split('#')[0];
+    const sameKey = Boolean(st.jobKey && st.jobKey === session.jobKey);
+    if (sameKey || atJobUrl) return st;
+  }
+
+  // Only recover from board/list mismatches here. Employer ATS pages (login walls,
+  // postings mid-hop) are handled after Apply is pressed — do not bounce back to the board.
+  if (leftThisJob(st, session) || match?.verdict === 'mismatch') {
+    const back = await returnToJob(io, st);
+    if (back === 'stopped') return 'stopped';
+    const again = verifyAgainstSession(io, back);
+    if (back.hasApplicationForm) return back;
+    if (again && isConfidentMatch(again)) return back;
+    if (again?.verdict === 'mismatch') {
+      stage(io, 'open', 'error');
+      return attention(
+        io,
+        `The browser still doesn’t show the job for your tailored resume (${session.job.title} at ${session.job.company}). Open that job in the Jobs tab, then press Continue.`,
+        'Wrong job page',
+      ) as 'stopped';
+    }
+    return back;
+  }
+  return st;
+}
+
 export async function ensureApplicationOpen(io: RunnerIO): Promise<'open' | 'external' | 'stopped'> {
   const poll = io.pollMs ?? 400;
   let st = await safe(io.send({ type: 'AF_GET_PAGE_STATE' }));
-  if (st && leftThisJob(st, io.session())) {
-    const back = await returnToJob(io, st);
-    if (back === 'stopped') return 'stopped';
-    st = back;
-  }
-  if (st?.blocker) return stopFor(io, st.blocker);
-  if (st?.hasApplicationForm) return formOpened(io, st);
+  const ensured = await ensureOnThisJob(io, st);
+  if (ensured === 'stopped') return 'stopped';
+  st = ensured;
+  if (st.blocker) return stopFor(io, st.blocker);
+  if (st.hasApplicationForm) return formOpened(io, st);
   stage(io, 'open', 'active');
   patch(io, { status: 'working', label: 'Opening the application…' });
-  const multiHop = st?.site !== 'dice';
+  const multiHop = st.site !== 'dice';
   const settleMs = Math.min(2500, poll * 6);
   let direct = false;
   let lastPressed = '';
@@ -193,7 +279,15 @@ export async function ensureApplicationOpen(io: RunnerIO): Promise<'open' | 'ext
   const idle = new Map<string, number>();
   for (let hop = 0; hop < (multiHop ? 6 : 1); hop++) {
     if (io.aborted()) return 'stopped';
-    const before = st?.url ?? '';
+    // On the board, refuse to press Apply if the SPA swapped to another posting.
+    if (st.site === 'dice' || st.site === 'jobright') {
+      const gate = await ensureOnThisJob(io, st);
+      if (gate === 'stopped') return 'stopped';
+      st = gate;
+      if (st.hasApplicationForm) return formOpened(io, st);
+      if (st.blocker) return stopFor(io, st.blocker);
+    }
+    const before = st.url;
     const open = await safe(io.send({ type: 'AF_OPEN_APPLICATION', direct }));
     if (!open) return attention(io, 'ApplyFlow can’t reach this page. Reload it and try again.');
     if (!open.ok) {
@@ -203,7 +297,7 @@ export async function ensureApplicationOpen(io: RunnerIO): Promise<'open' | 'ext
         patch(io, { status: 'external', label: 'Applies on the employer’s site', message: open.message, externalUrl: open.externalUrl ?? null });
         return 'external';
       }
-      if (st?.site === 'jobright' && !direct) {
+      if (st.site === 'jobright' && !direct) {
         direct = true;
         continue;
       }
@@ -250,7 +344,7 @@ export async function ensureApplicationOpen(io: RunnerIO): Promise<'open' | 'ext
         break;
       }
     }
-    if (!movedAt && st?.site === 'jobright' && !st.pendingChoice) {
+    if (!movedAt && st.site === 'jobright' && !st.pendingChoice) {
       const n = (idle.get(open.message) ?? 0) + 1;
       idle.set(open.message, n);
       if (n >= 2) {
@@ -262,13 +356,13 @@ export async function ensureApplicationOpen(io: RunnerIO): Promise<'open' | 'ext
         );
       }
     }
-    if (!movedAt && !direct && st?.site !== 'jobright') {
+    if (!movedAt && !direct && st.site !== 'jobright') {
       if (open.message === lastPressed) break;
       lastPressed = open.message;
     }
   }
   stage(io, 'open', 'error');
-  return attention(io, st?.site === 'dice' || !multiHop ? 'Dice didn’t open its application form. Click Dice’s Apply button, then press Continue.' : `ApplyFlow couldn’t reach the application form on ${siteOf(st)}. Open it on the page (its Apply button), then press Continue.`);
+  return attention(io, st.site === 'dice' || !multiHop ? 'Dice didn’t open its application form. Click Dice’s Apply button, then press Continue.' : `ApplyFlow couldn’t reach the application form on ${siteOf(st)}. Open it on the page (its Apply button), then press Continue.`);
 }
 
 /**
@@ -322,6 +416,18 @@ export async function processStep(io: RunnerIO): Promise<'ready' | 'next' | 'mov
   const s0 = io.session();
   if (!s0) return attention(io, 'Open the Dice job first.');
   patch(io, { status: 'working', label: 'Reading this step…', need: null });
+  let page = await safe(io.send({ type: 'AF_GET_PAGE_STATE' }));
+  if (page && (leftThisJob(page, s0) || verifyAgainstSession(io, page)?.verdict === 'mismatch')) {
+    const back = await returnToJob(io, page);
+    if (back === 'stopped') return 'stopped';
+    page = back;
+    if (!page.hasApplicationForm) {
+      const opened = await ensureApplicationOpen(io);
+      if (opened !== 'open') return 'stopped';
+    } else if (formOpened(io, page) === 'stopped') {
+      return 'stopped';
+    }
+  }
   let scan: ScanResponse | null = await safe(io.send({ type: 'AF_SCAN_FIELDS' }));
   if (!scan) return attention(io, 'ApplyFlow can’t reach this page. Reload it and press Continue.');
   const site = scan.siteName || 'the site';

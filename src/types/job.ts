@@ -56,6 +56,8 @@ export interface PageState {
   pageType: PageType;
   jobKey: string | null;
   title: string;
+  /** Employer name when cheaply visible on the page (JSON-LD / board selectors). */
+  company?: string | null;
   hasApplicationForm: boolean;
   captchaDetected: boolean;
   loginRequired: boolean;

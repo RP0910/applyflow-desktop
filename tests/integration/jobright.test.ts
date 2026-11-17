@@ -348,6 +348,7 @@ describe('stops that need you', () => {
 describe('the job tab wandered off to the Jobright job list', () => {
   const LIST = 'https://jobright.ai/jobs/recommend';
   const FORM = 'https://jobs.lever.co/northwind/7c1f2e9a-5b3d-4c8e-9a10-2f6b8e0a5c71/apply';
+  const OTHER = 'https://jobright.ai/jobs/info/ashby-1';
 
   it('goes back to the job page before pressing Apply, instead of pressing another job’s Apply in the list', async () => {
     const h = await start('https://jobright.ai/jobs/info/lever-1');
@@ -375,6 +376,24 @@ describe('the job tab wandered off to the Jobright job list', () => {
     expect(await ensureApplicationOpen(h.io)).toBe('stopped');
     expect(h.state()).toMatchObject({ status: 'attention', label: 'Go back to the job' });
     expect(h.b.url).toBe(LIST);
+  });
+
+  it('recovers when the tab shows a different Jobright posting than the tailored resume', async () => {
+    const h = await start('https://jobright.ai/jobs/info/lever-1');
+    h.io.navigate = async (url) => h.b.load(url);
+    h.b.load(OTHER);
+    expect(h.b.ctl.pageState().jobKey).toBe('jobright:ashby-1');
+    expect(await ensureApplicationOpen(h.io)).toBe('open');
+    expect(h.b.url).toBe(FORM);
+    expect(h.state().formKey).toBe('lever:7c1f2e9a-5b3d-4c8e-9a10-2f6b8e0a5c71');
+  });
+
+  it('stops on a different posting when it cannot navigate back', async () => {
+    const h = await start('https://jobright.ai/jobs/info/lever-1');
+    h.b.load(OTHER);
+    expect(await ensureApplicationOpen(h.io)).toBe('stopped');
+    expect(h.state().status).toBe('attention');
+    expect(h.b.url).toBe(OTHER);
   });
 });
 

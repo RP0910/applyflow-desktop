@@ -17,6 +17,7 @@ import { ATS_SUCCESS_PATTERNS } from '@/services/platforms/ats/common';
 import { appliedConfirmDialog, confirmAppliedControl, jobrightJobId } from '@/services/platforms/jobright/adapter';
 import { postJobrightApplied, readJobrightApplyResult } from '@/services/platforms/jobright/markApplied';
 import { controlLabel, visibleText } from '@/services/platforms/dom';
+import { peekPageCompany } from '@/services/platforms/pageSignals';
 import { FIELD_ATTR, answerFieldAsync, fillFieldsAsync, highlightField, probeComboboxes, scanFields } from '@/services/forms/domFields';
 import { fieldRejected } from '@/services/applymind/capture';
 import { capturePageSnapshot } from '@/services/forms/pageSnapshot';
@@ -143,7 +144,7 @@ export function createContentController(env: ControllerEnv) {
     const adapter = adapterForUrl(url);
     const doc = env.doc;
     if (!adapter) {
-      return { url, pageType: 'unsupported', jobKey: null, title: doc.title, hasApplicationForm: false, captchaDetected: false, loginRequired: false, step: null };
+      return { url, pageType: 'unsupported', jobKey: null, title: doc.title, company: null, hasApplicationForm: false, captchaDetected: false, loginRequired: false, step: null };
     }
     const root = adapter.findApplicationRoot(doc);
     const h1 = doc.querySelector('h1')?.textContent?.trim();
@@ -152,6 +153,7 @@ export function createContentController(env: ControllerEnv) {
       pageType: adapter.classifyPage(doc, url),
       jobKey: adapter.jobKeyForUrl(url),
       title: h1 || doc.title,
+      company: peekPageCompany(doc),
       hasApplicationForm: Boolean(root),
       captchaDetected: captchaOn(adapter, doc),
       loginRequired: loginOn(adapter, doc),

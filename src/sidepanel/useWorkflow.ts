@@ -24,6 +24,13 @@ import { buildAllDocs, uploadFileName, uploadPayload } from '@/services/export/b
 import { folderFor, planApplicationFiles } from '@/services/downloads/planner';
 import { downloadFiles, showInFolder, type DownloadsApi } from '@/services/downloads/downloader';
 import { ensureApplicationOpen, INITIAL_RUN, leftThisJob, processStep, returnUrl, runSteps, stepKey, type ApplyRunState, type RunnerIO } from '@/services/workflow/applyRunner';
+import {
+  identityFromSession,
+  isConfidentMatch,
+  matchJobIdentity,
+  observedFromPage,
+  sessionFitsApplicationPage,
+} from '@/services/workflow/jobIdentity';
 import { rememberAnswer, toScreeningControl } from '@/services/forms/mapper';
 import { isExcludedCapture } from '@/services/applymind/capture';
 import { factFamilyOf, factStoreKind } from '@/services/applymind/factRules';
@@ -247,11 +254,18 @@ export function useWorkflow(inputs: WorkflowInputs, deps: WorkflowDeps) {
       }
       let existing = state.jobKey ? await getSession(state.jobKey) : undefined;
       if (!existing && state.pageType === 'application') {
-        if (state.site === 'dice' || !state.site) existing = sessionRef.current ?? (await latestSession());
-        else {
-          const recent = sessionRef.current ?? (await latestSession(20 * 60 * 1000));
-          existing = recent && recent.job.platform === 'jobright' && !recent.submittedAt ? recent : undefined;
+        const candidates: JobSession[] = [];
+        if (sessionRef.current) candidates.push(sessionRef.current);
+        if (state.site === 'dice' || !state.site) {
+          const latest = await latestSession();
+          if (latest && !candidates.some((c) => c.jobKey === latest.jobKey)) candidates.push(latest);
+        } else {
+          const recent = await latestSession(20 * 60 * 1000);
+          if (recent && recent.job.platform === 'jobright' && !recent.submittedAt && !candidates.some((c) => c.jobKey === recent.jobKey)) {
+            candidates.push(recent);
+          }
         }
+        existing = candidates.find((c) => sessionFitsApplicationPage(c, state));
       }
       if (existing) {
         if (existing.jobKey !== sessionRef.current?.jobKey) report(INITIAL_RUN);
@@ -372,10 +386,47 @@ export function useWorkflow(inputs: WorkflowInputs, deps: WorkflowDeps) {
     });
   }, [setStep]);
 
+  /** Confirm the Jobs tab still shows this session’s job; navigate back once if not. */
+  const confirmSessionJobInTab = useCallback(async (s: JobSession): Promise<boolean> => {
+    if (tabId === null) return false;
+    const check = async () => {
+      const st = await deps.messenger.send(tabId, { type: 'AF_GET_PAGE_STATE' }).catch(() => null);
+      if (!st) return { st: null as PageState | null, match: null };
+      setPage(st);
+      return {
+        st,
+        match: matchJobIdentity(identityFromSession(s), observedFromPage(st), {
+          formKey: runRef.current.formKey,
+          formUrl: runRef.current.formUrl,
+        }),
+      };
+    };
+    let { st, match } = await check();
+    if (!st || !match) return false;
+    if (isConfidentMatch(match)) return true;
+    // Same board key or already on the session job URL — thin page signals are OK.
+    if (st.jobKey === s.jobKey || st.url.split('#')[0] === s.job.url.split('#')[0]) return true;
+    const target = returnUrl(runRef.current, s) || s.job.url;
+    await openInJobTab(tabId, target);
+    await new Promise((r) => setTimeout(r, Math.max(deps.pollMs ?? 400, 300)));
+    ({ st, match } = await check());
+    if (st && match && (isConfidentMatch(match) || st.jobKey === s.jobKey || st.url.split('#')[0] === s.job.url.split('#')[0])) return true;
+    report({
+      ...runRef.current,
+      status: 'attention',
+      label: 'Wrong job page',
+      message: `The Jobs tab doesn’t show ${s.job.title} at ${s.job.company}. Open that job, then press Continue. ApplyFlow stopped so it doesn’t attach this resume to the wrong application.`,
+      stages: { ...runRef.current.stages, open: 'error' },
+    });
+    return false;
+  }, [tabId, deps.messenger, deps.pollMs, report]);
+
   const makeDocuments = useCallback(async (masterOverride?: MasterResume, opts: { optimize?: boolean } = {}): Promise<boolean> => {
     let s = sessionRef.current;
     const master = masterOverride ?? masterFromProps;
     if (!s || !master) return false;
+    if (!(await confirmSessionJobInTab(s))) return false;
+    s = sessionRef.current ?? s;
     setStep('Preparing tailored resume and cover letter…');
     const d = await engineDeps();
     if (!s.analysis || s.resumeId !== master.id || masterOverride) s = await analyzeSession(s, master);
@@ -419,7 +470,7 @@ export function useWorkflow(inputs: WorkflowInputs, deps: WorkflowDeps) {
     const unsupported = next.evidence.filter((e) => e.importance === 'required' && (e.status === 'none' || e.status === 'conflict')).length;
     if (unsupported) notify('info', `${unsupported} required qualification${unsupported > 1 ? 's' : ''} from the job aren’t in your resume, so ${unsupported > 1 ? 'they were' : 'it was'} left out rather than claimed.`);
     return !resume.issues.some((i) => i.severity === 'critical') && !(next.coverLetter?.issues ?? []).some((i) => i.severity === 'critical');
-  }, [masterFromProps, engineDeps, analyzeSession, tone, settings, setSession, upsertRecord, notify, setStep]);
+  }, [masterFromProps, engineDeps, analyzeSession, tone, settings, setSession, upsertRecord, notify, setStep, confirmSessionJobInTab]);
 
   const runnerIO = useCallback((): RunnerIO => ({
     send: (msg) => deps.messenger.send(tabId as number, msg),
@@ -514,6 +565,7 @@ export function useWorkflow(inputs: WorkflowInputs, deps: WorkflowDeps) {
       if (!s.duplicateAcknowledged && duplicates?.exact && hasApplied(duplicates.exact)) await setSession({ ...s, duplicateAcknowledged: true });
       setStep('Starting Tailor & Apply…');
       report({ ...INITIAL_RUN, status: 'working', label: 'Starting Tailor & Apply…' });
+      if (!(await confirmSessionJobInTab(sessionRef.current!))) return;
       const cur = sessionRef.current!;
       const outdated = Boolean(cur.resume && !cur.submittedAt && (cur.documentsFrom !== masterStamp(master) || cur.resume.contentSource !== 'cv-generate'));
       if (outdated) notify('info', 'Your candidate details or generation engine changed, so ApplyFlow is writing these documents again.');
@@ -524,6 +576,8 @@ export function useWorkflow(inputs: WorkflowInputs, deps: WorkflowDeps) {
         const clean = await makeDocuments();
         if (abortRef.current.signal.aborted) return;
         if (!clean) {
+          // makeDocuments already reported a wrong-job stop when identity failed.
+          if (runRef.current.label === 'Wrong job page') return;
           report({ ...runRef.current, status: 'attention', label: 'Check your resume', message: 'A few tailored lines couldn’t be verified against your master resume. Open Documents to fix them, then press Continue.', stages: { ...runRef.current.stages, documents: 'error' } });
           return;
         }
@@ -553,7 +607,7 @@ export function useWorkflow(inputs: WorkflowInputs, deps: WorkflowDeps) {
       setStatusLine('');
       setPhase('idle');
     }
-  }, [master, tabId, duplicates, setSession, report, makeDocuments, runnerIO, afterRun, setStep]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [master, tabId, duplicates, setSession, report, makeDocuments, runnerIO, afterRun, setStep, confirmSessionJobInTab]); // eslint-disable-line react-hooks/exhaustive-deps
   quickApplyRef.current = quickApply;
 
   const continueRun = useCallback(async (opts: { autoAdvance?: boolean } = {}) => {
@@ -703,6 +757,18 @@ export function useWorkflow(inputs: WorkflowInputs, deps: WorkflowDeps) {
       }
       if (runningRef.current) return;
       const otherJob = st.pageType === 'job-detail' && Boolean(st.jobKey) && st.jobKey !== sessionRef.current?.jobKey && (st.site === 'dice' || st.site === 'jobright');
+      // Keep a tailored mid-apply session — do not swap to whatever job the tab just opened.
+      if (otherJob && sessionRef.current?.resume && (active || status === 'working')) {
+        if (active) {
+          report({
+            ...runRef.current,
+            status: 'attention',
+            label: 'Different job in browser',
+            message: `The Jobs tab shows a different posting than your tailored resume (${sessionRef.current.job.title} at ${sessionRef.current.job.company}). Press Continue to go back to the correct job, or Leave this application to work on the new one.`,
+          });
+        }
+        return;
+      }
       if (active && !otherJob) return;
       if (first || otherJob || (st.jobKey !== prevKey && st.pageType !== 'application')) void detect();
       else if (st.pageType === 'application' && !sessionRef.current) void detect();

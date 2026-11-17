@@ -1,3 +1,7 @@
+# 2.3.11
+
+Fixed: Tailor & Apply verifies the Jobs tab still shows the same job as the tailored resume (job id/URL first, title and company as backup). If the tab drifted to a list or another posting, ApplyFlow navigates back and rechecks; if it cannot confirm the match, that job’s pipeline stops instead of applying the wrong form. Mid-apply, opening another job no longer swaps the session away from the resume already generated. See docs/releases/RELEASE-2.3.11.md.
+
 # 2.3.10
 
 Added: ApplyMind learns an answer you type or choose on the application page when you continue. An answer you entered is verified, one you correct is a correction, one the filler wrote and you left is accepted, and a value already on the page is left alone. Legal agreements, certifications, passwords, and file uploads are not learned. Confirmed facts fill only for the same meaning and country. Save page snapshot writes the form, including dropdown lists it can open, to your ApplyFlow data folder. See docs/releases/RELEASE-2.3.10.md.
