@@ -1,3 +1,7 @@
+# 2.3.14
+
+Fixed: Jobright **Apply Now** cards are removed as the full list tile (no blank gap), and the filter re-runs while you scroll or infinite-load more results so newly appeared Apply Now jobs are hidden too. See docs/releases/RELEASE-2.3.14.md.
+
 # 2.3.13
 
 Changed: on Jobright recommend/search, ApplyFlow hides job cards labeled **Apply Now** (and other non-Autofill CTAs) in the page itself, so only **Apply with Autofill** jobs remain visible while scrolling and loading more results. See docs/releases/RELEASE-2.3.13.md.

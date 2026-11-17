@@ -15,7 +15,12 @@ import { describeWizard, findDocumentCard, findFileInputFor, findNextControl, pa
 import type { FormSupport, JobSiteAdapter } from '@/services/platforms/types';
 import { ATS_SUCCESS_PATTERNS } from '@/services/platforms/ats/common';
 import { appliedConfirmDialog, confirmAppliedControl, jobrightJobId } from '@/services/platforms/jobright/adapter';
-import { detectJobrightApplyMethod, hideUnsupportedJobrightListCards, scanJobrightList } from '@/services/platforms/jobright/applyMethod';
+import {
+  detectJobrightApplyMethod,
+  hideUnsupportedJobrightListCards,
+  scanJobrightList,
+  watchJobrightListFilter,
+} from '@/services/platforms/jobright/applyMethod';
 import { postJobrightApplied, readJobrightApplyResult } from '@/services/platforms/jobright/markApplied';
 import { controlLabel, visibleText } from '@/services/platforms/dom';
 import { peekPageCompany } from '@/services/platforms/pageSignals';
@@ -39,6 +44,8 @@ export interface ControllerEnv {
   navigate?: (url: string) => void;
   /** Used when the desktop page session isn’t available (tests). */
   fetch?: (url: string, init: { method: string; credentials: 'include'; headers: Record<string, string>; body: string }) => Promise<{ status: number; json: () => Promise<unknown> }>;
+  /** Continuously hide Jobright Apply Now tiles on scroll (default on in the real browser). */
+  listFilterWatch?: boolean;
 }
 
 const DICE_FORMS: FormSupport = {
@@ -69,6 +76,12 @@ export function createContentController(env: ControllerEnv) {
   let armed: { token: string; expires: number } | null = null;
   let busy = false;
   const watch: FieldWatch = emptyWatch();
+  // Continuously hide Apply Now tiles on Jobright recommend while scrolling / loading more.
+  const inJsdom = typeof navigator !== 'undefined' && /jsdom/i.test(navigator.userAgent);
+  const stopJrListFilter =
+    env.listFilterWatch === false || (env.listFilterWatch == null && inJsdom)
+      ? () => undefined
+      : watchJobrightListFilter(env.doc, env.url);
 
   function currentStepKey(): string {
     const step = pageState().step;
@@ -539,7 +552,20 @@ export function createContentController(env: ControllerEnv) {
     }
   }
 
-  return { pageState, scan, submit, nextStep, upload, successNow, successHere, openApplication, signIn, confirmJobrightApplied, handle };
+  return {
+    pageState,
+    scan,
+    submit,
+    nextStep,
+    upload,
+    successNow,
+    successHere,
+    openApplication,
+    signIn,
+    confirmJobrightApplied,
+    handle,
+    dispose: stopJrListFilter,
+  };
 }
 
 export type ContentController = ReturnType<typeof createContentController>;

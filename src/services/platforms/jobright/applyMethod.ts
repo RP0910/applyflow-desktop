@@ -1,6 +1,17 @@
 import { controlLabel, deepQueryAll, isPageChrome, isVisible, visibleText } from '../dom';
 import { couldSubmit } from '../ats/common';
 
+function onJobrightList(url: string): boolean {
+  try {
+    const u = new URL(url);
+    if (!/(^|\.)jobright\.ai$/i.test(u.hostname)) return false;
+    const p = u.pathname.replace(/\/+$/, '');
+    return /^\/jobs(\/(?!info\/)[^/]+)?$/i.test(p) && !u.searchParams.get('jobId');
+  } catch {
+    return false;
+  }
+}
+
 function jobIdFromHref(url: string): string | null {
   try {
     const u = new URL(url);
@@ -69,16 +80,70 @@ export function applyMethodStatusLine(method: JobrightApplyMethod): string {
 
 /** Cards ApplyFlow has removed from the Jobright recommend list (Apply Now / unsupported). */
 export const JR_LIST_HIDDEN_ATTR = 'data-af-jr-hidden';
+const JR_HIDE_STYLE_ID = 'af-jr-hide-style';
 
-function applyButtons(doc: Document): HTMLElement[] {
-  return deepQueryAll<HTMLElement>(doc, 'a[href], button, [role="button"]', 1200).filter((el) => {
+/** Force hidden tiles out of layout (Jobright cards often keep height via flex/grid children). */
+function ensureHideStyles(doc: Document): void {
+  if (doc.getElementById(JR_HIDE_STYLE_ID)) return;
+  const style = doc.createElement('style');
+  style.id = JR_HIDE_STYLE_ID;
+  style.textContent = `
+[${JR_LIST_HIDDEN_ATTR}="1"] {
+  display: none !important;
+  visibility: hidden !important;
+  height: 0 !important;
+  max-height: 0 !important;
+  min-height: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+  border: 0 !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+`;
+  (doc.head ?? doc.documentElement).appendChild(style);
+}
+
+function applyButtons(doc: Document, opts?: { includeOffscreen?: boolean }): HTMLElement[] {
+  const includeOffscreen = Boolean(opts?.includeOffscreen);
+  // Long recommend feeds can exceed a few hundred controls once infinite-scroll loads.
+  return deepQueryAll<HTMLElement>(doc, 'a[href], button, [role="button"]', 4000).filter((el) => {
     if (isPageChrome(el) || couldSubmit(el)) return false;
     if (el.closest('[role="dialog"], [aria-modal="true"], .ant-modal')) return false;
     if (!ANY_APPLY_RE.test(words(controlLabel(el) || el.innerText || el.textContent || ''))) return false;
     // Keep counting / re-classifying cards we already hid (display:none → not isVisible).
     if (el.closest(`[${JR_LIST_HIDDEN_ATTR}="1"]`)) return true;
+    // List scan/hide: include below-the-fold / virtualized cards so scroll loads get filtered.
+    if (includeOffscreen) return el.isConnected;
     return isVisible(el);
   });
+}
+
+function normalizeJobId(href: string | null | undefined, attr?: string | null): string | null {
+  if (href) {
+    const fromAbs = jobIdFromHref(href);
+    if (fromAbs) return fromAbs;
+  }
+  const raw = attr || href;
+  if (!raw) return null;
+  try {
+    return jobIdFromHref(new URL(raw, 'https://jobright.ai').toString());
+  } catch {
+    const m = String(raw).match(/\/jobs\/info\/([^/?#]+)/i);
+    return m ? decodeURIComponent(m[1]!) : null;
+  }
+}
+
+function jobIdsIn(el: Element): Set<string> {
+  const ids = new Set<string>();
+  for (const a of el.querySelectorAll<HTMLAnchorElement>('a[href*="/jobs/info/"]')) {
+    const id = normalizeJobId(a.href, a.getAttribute('href'));
+    if (id) ids.add(id);
+  }
+  const own = el.getAttribute('data-job-id');
+  if (own) ids.add(own);
+  return ids;
 }
 
 /** Primary apply CTA on a Jobright job-detail page (prefers Autofill when both exist). */
@@ -103,56 +168,75 @@ export function detectJobrightApplyMethod(doc: Document): { method: JobrightAppl
   return { method: pick.method, label: pick.label, element: pick.el };
 }
 
-function cardRoot(el: HTMLElement): HTMLElement {
-  const named =
-    el.closest<HTMLElement>(
-      'article, li, [class*="job-card" i], [class*="jobCard" i], [class*="JobCard" i], [class*="job-item" i], [class*="JobItem" i], [data-job-id]',
-    ) ?? null;
-  if (named) return named;
-  // Climb to the smallest ancestor that owns exactly one /jobs/info/ link (the card).
-  let node: HTMLElement | null = el.parentElement;
-  let fallback: HTMLElement = el.parentElement ?? el;
-  for (let i = 0; i < 14 && node && node !== node.ownerDocument.body; i++, node = node.parentElement) {
-    const infos = node.querySelectorAll('a[href*="/jobs/info/"]');
-    if (infos.length === 1) return node;
-    if (infos.length > 1) break;
-    fallback = node;
+function applyCtaCount(el: Element): number {
+  let n = 0;
+  for (const cand of el.querySelectorAll<HTMLElement>('a[href], button, [role="button"]')) {
+    if (ANY_APPLY_RE.test(words(controlLabel(cand) || cand.innerText || cand.textContent || ''))) n++;
   }
-  return fallback;
+  return n;
+}
+
+/**
+ * Full list tile for a Jobright card — outermost ancestor that still owns exactly one job.
+ * Inner “job-card” wrappers leave the match-score column and blank white gap if hidden alone.
+ */
+function cardRoot(el: HTMLElement): HTMLElement {
+  let best: HTMLElement = el.parentElement ?? el;
+  let node: HTMLElement | null = el.parentElement;
+  for (let i = 0; i < 24 && node; i++, node = node.parentElement) {
+    if (!node || node === node.ownerDocument.documentElement || node === node.ownerDocument.body) break;
+    if (node.matches('main, [role="main"], header, nav, footer')) break;
+    const ids = jobIdsIn(node);
+    if (ids.size > 1) break; // list / feed container
+    if (applyCtaCount(node) > 1) break; // another job’s Apply button entered the subtree
+    // Still a single job — keep climbing so match % / tile chrome is included.
+    best = node;
+  }
+  return best;
 }
 
 function showCard(root: HTMLElement): void {
   if (root.getAttribute(JR_LIST_HIDDEN_ATTR) !== '1') return;
-  const prev = root.getAttribute('data-af-jr-prev-display');
   root.removeAttribute(JR_LIST_HIDDEN_ATTR);
   root.removeAttribute('data-af-jr-reason');
   root.removeAttribute('aria-hidden');
-  root.removeAttribute('data-af-jr-prev-display');
   root.style.removeProperty('display');
-  if (prev != null && prev !== '' && prev !== 'none') root.style.display = prev;
+  root.style.removeProperty('visibility');
+  root.style.removeProperty('height');
+  root.style.removeProperty('max-height');
+  root.style.removeProperty('min-height');
+  root.style.removeProperty('margin');
+  root.style.removeProperty('padding');
+  root.style.removeProperty('overflow');
+  root.style.removeProperty('opacity');
+  root.style.removeProperty('pointer-events');
 }
 
 function hideCard(root: HTMLElement, method: JobrightApplyMethod): void {
-  if (root.getAttribute(JR_LIST_HIDDEN_ATTR) === '1') {
-    root.setAttribute('data-af-jr-reason', method);
-    return;
-  }
-  root.setAttribute('data-af-jr-prev-display', root.style.display || '');
+  ensureHideStyles(root.ownerDocument);
   root.setAttribute(JR_LIST_HIDDEN_ATTR, '1');
   root.setAttribute('data-af-jr-reason', method);
   root.setAttribute('aria-hidden', 'true');
+  // Inline as well so React re-styles don’t leave a blank reserved row.
   root.style.setProperty('display', 'none', 'important');
+  root.style.setProperty('height', '0', 'important');
+  root.style.setProperty('min-height', '0', 'important');
+  root.style.setProperty('margin', '0', 'important');
+  root.style.setProperty('padding', '0', 'important');
+  root.style.setProperty('overflow', 'hidden', 'important');
 }
 
 /**
  * Hide Jobright list cards that are not “Apply with Autofill” so they never appear in search results.
+ * Removes the whole tile from layout so the next Autofill job moves up (no blank gap).
  * Safe to call repeatedly (scroll / pagination / SPA re-renders).
  */
 export function hideUnsupportedJobrightListCards(doc: Document): { hidden: number; visible: number } {
+  ensureHideStyles(doc);
   let hidden = 0;
   let visible = 0;
   const seen = new Set<HTMLElement>();
-  for (const btn of applyButtons(doc)) {
+  for (const btn of applyButtons(doc, { includeOffscreen: true })) {
     const label = words(controlLabel(btn) || btn.innerText || btn.textContent || '');
     const method = classifyJobrightApplyLabel(label);
     const root = cardRoot(btn);
@@ -169,6 +253,61 @@ export function hideUnsupportedJobrightListCards(doc: Document): { hidden: numbe
   return { hidden, visible };
 }
 
+/**
+ * Keep filtering Apply Now tiles while the Jobright list scrolls / infinite-loads.
+ * pageState alone misses scroll-only virtualization updates that don’t change the page signature.
+ */
+export function watchJobrightListFilter(doc: Document, getUrl: () => string): () => void {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let interval: ReturnType<typeof setInterval> | null = null;
+  let obs: MutationObserver | null = null;
+  let lastUrl = '';
+
+  const run = (): void => {
+    try {
+      if (!onJobrightList(getUrl())) return;
+      hideUnsupportedJobrightListCards(doc);
+    } catch {
+      /* page mid-navigation */
+    }
+  };
+
+  const schedule = (ms = 80): void => {
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(run, ms);
+  };
+
+  const onScroll = (): void => schedule(60);
+  const win = doc.defaultView;
+  win?.addEventListener('scroll', onScroll, true);
+  doc.addEventListener('scroll', onScroll, true);
+
+  obs = new MutationObserver(() => schedule(100));
+  if (doc.documentElement) {
+    obs.observe(doc.documentElement, { childList: true, subtree: true, characterData: true });
+  }
+
+  interval = setInterval(() => {
+    const url = getUrl();
+    if (url !== lastUrl) {
+      lastUrl = url;
+      schedule(0);
+      return;
+    }
+    if (onJobrightList(url)) run();
+  }, 750);
+
+  schedule(0);
+
+  return () => {
+    if (timer) clearTimeout(timer);
+    if (interval) clearInterval(interval);
+    obs?.disconnect();
+    win?.removeEventListener('scroll', onScroll, true);
+    doc.removeEventListener('scroll', onScroll, true);
+  };
+}
+
 function textFrom(el: Element | null | undefined, max = 120): string {
   return (el?.textContent ?? '').replace(/\s+/g, ' ').trim().slice(0, max);
 }
@@ -180,7 +319,7 @@ function textFrom(el: Element | null | undefined, max = 120): string {
 export function scanJobrightList(doc: Document, pageUrl = 'https://jobright.ai/jobs/recommend'): JobrightListScan {
   const cards: JobrightListCard[] = [];
   const seen = new Set<string>();
-  for (const btn of applyButtons(doc)) {
+  for (const btn of applyButtons(doc, { includeOffscreen: true })) {
     const label = words(controlLabel(btn) || btn.innerText || btn.textContent || '');
     const method = classifyJobrightApplyLabel(label);
     const root = cardRoot(btn);

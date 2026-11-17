@@ -3,38 +3,50 @@
 <head>
 <meta charset="utf-8">
 <title>Recommended Jobs | Jobright.ai</title>
-<!-- MOCK: Jobright recommend list with Apply Now vs Apply with Autofill CTAs (screenshot filter cases). -->
+<!-- MOCK: Jobright recommend list — nested tile (content + match column) like production layout. -->
 <style>
   body { margin: 0; font: 15px/1.5 -apple-system, "Segoe UI", Roboto, Arial, sans-serif; background: #f7f8fa; }
   header { height: 60px; display: flex; align-items: center; padding: 0 24px; background: #fff; border-bottom: 1px solid #e5e7eb; }
   main { max-width: 860px; margin: 24px auto; padding: 0 16px; }
-  .job { display: block; background: #fff; border-radius: 12px; padding: 16px 20px; margin-bottom: 12px; color: #18181b; text-decoration: none; box-shadow: 0 1px 3px rgba(0,0,0,.06); }
+  .job-tile { display: flex; gap: 16px; background: #fff; border-radius: 12px; padding: 16px 20px; margin-bottom: 12px; box-shadow: 0 1px 3px rgba(0,0,0,.06); min-height: 140px; }
+  .job-card-body { flex: 1; }
+  .match-col { width: 120px; text-align: right; color: #059669; font-weight: 700; font-size: 13px; }
   .apply { background: #00c48c; color: #fff; border: 0; border-radius: 8px; padding: 10px 20px; font-weight: 700; cursor: pointer; }
   .meta { color: #6b7280; font-size: 13px; margin: 6px 0 12px; }
+  .job { display: block; background: #fff; border-radius: 12px; padding: 16px 20px; margin-bottom: 12px; color: #18181b; text-decoration: none; box-shadow: 0 1px 3px rgba(0,0,0,.06); }
 </style>
 </head>
 <body>
 <header><b>jobright</b></header>
 <main>
   <h1>Recommended for you</h1>
-  <article class="job" data-job-id="hcl-1">
-    <a href="/jobs/info/hcl-1"><h2 class="job-title">AI Product Manager</h2></a>
-    <div class="company">HCLTech</div>
-    <p class="meta">Remote · Full-time · Senior</p>
-    <button type="button" class="apply">APPLY NOW</button>
-  </article>
-  <article class="job" data-job-id="tiger-1">
-    <a href="/jobs/info/tiger-1"><h2 class="job-title">AI Product Manager</h2></a>
-    <div class="company">Tiger Analytics</div>
-    <p class="meta">Remote · Full-time · Senior</p>
-    <button type="button" class="apply">APPLY WITH AUTOFILL</button>
-  </article>
-  <article class="job" data-job-id="imr-1">
-    <a href="/jobs/info/imr-1"><h2 class="job-title">Agentic AI Engineer</h2></a>
-    <div class="company">IMR Soft LLC</div>
-    <p class="meta">Remote · Full-time · Mid</p>
-    <button type="button" class="apply">APPLY NOW</button>
-  </article>
+  <div class="job-tile" data-job-id="hcl-1">
+    <div class="job-card-body">
+      <a href="/jobs/info/hcl-1"><h2 class="job-title">AI Product Manager</h2></a>
+      <div class="company">HCLTech</div>
+      <p class="meta">Remote · Full-time · Senior</p>
+      <button type="button" class="apply">APPLY NOW</button>
+    </div>
+    <div class="match-col">78% Good Match</div>
+  </div>
+  <div class="job-tile" data-job-id="tiger-1">
+    <div class="job-card-body">
+      <a href="/jobs/info/tiger-1"><h2 class="job-title">AI Product Manager</h2></a>
+      <div class="company">Tiger Analytics</div>
+      <p class="meta">Remote · Full-time · Senior</p>
+      <button type="button" class="apply">APPLY WITH AUTOFILL</button>
+    </div>
+    <div class="match-col">72% Good Match</div>
+  </div>
+  <div class="job-tile" data-job-id="imr-1">
+    <div class="job-card-body">
+      <a href="/jobs/info/imr-1"><h2 class="job-title">Agentic AI Engineer</h2></a>
+      <div class="company">IMR Soft LLC</div>
+      <p class="meta">Remote · Full-time · Mid</p>
+      <button type="button" class="apply">APPLY NOW</button>
+    </div>
+    <div class="match-col">96% Strong Match</div>
+  </div>
   <a class="job" href="/jobs/info/gh-1"><b>Hardware Test Engineer</b> · Acme Robotics · Seattle, WA</a>
   <a class="job" href="/jobs/info/lever-1"><b>PCB Layout Technician</b> · Northwind Avionics · Indianapolis, IN</a>
 </main>
