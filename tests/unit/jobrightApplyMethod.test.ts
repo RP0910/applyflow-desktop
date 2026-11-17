@@ -3,6 +3,8 @@ import {
   applyMethodStatusLine,
   classifyJobrightApplyLabel,
   detectJobrightApplyMethod,
+  hideUnsupportedJobrightListCards,
+  JR_LIST_HIDDEN_ATTR,
   scanJobrightList,
 } from '@/services/platforms/jobright/applyMethod';
 import { createContentController } from '@/content/controller';
@@ -46,6 +48,28 @@ describe('scanJobrightList (screenshot cases)', () => {
     const st = load(listHtml, 'https://jobright.ai/jobs/recommend').pageState();
     expect(st.pageType).toBe('search');
     expect(st.listScan).toMatchObject({ total: 3, eligible: 1, skippedApplyNow: 2 });
+  });
+
+  it('hides Apply Now cards and keeps Apply with Autofill visible', () => {
+    document.documentElement.innerHTML = listHtml.replace(/^<!doctype html>/i, '').replace(/^\s*<html[^>]*>/i, '').replace(/<\/html>\s*$/i, '');
+    const hcl = document.querySelector('[data-job-id="hcl-1"]') as HTMLElement;
+    const tiger = document.querySelector('[data-job-id="tiger-1"]') as HTMLElement;
+    const imr = document.querySelector('[data-job-id="imr-1"]') as HTMLElement;
+    const r = hideUnsupportedJobrightListCards(document);
+    expect(r).toEqual({ hidden: 2, visible: 1 });
+    expect(hcl.getAttribute(JR_LIST_HIDDEN_ATTR)).toBe('1');
+    expect(imr.getAttribute(JR_LIST_HIDDEN_ATTR)).toBe('1');
+    expect(tiger.getAttribute(JR_LIST_HIDDEN_ATTR)).toBeNull();
+    expect(getComputedStyle(hcl).display).toBe('none');
+    expect(getComputedStyle(imr).display).toBe('none');
+    expect(getComputedStyle(tiger).display).not.toBe('none');
+    // pageState applies the same hide on Jobright search.
+    load(listHtml, 'https://jobright.ai/jobs/recommend').pageState();
+    expect(document.querySelector('[data-job-id="hcl-1"]')!.getAttribute(JR_LIST_HIDDEN_ATTR)).toBe('1');
+    expect(document.querySelector('[data-job-id="tiger-1"]')!.getAttribute(JR_LIST_HIDDEN_ATTR)).toBeNull();
+    expect(document.querySelector('[data-job-id="imr-1"]')!.getAttribute(JR_LIST_HIDDEN_ATTR)).toBe('1');
+    // Re-scan still reports Apply Now cards after they are hidden.
+    expect(scanJobrightList(document, 'https://jobright.ai/jobs/recommend').skippedApplyNow).toBe(2);
   });
 });
 

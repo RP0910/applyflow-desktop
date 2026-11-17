@@ -15,7 +15,7 @@ import { describeWizard, findDocumentCard, findFileInputFor, findNextControl, pa
 import type { FormSupport, JobSiteAdapter } from '@/services/platforms/types';
 import { ATS_SUCCESS_PATTERNS } from '@/services/platforms/ats/common';
 import { appliedConfirmDialog, confirmAppliedControl, jobrightJobId } from '@/services/platforms/jobright/adapter';
-import { detectJobrightApplyMethod, scanJobrightList } from '@/services/platforms/jobright/applyMethod';
+import { detectJobrightApplyMethod, hideUnsupportedJobrightListCards, scanJobrightList } from '@/services/platforms/jobright/applyMethod';
 import { postJobrightApplied, readJobrightApplyResult } from '@/services/platforms/jobright/markApplied';
 import { controlLabel, visibleText } from '@/services/platforms/dom';
 import { peekPageCompany } from '@/services/platforms/pageSignals';
@@ -156,6 +156,8 @@ export function createContentController(env: ControllerEnv) {
       adapter.id === 'jobright' && pageType === 'search'
         ? (() => {
             const s = scanJobrightList(doc, url);
+            // Remove Apply Now / unsupported cards from the visible list before CV work.
+            hideUnsupportedJobrightListCards(doc);
             return {
               total: s.total,
               eligible: s.eligible,

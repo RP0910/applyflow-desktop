@@ -139,5 +139,5 @@ build/                icon.ico, icon.png, icons/
 - [Resume JSON and the renderer](docs/RESUME_JSON.md)
 - [Privacy](docs/PRIVACY.md)
 - [Known limitations](docs/KNOWN_LIMITATIONS.md)
-- [Release notes](docs/releases/RELEASE-2.3.12.md)
+- [Release notes](docs/releases/RELEASE-2.3.13.md)
 - [Changelog](CHANGELOG.md)

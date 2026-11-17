@@ -67,15 +67,18 @@ export function applyMethodStatusLine(method: JobrightApplyMethod): string {
   }
 }
 
+/** Cards ApplyFlow has removed from the Jobright recommend list (Apply Now / unsupported). */
+export const JR_LIST_HIDDEN_ATTR = 'data-af-jr-hidden';
+
 function applyButtons(doc: Document): HTMLElement[] {
-  return deepQueryAll<HTMLElement>(doc, 'a[href], button, [role="button"]', 1200).filter(
-    (el) =>
-      isVisible(el) &&
-      !isPageChrome(el) &&
-      !couldSubmit(el) &&
-      !el.closest('[role="dialog"], [aria-modal="true"], .ant-modal') &&
-      ANY_APPLY_RE.test(words(controlLabel(el) || el.innerText || el.textContent || '')),
-  );
+  return deepQueryAll<HTMLElement>(doc, 'a[href], button, [role="button"]', 1200).filter((el) => {
+    if (isPageChrome(el) || couldSubmit(el)) return false;
+    if (el.closest('[role="dialog"], [aria-modal="true"], .ant-modal')) return false;
+    if (!ANY_APPLY_RE.test(words(controlLabel(el) || el.innerText || el.textContent || ''))) return false;
+    // Keep counting / re-classifying cards we already hid (display:none → not isVisible).
+    if (el.closest(`[${JR_LIST_HIDDEN_ATTR}="1"]`)) return true;
+    return isVisible(el);
+  });
 }
 
 /** Primary apply CTA on a Jobright job-detail page (prefers Autofill when both exist). */
@@ -101,11 +104,69 @@ export function detectJobrightApplyMethod(doc: Document): { method: JobrightAppl
 }
 
 function cardRoot(el: HTMLElement): HTMLElement {
-  return (
-    el.closest<HTMLElement>('article, li, [class*="job-card" i], [class*="jobCard" i], [class*="JobCard" i], [data-job-id], section') ??
-    el.parentElement ??
-    el
-  );
+  const named =
+    el.closest<HTMLElement>(
+      'article, li, [class*="job-card" i], [class*="jobCard" i], [class*="JobCard" i], [class*="job-item" i], [class*="JobItem" i], [data-job-id]',
+    ) ?? null;
+  if (named) return named;
+  // Climb to the smallest ancestor that owns exactly one /jobs/info/ link (the card).
+  let node: HTMLElement | null = el.parentElement;
+  let fallback: HTMLElement = el.parentElement ?? el;
+  for (let i = 0; i < 14 && node && node !== node.ownerDocument.body; i++, node = node.parentElement) {
+    const infos = node.querySelectorAll('a[href*="/jobs/info/"]');
+    if (infos.length === 1) return node;
+    if (infos.length > 1) break;
+    fallback = node;
+  }
+  return fallback;
+}
+
+function showCard(root: HTMLElement): void {
+  if (root.getAttribute(JR_LIST_HIDDEN_ATTR) !== '1') return;
+  const prev = root.getAttribute('data-af-jr-prev-display');
+  root.removeAttribute(JR_LIST_HIDDEN_ATTR);
+  root.removeAttribute('data-af-jr-reason');
+  root.removeAttribute('aria-hidden');
+  root.removeAttribute('data-af-jr-prev-display');
+  root.style.removeProperty('display');
+  if (prev != null && prev !== '' && prev !== 'none') root.style.display = prev;
+}
+
+function hideCard(root: HTMLElement, method: JobrightApplyMethod): void {
+  if (root.getAttribute(JR_LIST_HIDDEN_ATTR) === '1') {
+    root.setAttribute('data-af-jr-reason', method);
+    return;
+  }
+  root.setAttribute('data-af-jr-prev-display', root.style.display || '');
+  root.setAttribute(JR_LIST_HIDDEN_ATTR, '1');
+  root.setAttribute('data-af-jr-reason', method);
+  root.setAttribute('aria-hidden', 'true');
+  root.style.setProperty('display', 'none', 'important');
+}
+
+/**
+ * Hide Jobright list cards that are not “Apply with Autofill” so they never appear in search results.
+ * Safe to call repeatedly (scroll / pagination / SPA re-renders).
+ */
+export function hideUnsupportedJobrightListCards(doc: Document): { hidden: number; visible: number } {
+  let hidden = 0;
+  let visible = 0;
+  const seen = new Set<HTMLElement>();
+  for (const btn of applyButtons(doc)) {
+    const label = words(controlLabel(btn) || btn.innerText || btn.textContent || '');
+    const method = classifyJobrightApplyLabel(label);
+    const root = cardRoot(btn);
+    if (seen.has(root)) continue;
+    seen.add(root);
+    if (method === 'autofill') {
+      showCard(root);
+      visible++;
+      continue;
+    }
+    hideCard(root, method);
+    hidden++;
+  }
+  return { hidden, visible };
 }
 
 function textFrom(el: Element | null | undefined, max = 120): string {

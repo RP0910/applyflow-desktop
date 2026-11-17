@@ -563,7 +563,8 @@ export function HomeView({ wf, lib, settings, hasKey }: { wf: Workflow; lib: Lib
         {list && wf.page?.pageType === 'search' ? (
           <WarningBanner tone="info" title="Jobright apply filter">
             {list.total} jobs with Apply buttons · <strong>{list.eligible} ELIGIBLE</strong> (Apply with Autofill) · {list.skippedApplyNow} SKIPPED (Apply Now)
-            {list.skippedUnknown + list.skippedReferral ? ` · ${list.skippedUnknown + list.skippedReferral} other skipped` : ''}. Open an Autofill job to continue — ApplyFlow does not generate CVs for Apply Now postings.
+            {list.skippedUnknown + list.skippedReferral ? ` · ${list.skippedUnknown + list.skippedReferral} other skipped` : ''}.
+            Apply Now cards are hidden on the page. Open an Autofill job to continue — ApplyFlow does not generate CVs for Apply Now postings.
           </WarningBanner>
         ) : null}
         {skippedApplyNow ? (
