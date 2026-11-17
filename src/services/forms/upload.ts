@@ -17,6 +17,7 @@ export interface TrustedInput {
   disarmFileChooser: (id: string) => Promise<void>;
   setInputFile: (input: HTMLInputElement, file: FilePayload) => Promise<boolean>;
   clickElement: (el: HTMLElement) => Promise<boolean>;
+  pressKey?: (key: 'Escape' | 'Tab') => Promise<boolean>;
   installPageHelper?: () => Promise<boolean>;
   /** Marks this job applied on Jobright using the signed-in page session. */
   postJobrightApplied?: (jobId: string) => Promise<{ status: number; json: unknown } | null>;

@@ -73,8 +73,8 @@ export class KnowledgeRepository {
   /** Verified answer for this exact question. A question waiting for review is not filled. */
   exactVerified(key: Uint8Array, query: ExactLookup): string | null {
     const blocked = new Set(blockedQuestions(this.db));
-    const records: ExactRecord[] = rows(this.db, `SELECT normalized_question, answer_blob, status, context_json
-      FROM applymind_records WHERE deleted_at IS NULL AND status = 'verified'`).map((r) => ({
+    const records: ExactRecord[] = rows(this.db, `SELECT normalized_question, answer_blob, status, context_json, question_type
+      FROM applymind_records WHERE deleted_at IS NULL AND status = 'verified' AND question_type != 'long_form'`).map((r) => ({
       normalizedQuestion: String(r.normalized_question),
       answer: openJson<string>(key, String(r.answer_blob)),
       status: 'verified' as const,
@@ -320,6 +320,127 @@ export class KnowledgeRepository {
     return n;
   }
 
+  rejectProposal(id: string): void {
+    this.db.prepare("UPDATE applymind_proposals SET status = 'rejected' WHERE id = ? AND status = 'proposed'").run(id);
+  }
+
+  correctProposal(id: string, value: string, key: Uint8Array): boolean {
+    const row = rows(this.db, "SELECT value_blob FROM applymind_proposals WHERE id = ? AND status = 'proposed'", id)[0];
+    if (!row) return false;
+    const body = openJson<{ question: string; value: string }>(key, String(row.value_blob));
+    this.db.prepare('UPDATE applymind_proposals SET value_blob = ? WHERE id = ?').run(sealJson(key, { ...body, value }), id);
+    return true;
+  }
+
+  fillContext(key: Uint8Array): { facts: { factKey: string; family: string; country: string | null; value: string; wordings: string[]; choices: { optionsKey: string; choice: string }[] }[]; drafts: Record<string, string> } {
+    const wordings = rows(this.db, 'SELECT fact_key, normalized_question FROM applymind_fact_wordings');
+    const choices = rows(this.db, 'SELECT fact_key, options_key, choice FROM applymind_fact_choices');
+    const facts = rows(this.db, 'SELECT fact_key, kind, country, value_blob FROM applymind_facts').map((r) => {
+      const factKey = String(r.fact_key);
+      return {
+        factKey,
+        family: String(r.kind),
+        country: r.country == null ? null : String(r.country),
+        value: factText(key, String(r.value_blob)),
+        wordings: wordings.filter((w) => String(w.fact_key) === factKey).map((w) => String(w.normalized_question)),
+        choices: choices.filter((c) => String(c.fact_key) === factKey).map((c) => ({ optionsKey: String(c.options_key), choice: String(c.choice) })),
+      };
+    });
+    const drafts: Record<string, string> = {};
+    for (const status of ['accepted', 'verified'] as const) {
+      for (const r of rows(this.db, `SELECT normalized_question, answer_blob FROM applymind_records WHERE deleted_at IS NULL AND status = ? AND question_type = 'long_form'`, status)) {
+        drafts[String(r.normalized_question)] = openJson<string>(key, String(r.answer_blob));
+      }
+    }
+    return { facts, drafts };
+  }
+
+  factPromptFor(factKey: string): boolean {
+    if (rows(this.db, 'SELECT fact_key FROM applymind_facts WHERE fact_key = ?', factKey)[0]) return false;
+    if (rows(this.db, "SELECT id FROM applymind_proposals WHERE fact_key = ? AND status = 'proposed'", factKey)[0]) return false;
+    if (rows(this.db, 'SELECT fact_key FROM applymind_fact_declines WHERE fact_key = ?', factKey)[0]) return false;
+    return true;
+  }
+
+  saveFact(fact: { factKey: string; kind: string; label: string; country: string | null; value: string; question: string }, key: Uint8Array, now: string): void {
+    const sealed = sealJson(key, fact.value);
+    this.db.prepare(`INSERT INTO applymind_facts(id, fact_key, kind, label, country, source_answer_id, freshness_days, confirmed_at, device_id, value_blob)
+      VALUES (?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?)
+      ON CONFLICT(fact_key) DO UPDATE SET value_blob = excluded.value_blob, confirmed_at = excluded.confirmed_at, label = excluded.label`).run(
+      `fact_${fact.factKey}`, fact.factKey, fact.kind, fact.label, fact.country, now, this.deviceId, sealed,
+    );
+    this.db.prepare("UPDATE applymind_proposals SET status = 'confirmed' WHERE fact_key = ? AND status = 'proposed'").run(fact.factKey);
+  }
+
+  declineFact(factKey: string, now: string): void {
+    this.db.prepare('INSERT INTO applymind_fact_declines(fact_key, at) VALUES (?, ?) ON CONFLICT(fact_key) DO UPDATE SET at = excluded.at').run(factKey, now);
+  }
+
+  approveWordings(items: { factKey: string; normalized: string }[]): void {
+    for (const item of items) {
+      this.db.prepare('INSERT INTO applymind_fact_wordings(fact_key, normalized_question) VALUES (?, ?) ON CONFLICT(fact_key, normalized_question) DO NOTHING').run(item.factKey, item.normalized);
+    }
+  }
+
+  rememberChoice(factKey: string, optionsKey: string, choice: string): void {
+    if (!factKey || !optionsKey || !choice) return;
+    this.db.prepare('INSERT INTO applymind_fact_choices(fact_key, options_key, choice) VALUES (?, ?, ?) ON CONFLICT(fact_key, options_key) DO UPDATE SET choice = excluded.choice').run(factKey, optionsKey, choice);
+  }
+
+  /** A page answer resolves an open review or held record for the same question. */
+  releaseQuestion(question: string, answer: string, key: Uint8Array, now: string): string | null {
+    const normalized = canonicalizeQuestion(question).trim();
+    const review = rows(this.db, "SELECT id, record_id FROM applymind_reviews WHERE status = 'open' AND normalized_question = ?", normalized)[0];
+    const recordId = review ? String(review.record_id ?? '') : '';
+    const row = recordId
+      ? rows(this.db, 'SELECT id, provenance_json FROM applymind_records WHERE id = ?', recordId)[0]
+      : rows(this.db, 'SELECT id, provenance_json FROM applymind_records WHERE deleted_at IS NULL AND normalized_question = ?', normalized)[0];
+    if (!row) return null;
+    const id = String(row.id);
+    let held = false;
+    try { held = isHeld(JSON.parse(String(row.provenance_json)) as Provenance); } catch { held = false; }
+    if (!held && !review) return null;
+    const provenance: Provenance = { kind: 'user_entered', sourceAnswerId: null, catalogId: null, factId: null };
+    const sealed = sealJson(key, answer);
+    this.db.prepare(`UPDATE applymind_records SET status = 'verified', provenance_json = ?, answer_blob = ?, confirmed_at = ?, updated_at = ?, deleted_at = NULL WHERE id = ?`).run(
+      JSON.stringify(provenance), sealed, now, now, id,
+    );
+    this.addHistory(id, this.deviceId, now, 'corrected', 'verified', sealed);
+    if (review) this.db.prepare("UPDATE applymind_reviews SET status = 'resolved', resolved_at = ? WHERE id = ?").run(now, String(review.id));
+    return id;
+  }
+
+  learnLongForm(item: { question: string; answer: string; options: string[]; category: string; platform: string | null; jobTitle: string | null; company: string | null }, key: Uint8Array, now: string, status: 'verified' | 'accepted' = 'verified'): string {
+    const normalized = canonicalizeQuestion(item.question).trim();
+    const id = `kr_long_${createHash('sha256').update(`${normalized}|${item.company ?? ''}|${item.jobTitle ?? ''}`).digest('hex').slice(0, 24)}`;
+    const context: AnswerContext = { ...GENERAL_CONTEXT, scope: 'job', platform: item.platform, jobTitle: item.jobTitle, location: item.company };
+    const sealed = sealJson(key, item.answer);
+    const existing = rows(this.db, 'SELECT answer_blob FROM applymind_records WHERE id = ?', id)[0];
+    this.upsertPattern(id, item.category || 'general', normalized, this.deviceId, now);
+    if (!existing) {
+      this.db.prepare(`INSERT INTO applymind_records(id, source_answer_id, device_id, pattern_id, original_question, normalized_question,
+        category, question_type, options_json, status, provenance_json, context_json, platform, answered_at, confirmed_at,
+        freshness_days, answer_blob, deleted_at, created_at, updated_at)
+        VALUES (?, NULL, ?, ?, ?, ?, ?, 'long_form', ?, ?, ?, ?, ?, ?, ?, NULL, ?, NULL, ?, ?)`).run(
+        id, this.deviceId, id, item.question, normalized, item.category || 'general', JSON.stringify(item.options), status,
+        JSON.stringify({ kind: status === 'accepted' ? 'autofill' : 'user_entered', sourceAnswerId: null, catalogId: null, factId: null }),
+        JSON.stringify(context), item.platform, now, now, sealed, now, now,
+      );
+      this.addHistory(id, this.deviceId, now, status === 'accepted' ? 'accepted' : 'created', status, sealed);
+      return id;
+    }
+    const current = openJson<string>(key, String(existing.answer_blob));
+    this.db.prepare('UPDATE applymind_records SET confirmed_at = ?, updated_at = ?, answer_blob = ?, deleted_at = NULL, status = ? WHERE id = ?').run(
+      now, now, sealed, status, id,
+    );
+    if (current.trim() !== item.answer.trim()) this.addHistory(id, this.deviceId, now, status === 'accepted' ? 'accepted' : 'corrected', status, sealed);
+    return id;
+  }
+
+  undoRecords(ids: string[], now: string): void {
+    for (const id of ids) this.db.prepare('UPDATE applymind_records SET deleted_at = ?, updated_at = ? WHERE id = ?').run(now, now, id);
+  }
+
   confirmedCount(): number {
     return Number(rows(this.db, 'SELECT COUNT(*) AS n FROM applymind_facts')[0]?.n ?? 0);
   }
@@ -397,6 +518,13 @@ export class KnowledgeRepository {
       throw e;
     }
   }
+}
+
+function factText(key: Uint8Array, blob: string): string {
+  const opened = openJson<unknown>(key, blob);
+  if (typeof opened === 'string') return opened;
+  if (opened && typeof opened === 'object' && 'value' in opened) return String((opened as { value: unknown }).value);
+  return '';
 }
 
 export function blobIsSealed(blob: string): boolean {

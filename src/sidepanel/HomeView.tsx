@@ -7,6 +7,7 @@ import { WarningBanner } from '@/components/WarningBanner';
 import { ResumeStart } from '@/components/ResumeLibrary';
 import { Icon, type IconName } from '@/components/Icon';
 import { SENSITIVE_LABELS } from '@/services/forms/sensitive';
+import { isExcludedCapture } from '@/services/applymind/capture';
 import { formatDisplayDate } from '@/utils/dates';
 import { assessParse } from '@/services/resume/parser';
 import { openWorkspace } from './tabs/OtherTabs';
@@ -162,25 +163,44 @@ function Progress({ wf }: { wf: Workflow }) {
 function CopyPageDetails({ wf }: { wf: Workflow }) {
   const [state, setState] = useState<'idle' | 'copied' | 'shown'>('idle');
   const [text, setText] = useState('');
+  const [snapshot, setSnapshot] = useState('');
+  const [waiting, setWaiting] = useState(false);
+  const save = async (delayMs: number) => {
+    setWaiting(delayMs > 0);
+    setSnapshot(delayMs > 0 ? 'Open the list now. The snapshot runs in 5 seconds.' : 'Saving the page…');
+    const saved = await wf.savePageSnapshot(delayMs);
+    setWaiting(false);
+    if (!saved.path) {
+      setSnapshot('The page snapshot could not be saved.');
+      return;
+    }
+    const missed = saved.unopened.length ? ` Could not open: ${saved.unopened.join('; ')}.` : '';
+    setSnapshot(`Saved ${saved.path}.${missed}`);
+  };
   return (
     <>
-      <button
-        type="button"
-        className="btn btn-sm btn-quiet"
-        onClick={async () => {
-          const t = await wf.diagnose();
-          setText(t);
-          try {
-            await navigator.clipboard.writeText(t);
-            setState('copied');
-          } catch {
-            setState('shown');
-          }
-        }}
-      >
-        <Icon name="copy" size={13} /> {state === 'copied' ? 'Page details copied' : 'Copy page details'}
-      </button>
+      <div className="row">
+        <button
+          type="button"
+          className="btn btn-sm btn-quiet"
+          onClick={async () => {
+            const t = await wf.diagnose();
+            setText(t);
+            try {
+              await navigator.clipboard.writeText(t);
+              setState('copied');
+            } catch {
+              setState('shown');
+            }
+          }}
+        >
+          <Icon name="copy" size={13} /> {state === 'copied' ? 'Page details copied' : 'Copy page details'}
+        </button>
+        <button type="button" className="btn btn-sm btn-quiet" disabled={waiting} onClick={() => void save(0)}>Save page snapshot</button>
+        <button type="button" className="btn btn-sm btn-quiet" disabled={waiting} onClick={() => void save(5000)}>Snapshot in 5 seconds</button>
+      </div>
       {state === 'shown' ? <textarea className="textarea small" readOnly value={text} aria-label="Page details" rows={6} /> : null}
+      {snapshot ? <p className="small wrap-anywhere">{snapshot}</p> : null}
     </>
   );
 }
@@ -299,9 +319,40 @@ function QuestionCard({ q, onAnswer }: { q: FieldProposal; onAnswer: (value: str
   );
 }
 
+function LearnedLine({ wf }: { wf: Workflow }) {
+  const learned = wf.run.learned;
+  const prompt = wf.run.factPrompts[0];
+  const flagged = (wf.session?.fieldProposals ?? []).filter((p) => p.needsReview && p.factKey);
+  if ((!learned || learned.count < 1) && !prompt && !flagged.length) return null;
+  return (
+    <section className="stack-sm" aria-label="What ApplyFlow learned">
+      {learned && learned.count > 0 ? (
+        <p className="small">
+          Learned {learned.count} answer{learned.count === 1 ? '' : 's'} on this step.{' '}
+          <button type="button" className="link" onClick={() => void wf.undoLearn()}>Undo</button>
+        </p>
+      ) : null}
+      {prompt ? (
+        <div className="card card-quiet stack-sm">
+          <p className="small">Save this as your standard answer for “{prompt.question}”? Later applications can use it. You can change it on Data management.</p>
+          <div className="row">
+            <button type="button" className="btn btn-sm btn-primary" onClick={() => void wf.decideFact(true)}>Save</button>
+            <button type="button" className="btn btn-sm" onClick={() => void wf.decideFact(false)}>Not now</button>
+          </div>
+        </div>
+      ) : null}
+      {flagged.length ? (
+        <button type="button" className="btn btn-sm" onClick={() => void wf.approveStep()}>Approve all on this step</button>
+      ) : null}
+    </section>
+  );
+}
+
 function Questions({ wf }: { wf: Workflow }) {
   const [remember, setRemember] = useState(true);
   const r = wf.run;
+  const learnable = r.questions.some((q) => !isExcludedCapture(q.label, q.sensitive, q.control));
+  const rememberOn = learnable && remember;
   return (
     <section className="stack-sm" aria-labelledby="q-title">
       <div className="row-between">
@@ -309,13 +360,13 @@ function Questions({ wf }: { wf: Workflow }) {
           {r.questions.length === 1 ? 'One question for you' : `${r.questions.length} questions for you`}
         </h2>
         <label className="switch small">
-          <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} />
+          <input type="checkbox" checked={rememberOn} disabled={!learnable} onChange={(e) => setRemember(e.target.checked)} />
           Remember answers
         </label>
       </div>
       {r.message ? <WarningBanner tone="warning">{wf.page?.siteName || 'The page'} says: {r.message}</WarningBanner> : null}
       {r.questions.map((q) => (
-        <QuestionCard key={q.fieldId} q={q} onAnswer={(v) => void wf.answerQuestion(q, v, remember)} />
+        <QuestionCard key={q.fieldId} q={q} onAnswer={(v) => void wf.answerQuestion(q, v, rememberOn)} />
       ))}
       <p className="small muted">Tap an answer and ApplyFlow fills it on {wf.page?.siteName || 'the page'} and moves on. You can also answer on the page and press Continue.</p>
     </section>
@@ -597,6 +648,7 @@ export function HomeView({ wf, lib, settings, hasKey }: { wf: Workflow; lib: Lib
         </WarningBanner>
       ) : null}
       {r.status === 'submitted' || s.submittedAt ? <Submitted wf={wf} /> : null}
+      <LearnedLine wf={wf} />
       {r.status === 'questions' ? <Questions wf={wf} /> : null}
       {r.status === 'ready' ? <Review wf={wf} /> : null}
       {showRun && r.status !== 'submitted' && !s.submittedAt ? <Progress wf={wf} /> : null}

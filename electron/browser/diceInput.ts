@@ -12,7 +12,8 @@ export type TrustedRequest =
   | { op: 'setInputFile'; marker: string; name: string; base64: string }
   | { op: 'clickMarked'; marker: string }
   | { op: 'pageHelper' }
-  | { op: 'jobrightApply'; jobId: string };
+  | { op: 'jobrightApply'; jobId: string }
+  | { op: 'pressKey'; key: 'Escape' | 'Tab' };
 
 interface Arm {
   id: string;
@@ -110,6 +111,15 @@ export class DiceInput {
     } catch {
       return false;
     }
+  }
+
+  async pressKey(key: string): Promise<boolean> {
+    if (key !== 'Escape' && key !== 'Tab') return false;
+    const keyCode = key === 'Escape' ? 27 : 9;
+    const event = { key, code: key, windowsVirtualKeyCode: keyCode, nativeVirtualKeyCode: keyCode };
+    await this.cmd('Input.dispatchKeyEvent', { ...event, type: 'keyDown' });
+    await this.cmd('Input.dispatchKeyEvent', { ...event, type: 'keyUp' });
+    return true;
   }
 
   async clickAt(x: number, y: number): Promise<boolean> {
@@ -240,6 +250,8 @@ export class DiceInput {
         return this.setInputFile(String(req.marker), String(req.name), String(req.base64));
       case 'clickMarked':
         return this.clickMarked(String(req.marker));
+      case 'pressKey':
+        return this.pressKey(String(req.key));
       default:
         throw new Error('Unknown request.');
     }

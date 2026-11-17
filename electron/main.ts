@@ -487,6 +487,11 @@ function registerIpc(): void {
     'applymind.reviews': () => applyMind.reviews(),
     'applymind.resolve': (req: { id: string; action: 'confirm' | 'correct' | 'delete' | 'keep-local' | 'keep-incoming' | 'keep-both' | 'replace'; answer?: string }) => applyMind.resolve(req.id, req.action, req.answer),
     'applymind.blocked': () => applyMind.blocked(),
+    'applymind.fillContext': () => applyMind.fillContext(),
+    'applymind.learnPage': (req: { items: Parameters<ApplyMindService['learnPage']>[0]; learnDemographics: boolean }) => applyMind.learnPage(req.items, req.learnDemographics),
+    'applymind.decideFact': (req: Parameters<ApplyMindService['decideFact']>[0]) => applyMind.decideFact(req),
+    'applymind.approveWordings': (items: { factKey: string; normalized: string }[]) => applyMind.approveWordings(items),
+    'applymind.undoLearn': (ids: string[]) => applyMind.undoLearn(ids),
     'siteCredentials.list': () => store.listSiteCredentials().map(decryptSiteCred),
     'siteCredentials.get': (host: string) => {
       const c = store.getSiteCredential(host);
@@ -638,6 +643,16 @@ function registerIpc(): void {
     'sync.restore': (name: string) => syncService().restore(String(name)),
     'sync.restoreApplyMind': () => syncService().restoreApplyMind(),
     'app.info': () => ({ version: app.getVersion(), dataDir: app.getPath('userData'), dbPath: store.path, platform: process.platform }),
+    'snapshots.save': (snap: { html: string; unopened: string[] }) => {
+      const dir = join(app.getPath('userData'), 'page-snapshots');
+      mkdirSync(dir, { recursive: true });
+      const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+      const file = join(dir, `snapshot-${stamp}.html`);
+      const unopened = Array.isArray(snap?.unopened) ? snap.unopened.map((s) => String(s).slice(0, 160)) : [];
+      const html = String(snap?.html ?? '').slice(0, 8_000_000);
+      writeFileSync(file, `<!-- unopened: ${unopened.join(' | ') || 'none'} -->\n${html}`, 'utf8');
+      return file;
+    },
     'app.openExternal': (url: string) => {
       if (/^https?:\/\//i.test(url)) void shell.openExternal(url);
     },

@@ -89,6 +89,21 @@ export function ensureApplyMindSchema(db: DatabaseSync): void {
       created_at TEXT NOT NULL,
       resolved_at TEXT
     );
+    CREATE TABLE IF NOT EXISTS applymind_fact_wordings (
+      fact_key TEXT NOT NULL,
+      normalized_question TEXT NOT NULL,
+      PRIMARY KEY (fact_key, normalized_question)
+    );
+    CREATE TABLE IF NOT EXISTS applymind_fact_choices (
+      fact_key TEXT NOT NULL,
+      options_key TEXT NOT NULL,
+      choice TEXT NOT NULL,
+      PRIMARY KEY (fact_key, options_key)
+    );
+    CREATE TABLE IF NOT EXISTS applymind_fact_declines (
+      fact_key TEXT PRIMARY KEY,
+      at TEXT NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS applymind_models (
       version TEXT PRIMARY KEY,
       trained_at TEXT NOT NULL,

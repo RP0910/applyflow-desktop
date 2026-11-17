@@ -167,7 +167,53 @@ export function scanFields(root: ParentNode): FormFieldDescriptor[] {
     });
   }
   out.push(...scanChoiceGroups(root));
+  out.push(...scanListButtons(root));
   return out;
+}
+
+const PLACEHOLDER = /^(select one|select|choose one|choose|please select|[-—–]+)$/i;
+
+function scanListButtons(root: ParentNode): FormFieldDescriptor[] {
+  const buttons = Array.from(root.querySelectorAll<HTMLElement>('button[aria-haspopup="listbox"], [role="combobox"][aria-haspopup="listbox"]'));
+  const out: FormFieldDescriptor[] = [];
+  for (const el of buttons) {
+    if (el.querySelector('input, select, textarea') || el.closest('label')?.querySelector('input, select')) continue;
+    if (!isVisible(el)) continue;
+    const list = listFor(el);
+    const options = list ? Array.from(list.querySelectorAll<HTMLElement>('[role="option"]')).map((o) => textOf(o)).filter(Boolean) : [];
+    if (options.length < 2) continue;
+    const { label, starred } = groupQuestion(el, root as Element);
+    if (!label) continue;
+    const shown = textOf(el);
+    out.push({
+      fieldId: ensureId(el),
+      label,
+      context: label,
+      control: 'select',
+      name: '',
+      required: starred || el.getAttribute('aria-required') === 'true',
+      options,
+      currentValue: shown && !PLACEHOLDER.test(shown) ? shown : '',
+      accept: '',
+      sensitive: classifyFieldSensitivity(label, options.join(' ')),
+    });
+  }
+  return out;
+}
+
+function listFor(el: HTMLElement): HTMLElement | null {
+  const id = el.getAttribute('aria-controls');
+  const doc = el.ownerDocument;
+  if (id) {
+    const named = doc.getElementById(id);
+    if (named) return named;
+  }
+  const parent = el.parentElement;
+  if (!parent) return null;
+  const sibling = Array.from(parent.children).find((c) => c !== el && c.getAttribute('role') === 'listbox');
+  if (sibling instanceof HTMLElement) return sibling;
+  const nested = parent.querySelector<HTMLElement>('[role="listbox"]');
+  return nested && !nested.contains(el) ? nested : null;
 }
 
 
@@ -242,15 +288,33 @@ function labelOfOption(r: HTMLInputElement): string {
   return r.value;
 }
 
-export function setNativeValue(el: HTMLInputElement | HTMLTextAreaElement, value: string): void {
-  const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+type Tracked = { _valueTracker?: { setValue: (value: string) => void } };
+
+/** Write a value the page's framework will treat as a real change, then blur. */
+export function setNativeValue(el: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement, value: string): void {
+  const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : el instanceof HTMLSelectElement ? HTMLSelectElement.prototype : HTMLInputElement.prototype;
   const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
   el.focus();
   if (setter) setter.call(el, value);
   else el.value = value;
-  el.dispatchEvent(new Event('input', { bubbles: true }));
+  const tracker = (el as Tracked)._valueTracker;
+  if (tracker) tracker.setValue(value === '' ? ' ' : '');
+  const view = el.ownerDocument.defaultView;
+  const Input = view?.InputEvent ?? InputEvent;
+  el.dispatchEvent(new Input('input', { bubbles: true, cancelable: true, inputType: 'insertText', data: value }));
   el.dispatchEvent(new Event('change', { bubbles: true }));
   el.dispatchEvent(new Event('blur', { bubbles: true }));
+}
+
+/** The page kept the value and did not mark the field invalid. */
+export function pageAccepted(el: Element, expected: string): { ok: true } | { ok: false; error: string } {
+  const invalid = el.getAttribute('aria-invalid') === 'true' || Boolean(el.closest('[aria-invalid="true"]'));
+  const errId = el.getAttribute('aria-errormessage');
+  const errEl = errId ? el.ownerDocument.getElementById(errId) : el.parentElement?.querySelector('[role="alert"]');
+  const errText = (errEl?.textContent ?? '').replace(/\s+/g, ' ').trim();
+  if (invalid || errText) return { ok: false, error: errText || 'The page marked this field invalid.' };
+  if (el.hasAttribute('data-model') && el.getAttribute('data-model') !== expected) return { ok: false, error: 'The page did not keep this value.' };
+  return { ok: true };
 }
 
 function base64ToBytes(b64: string): Uint8Array {
@@ -260,11 +324,26 @@ function base64ToBytes(b64: string): Uint8Array {
   return out;
 }
 
+function fillListButton(el: Element, value: string): FillResult {
+  const fieldId = el.getAttribute(FIELD_ATTR) ?? '';
+  const want = value.trim().toLowerCase();
+  if (el instanceof HTMLElement) el.click();
+  const list = el instanceof HTMLElement ? listFor(el) : null;
+  const match = list ? Array.from(list.querySelectorAll<HTMLElement>('[role="option"]')).find((o) => textOf(o).toLowerCase() === want) : undefined;
+  if (!match) return { fieldId, ok: false, error: `No option “${value}”.` };
+  match.click();
+  if (textOf(el).toLowerCase() !== want && el instanceof HTMLElement) el.textContent = textOf(match);
+  const accepted = pageAccepted(el, textOf(match));
+  if (!accepted.ok) return { fieldId, ok: false, error: accepted.error };
+  const shown = textOf(el);
+  return shown.toLowerCase() === want ? { fieldId, ok: true, finalValue: shown } : { fieldId, ok: false, error: 'The page did not keep this choice.' };
+}
+
 export function fillFields(doc: Document, instructions: FillInstruction[]): FillResult[] {
   return instructions.map((ins): FillResult => {
-    const el = doc.querySelector<Control>(`[${FIELD_ATTR}="${CSS.escape(ins.fieldId)}"]`);
+    const el = doc.querySelector<Element>(`[${FIELD_ATTR}="${CSS.escape(ins.fieldId)}"]`);
     if (!el) return { fieldId: ins.fieldId, ok: false, error: 'This field is no longer on the page. Rescan the form.' };
-    if (el.disabled || (el as HTMLInputElement).readOnly) return { fieldId: ins.fieldId, ok: false, error: 'The field is read-only.' };
+    if ((el as HTMLInputElement).disabled || (el as HTMLInputElement).readOnly) return { fieldId: ins.fieldId, ok: false, error: 'The field is read-only.' };
     try {
       if (ins.kind === 'file') {
         if (!(el instanceof HTMLInputElement) || el.type !== 'file' || !ins.file) return { fieldId: ins.fieldId, ok: false, error: 'Not a file upload control.' };
@@ -280,17 +359,23 @@ export function fillFields(doc: Document, instructions: FillInstruction[]): Fill
           : { fieldId: ins.fieldId, ok: false, error: 'Dice did not accept the file programmatically. Attach it yourself — it is in your downloads.' };
       }
       const value = ins.value ?? '';
+      if (el instanceof HTMLButtonElement || el.getAttribute('aria-haspopup') === 'listbox') {
+        return fillListButton(el, value);
+      }
       if (el instanceof HTMLSelectElement) {
         const opt = Array.from(el.options).find((o) => o.text.trim() === value || o.value === value);
         if (!opt) return { fieldId: ins.fieldId, ok: false, error: `No option “${value}”.` };
-        el.value = opt.value;
-        el.dispatchEvent(new Event('change', { bubbles: true }));
-        return { fieldId: ins.fieldId, ok: true, finalValue: opt.text.trim() };
+        setNativeValue(el, opt.value);
+        const accepted = pageAccepted(el, opt.value);
+        return accepted.ok ? { fieldId: ins.fieldId, ok: true, finalValue: opt.text.trim() } : { fieldId: ins.fieldId, ok: false, error: accepted.error };
       }
       if (el instanceof HTMLInputElement && (el.type === 'checkbox' || el.type === 'radio')) {
         return { fieldId: ins.fieldId, ok: false, error: 'Checkboxes and choices are never set automatically.' };
       }
+      if (!(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement)) return { fieldId: ins.fieldId, ok: false, error: 'This control cannot be filled automatically.' };
       setNativeValue(el, value);
+      const accepted = pageAccepted(el, value);
+      if (!accepted.ok) return { fieldId: ins.fieldId, ok: false, error: accepted.error };
       return { fieldId: ins.fieldId, ok: el.value === value, finalValue: el.value, error: el.value === value ? undefined : 'The page changed the value after it was set.' };
     } catch (e: unknown) {
       return { fieldId: ins.fieldId, ok: false, error: e instanceof Error ? e.message : 'Unknown error' };
@@ -313,9 +398,10 @@ export function highlightField(doc: Document, fieldId: string): boolean {
 }
 
 export function answerField(doc: Document, fieldId: string, value: string): FillResult {
-  const el = doc.querySelector<Control>(`[${FIELD_ATTR}="${CSS.escape(fieldId)}"]`);
+  const el = doc.querySelector<Element>(`[${FIELD_ATTR}="${CSS.escape(fieldId)}"]`);
   if (!el) return { fieldId, ok: false, error: 'This question is no longer on the page.' };
   const want = value.trim().toLowerCase();
+  if (el.getAttribute('aria-haspopup') === 'listbox') return fillListButton(el, value);
   if (!(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement)) {
     const opts = choiceOptions(el);
     const match = opts.find((o) => textOf(o).toLowerCase() === want) ?? opts.find((o) => textOf(o).toLowerCase().startsWith(want));
@@ -334,7 +420,8 @@ export function answerField(doc: Document, fieldId: string, value: string): Fill
         match.checked = true;
         match.dispatchEvent(new Event('change', { bubbles: true }));
       }
-      return { fieldId, ok: match.checked, finalValue: labelOfOption(match) };
+      const accepted = pageAccepted(match, labelOfOption(match));
+      return accepted.ok && match.checked ? { fieldId, ok: true, finalValue: labelOfOption(match) } : { fieldId, ok: false, error: accepted.ok ? 'The page did not keep this choice.' : accepted.error };
     }
     if (el instanceof HTMLInputElement && el.type === 'checkbox') {
       const on = /^(yes|true|checked|agree|i agree|on)$/i.test(value.trim());
@@ -343,17 +430,19 @@ export function answerField(doc: Document, fieldId: string, value: string): Fill
         el.checked = on;
         el.dispatchEvent(new Event('change', { bubbles: true }));
       }
-      return { fieldId, ok: el.checked === on, finalValue: el.checked ? 'checked' : '' };
+      const accepted = pageAccepted(el, el.checked ? 'checked' : '');
+      return accepted.ok && el.checked === on ? { fieldId, ok: true, finalValue: el.checked ? 'checked' : '' } : { fieldId, ok: false, error: accepted.ok ? 'The page did not keep this choice.' : accepted.error };
     }
     if (el instanceof HTMLSelectElement) {
       const opt = Array.from(el.options).find((o) => o.text.trim().toLowerCase() === want || o.value.toLowerCase() === want) ?? Array.from(el.options).find((o) => o.value && o.text.trim().toLowerCase().startsWith(want));
       if (!opt) return { fieldId, ok: false, error: `No option “${value}”.` };
-      el.value = opt.value;
-      el.dispatchEvent(new Event('input', { bubbles: true }));
-      el.dispatchEvent(new Event('change', { bubbles: true }));
-      return { fieldId, ok: true, finalValue: opt.text.trim() };
+      setNativeValue(el, opt.value);
+      const accepted = pageAccepted(el, opt.value);
+      return accepted.ok ? { fieldId, ok: true, finalValue: opt.text.trim() } : { fieldId, ok: false, error: accepted.error };
     }
     setNativeValue(el as HTMLInputElement | HTMLTextAreaElement, value);
+    const accepted = pageAccepted(el, value);
+    if (!accepted.ok) return { fieldId, ok: false, error: accepted.error };
     return { fieldId, ok: (el as HTMLInputElement).value === value, finalValue: (el as HTMLInputElement).value };
   } catch (e: unknown) {
     return { fieldId, ok: false, error: e instanceof Error ? e.message : 'Could not set the answer.' };

@@ -12,6 +12,8 @@ import {
   questionWords,
   scoreAgainstPatterns,
 } from './questionMatch';
+import { isLongFormQuestion } from '@/services/applymind/capture';
+import { matchFactQuestion, proposeFactFill, type StoredFact } from '@/services/applymind/factRules';
 
 const REMEMBER_MERGE_THRESHOLD = 0.55;
 
@@ -82,6 +84,12 @@ export interface MapperContext {
   exactAnswers?: Readonly<Record<string, string>>;
   /** Normalized questions that must not be filled while a review or conflict is open. */
   blockedQuestions?: readonly string[];
+  /** Confirmed profile facts. Similarity is never used to choose these. */
+  facts?: readonly StoredFact[];
+  jobCountry?: string | null;
+  learnDemographics?: boolean;
+  /** Previous long-form answers, keyed by normalized question. Always flagged. */
+  longFormDrafts?: Readonly<Record<string, string>>;
 }
 
 export function countryOf(location: string): string {
@@ -258,6 +266,20 @@ export function proposeFieldValues(fields: FormFieldDescriptor[], ctx: MapperCon
       if (f.currentValue) return { ...base, action: 'skip', proposedValue: f.currentValue, source: 'Already answered on the page', confidence: 'high', reason: 'Already answered.', status: 'skipped' };
       return { ...base, action: 'manual', reason: 'This answer is waiting for you to confirm it. ApplyFlow will not fill it until you do.', source: 'You (manual)' };
     }
+    const longForm = isLongFormQuestion(f.label, f.control);
+    if (longForm) {
+      if (f.currentValue) return { ...base, action: 'skip', proposedValue: f.currentValue, source: 'Already answered on the page', confidence: 'high', reason: 'Already answered.', status: 'skipped' };
+      const draft = ctx.longFormDrafts?.[canonicalizeQuestion(f.label).trim()];
+      if (draft) return { ...base, action: 'answer', proposedValue: draft, needsReview: true, source: 'A previous answer, for you to edit', confidence: 'low', reason: 'This is specific to a job. Check it before you submit.' };
+      return { ...base, action: 'manual', reason: 'This answer is specific to the job. Write it yourself.', source: 'You (manual)' };
+    }
+    if (!f.currentValue) {
+      const fact = proposeFactFill(f.label, f.options, ctx.facts ?? [], ctx.jobCountry ?? null, ctx.learnDemographics !== false, canonicalizeQuestion(f.label).trim());
+      if (fact?.action === 'fill') {
+        return { ...base, action: 'answer', proposedValue: fact.value, needsReview: fact.needsReview, factKey: fact.factKey, source: fact.source, confidence: fact.needsReview ? 'low' : 'high', reason: fact.needsReview ? 'The wording is new. Check it, then approve it.' : 'This matches a confirmed answer.' };
+      }
+      if (fact?.action === 'ask') return { ...base, action: 'manual', reason: fact.reason, source: 'You (manual)' };
+    }
     const exactValue = !f.currentValue && f.sensitive !== 'legal_consent' ? ctx.exactAnswers?.[f.fieldId]?.trim() : '';
     if (exactValue) {
       return { ...base, action: 'answer', proposedValue: exactValue, approvedSuggestion: exactValue, source: 'Your verified answer', confidence: 'high', reason: 'This question matches a verified answer exactly.' };
@@ -266,7 +288,7 @@ export function proposeFieldValues(fields: FormFieldDescriptor[], ctx: MapperCon
       if (!ctx.useSavedAnswers || held || f.currentValue || f.sensitive === 'legal_consent') return null;
       const hit = matchApproved(p.approvedAnswers, f);
       if (!hit) return null;
-      if (hit.kind !== 'exact' && looseMatchAsks(f)) return null;
+      if (hit.kind !== 'exact' && (looseMatchAsks(f) || matchFactQuestion(f.label))) return null;
       const value = f.options.length && (f.control === 'radio' || f.control === 'select' || f.control === 'combobox') ? matchOption(f.options, hit.answer) : hit.answer;
       if (!value) return null;
       if (hit.kind === 'exact') return { ...base, action: 'answer', proposedValue: value, approvedSuggestion: hit.answer, source: 'Your saved answer', confidence: 'high', reason: 'You saved this answer earlier.' };

@@ -9,6 +9,14 @@ import { loadOrCreateDek, type KeyWrapper } from './crypto';
 import { blockedQuestions, holdCandidateCount, holdFillerRecords as holdRows, listReviews, readSection, resolveReview, writeMerged } from './exchange';
 import { type ReviewAction, type ReviewItem } from '../../src/services/applymind/transfer';
 import { KnowledgeRepository } from './repository';
+import type { FactPrompt, PageLearnItem } from '../../src/services/applymind/capture';
+
+export interface PageLearnResult {
+  profileAnswers: { category: string; questionPattern: string; answer: string; control: string; options: string[] }[];
+  longFormIds: string[];
+  prompts: FactPrompt[];
+  trained: boolean;
+}
 
 export interface SyncReport {
   answersSeen: number;
@@ -155,14 +163,86 @@ export class ApplyMindService {
   }
 
   async reviews(): Promise<ReviewItem[]> {
-    return listReviews(this.current().db, await this.dek());
+    const key = await this.dek();
+    const open = listReviews(this.current().db, key);
+    const facts: ReviewItem[] = this.repo().proposals(key).map((p) => ({
+      id: p.id,
+      kind: 'fact',
+      question: p.label,
+      answer: p.value,
+      otherAnswer: null,
+      origin: p.country ? `Proposed fact · ${p.country}` : 'Proposed fact',
+      otherOrigin: p.question,
+      normalizedQuestion: p.factKey,
+    }));
+    return [...open, ...facts];
   }
 
   async resolve(id: string, action: ReviewAction, answer?: string): Promise<void> {
     const store = this.current();
     const key = await this.dek();
-    resolveReview(store.db, key, store.deviceId, new Date().toISOString(), id, action, answer);
+    const now = new Date().toISOString();
+    if (id.startsWith('fp_')) {
+      if (action === 'delete') this.repo().rejectProposal(id);
+      else {
+        if ((action === 'correct' || action === 'replace') && answer?.trim()) this.repo().correctProposal(id, answer.trim(), key);
+        this.repo().confirmFacts([id], now);
+      }
+      return;
+    }
+    resolveReview(store.db, key, store.deviceId, now, id, action, answer);
     this.trainIfNeeded(this.repo(), key, true);
+  }
+
+  async fillContext(): Promise<{ facts: { factKey: string; family: string; country: string | null; value: string; wordings: string[]; choices: { optionsKey: string; choice: string }[] }[]; drafts: Record<string, string> }> {
+    return this.repo().fillContext(await this.dek());
+  }
+
+  async learnPage(items: PageLearnItem[], learnDemographics: boolean): Promise<PageLearnResult> {
+    const repo = this.repo();
+    const key = await this.dek();
+    const now = new Date().toISOString();
+    const accepted = items.filter((i) => i.kind === 'accepted' && !i.longForm);
+    if (accepted.length) repo.acceptFills(accepted.map((i) => ({ question: i.question, answer: i.answer, category: i.category, options: i.options, control: i.control })), key, now);
+    const profileAnswers: PageLearnResult['profileAnswers'] = [];
+    const longFormIds: string[] = [];
+    const prompts: PageLearnResult['prompts'] = [];
+    let changed = false;
+    for (const item of items) {
+      const demographic = item.factKey?.startsWith('eeo.gender') || item.factKey?.startsWith('eeo.race') || item.factKey?.startsWith('eeo.pronouns');
+      if (demographic && !learnDemographics) continue;
+      if (item.longForm) {
+        longFormIds.push(repo.learnLongForm(item, key, now, item.kind === 'accepted' ? 'accepted' : 'verified'));
+        if (item.kind !== 'accepted') changed = true;
+        continue;
+      }
+      if (item.kind === 'accepted') continue;
+      if (repo.releaseQuestion(item.question, item.answer, key, now)) changed = true;
+      if (item.factKey && item.optionsKey) repo.rememberChoice(item.factKey, item.optionsKey, item.answer);
+      profileAnswers.push({ category: item.category, questionPattern: item.question, answer: item.answer, control: item.control, options: item.options });
+      if (item.factKey && item.factLabel && repo.factPromptFor(item.factKey)) {
+        prompts.push({ factKey: item.factKey, label: item.factLabel, value: item.answer, question: item.question, country: item.country });
+      }
+    }
+    const trained = this.trainIfNeeded(repo, key, changed);
+    return { profileAnswers, longFormIds, prompts, trained: trained.ran };
+  }
+
+  async decideFact(req: { factKey: string; accept: boolean; label: string; kind: string; country: string | null; value: string; question: string }): Promise<void> {
+    const now = new Date().toISOString();
+    if (!req.accept) {
+      this.repo().declineFact(req.factKey, now);
+      return;
+    }
+    this.repo().saveFact({ factKey: req.factKey, kind: req.kind, label: req.label, country: req.country, value: req.value, question: req.question }, await this.dek(), now);
+  }
+
+  async approveWordings(items: { factKey: string; normalized: string }[]): Promise<void> {
+    this.repo().approveWordings(items);
+  }
+
+  async undoLearn(ids: string[]): Promise<void> {
+    this.repo().undoRecords(ids, new Date().toISOString());
   }
 
   async blocked(): Promise<string[]> {

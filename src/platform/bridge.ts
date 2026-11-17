@@ -5,6 +5,7 @@ import type { SyncBackupInfo, SyncExportResult, SyncImportResult, SyncInspectRes
 import type { ApplyMindStatus, ProposalView } from '@/services/applymind/types';
 import type { ExactLookup } from '@/services/applymind/exact';
 import type { ReviewAction, ReviewItem } from '@/services/applymind/transfer';
+import type { FactPrompt, PageLearnItem } from '@/services/applymind/capture';
 
 export interface BridgeMethods {
   'kv.get': (key: string) => unknown;
@@ -27,6 +28,11 @@ export interface BridgeMethods {
   'applymind.reviews': () => ReviewItem[];
   'applymind.resolve': (req: { id: string; action: ReviewAction; answer?: string }) => void;
   'applymind.blocked': () => string[];
+  'applymind.fillContext': () => { facts: { factKey: string; family: string; country: string | null; value: string; wordings: string[]; choices: { optionsKey: string; choice: string }[] }[]; drafts: Record<string, string> };
+  'applymind.learnPage': (req: { items: PageLearnItem[]; learnDemographics: boolean }) => { profileAnswers: { category: string; questionPattern: string; answer: string; control: string; options: string[] }[]; longFormIds: string[]; prompts: FactPrompt[]; trained: boolean };
+  'applymind.decideFact': (req: { factKey: string; accept: boolean; label: string; kind: string; country: string | null; value: string; question: string }) => void;
+  'applymind.approveWordings': (items: { factKey: string; normalized: string }[]) => void;
+  'applymind.undoLearn': (ids: string[]) => void;
   'siteCredentials.list': () => SiteCredential[];
   'siteCredentials.get': (host: string) => SiteCredential | null;
   'siteCredentials.save': (c: SiteCredential) => SiteCredential;
@@ -98,6 +104,7 @@ export interface BridgeMethods {
   'sync.restore': (name: string) => { restored: SyncBackupInfo; safetyBackup: SyncBackupInfo };
   'sync.restoreApplyMind': () => SyncBackupInfo;
   'app.info': () => { version: string; dataDir: string; dbPath: string; platform: string };
+  'snapshots.save': (snap: { html: string; unopened: string[] }) => string;
   'app.openExternal': (url: string) => void;
   'claudeChat.status': () => ClaudeChatStatus;
   'claudeChat.open': () => void;

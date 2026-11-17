@@ -1,7 +1,9 @@
 import type { CareerProfile, FieldProposal, FieldSemantic, FillInstruction, JobSession, PageBlocker, PageState, Settings, SiteCredential } from '@/types';
 import type { ContentResponseMap, FilePayload, PanelToContent, ScanResponse, SignInResponse } from '@/types/messages';
 import type { LoginAction } from '@/services/forms/siteLogin';
-import { proposeFieldValues } from '@/services/forms/mapper';
+import { proposeFieldValues, rememberAnswer, toScreeningControl } from '@/services/forms/mapper';
+import { classifyCapture, isLongFormQuestion, type PageLearnItem } from '@/services/applymind/capture';
+import { countryFromLocation, matchFactQuestion, optionsKey, resolvedFactKey, type StoredFact } from '@/services/applymind/factRules';
 import { formKeyFor } from '@/services/platforms/registry';
 
 export type StageKey = 'documents' | 'open' | 'attach' | 'questions' | 'review';
@@ -35,6 +37,8 @@ export interface ApplyRunState {
   formKey: string | null;
   /** Address of the application form ApplyFlow opened, so it can go back there. */
   formUrl: string | null;
+  learned: { count: number; longFormIds: string[]; previousAnswers: CareerProfile['approvedAnswers'] } | null;
+  factPrompts: { factKey: string; label: string; value: string; question: string; country: string | null }[];
 }
 
 export const INITIAL_RUN: ApplyRunState = {
@@ -54,6 +58,8 @@ export const INITIAL_RUN: ApplyRunState = {
   allowOriginalResume: false,
   formKey: null,
   formUrl: null,
+  learned: null,
+  factPrompts: [],
 };
 
 type Send = <K extends PanelToContent['type']>(msg: Extract<PanelToContent, { type: K }>) => Promise<ContentResponseMap[K]>;
@@ -71,6 +77,8 @@ export interface RunnerIO {
   blockedQuestions?: () => Promise<string[]>;
   /** Record a fill the user has not approved. Must not create a verified answer. */
   recordAccepted?: (items: { question: string; answer: string; category: string; options: string[]; control: string }[]) => Promise<void>;
+  fillContext?: () => Promise<{ facts: StoredFact[]; drafts: Record<string, string> }>;
+  learnPage?: (items: PageLearnItem[]) => Promise<{ profileAnswers: { category: string; questionPattern: string; answer: string; control: string; options: string[] }[]; longFormIds: string[]; prompts: ApplyRunState['factPrompts']; trained: boolean }>;
   ensureSiteCredential?: (url: string, email: string) => Promise<SiteCredential | null>;
   /** Keep the login a new account was created with, so a later default-password change doesn't lock it out. */
   rememberSiteLogin?: (c: SiteCredential) => Promise<unknown>;
@@ -337,6 +345,7 @@ export async function processStep(io: RunnerIO): Promise<'ready' | 'next' | 'mov
   }
   if (!scan.formFound) return attention(io, scan.error ?? 'No application form is visible.');
   if (!scan.ok) return attention(io, scan.error ?? 'Dice changed this page layout, so I could not safely identify the application fields.');
+  await learnFinishedStep(io, scan);
   const here = stepKey(scan.pageUrl, scan.step);
   if (io.state().lastStepKey !== here) {
     const a = io.state().attachments;
@@ -416,6 +425,7 @@ export async function processStep(io: RunnerIO): Promise<'ready' | 'next' | 'mov
       if (value?.trim()) exactAnswers[f.fieldId] = value.trim();
     }
   }
+  const learned = io.fillContext ? await io.fillContext().catch(() => null) : null;
   const ctx = {
     profile: io.profile,
     resume: s0.resume,
@@ -427,6 +437,10 @@ export async function processStep(io: RunnerIO): Promise<'ready' | 'next' | 'mov
     overwrite: scan.parsesResume && attempted ? (['first_name', 'last_name', 'full_name', 'email', 'phone'] as FieldSemantic[]) : undefined,
     exactAnswers,
     blockedQuestions: io.blockedQuestions ? await io.blockedQuestions() : [],
+    facts: learned?.facts,
+    longFormDrafts: learned?.drafts,
+    jobCountry: countryFromLocation(s0.job.location),
+    learnDemographics: io.settings.learnDemographics !== false,
   };
   let proposals = proposeFieldValues(scan.fields, ctx).map((p) => ({ ...p, stepUrl: scan!.pageUrl }));
   const fills: FillInstruction[] = [];
@@ -472,7 +486,58 @@ export async function processStep(io: RunnerIO): Promise<'ready' | 'next' | 'mov
   return decide(io, scan, proposals, false);
 }
 
+async function learnFinishedStep(io: RunnerIO, scan: ScanResponse): Promise<void> {
+  if (!io.learnPage) return;
+  const cap = await safe(io.send({ type: 'AF_READ_CAPTURE' }));
+  if (!cap) return;
+  const here = `${scan.pageUrl}#${scan.step ? `${scan.step.current}/${scan.step.total}` : '-'}`;
+  if (cap.stepKey === here) return;
+  const items: PageLearnItem[] = [];
+  for (const field of cap.fields) {
+    const kind = classifyCapture({ ...field, rejected: field.rejected });
+    if (kind !== 'verified' && kind !== 'correction' && kind !== 'accepted') continue;
+    const fact = matchFactQuestion(field.label);
+    const jobCountry = countryFromLocation(io.session()?.job.location);
+    const factKey = fact ? resolvedFactKey(fact, jobCountry) : null;
+    items.push({
+      kind: kind === 'accepted' ? 'accepted' : kind,
+      question: field.label.trim().slice(0, 220),
+      answer: field.finalValue.trim(),
+      control: field.control,
+      options: field.options,
+      category: field.sensitive ?? 'general',
+      longForm: isLongFormQuestion(field.label, field.control),
+      platform: scan.siteName ?? null,
+      jobTitle: io.session()?.job.title ?? null,
+      company: io.session()?.job.company ?? null,
+      country: fact?.country === 'job' ? jobCountry : fact?.country && fact.country !== 'job' ? fact.country : jobCountry,
+      factKey,
+      factLabel: factKey ? field.label.trim().slice(0, 80) : null,
+      optionsKey: field.options.length ? optionsKey(field.options) : null,
+    });
+  }
+  await safe(io.send({ type: 'AF_CLEAR_CAPTURE' }));
+  if (!items.length) return;
+  const result = await io.learnPage(items).catch(() => null);
+  if (!result) return;
+  const previousAnswers = io.profile.approvedAnswers;
+  if (result.profileAnswers.length && io.saveProfile) {
+    let answers = previousAnswers;
+    for (const a of result.profileAnswers) {
+      const control = toScreeningControl(a.control as FieldProposal['control']);
+      answers = rememberAnswer(answers, { category: a.category as CareerProfile['approvedAnswers'][number]['category'], questionPattern: a.questionPattern, answer: a.answer, control, options: a.options.length ? a.options : undefined }, () => `ans_${Math.random().toString(36).slice(2, 10)}`, new Date().toISOString());
+    }
+    await io.saveProfile({ ...io.profile, approvedAnswers: answers });
+  }
+  patch(io, {
+    learned: { count: items.filter((i) => i.kind !== 'accepted').length, longFormIds: result.longFormIds, previousAnswers },
+    factPrompts: result.prompts,
+  });
+}
+
 function decide(io: RunnerIO, scan: ScanResponse, proposals: FieldProposal[], includeOptional: boolean): 'ready' | 'next' | 'stopped' {
+  const failed = proposals.filter((p) => p.status === 'failed');
+  if (failed.length) return attention(io, failed.map((p) => `${p.label}: ${p.error ?? 'The page did not accept this value.'}`).join(' · '));
   const empty = scan.fields.filter((f) => !f.currentValue.trim() && f.control !== 'file');
   const byId = (id: string) => proposals.find((p) => p.fieldId === id);
   const asQuestion = (f: ScanResponse['fields'][number]): FieldProposal =>

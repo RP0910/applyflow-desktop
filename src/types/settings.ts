@@ -44,6 +44,8 @@ export interface Settings {
   showPageLauncher: boolean;
   autoAdvanceSteps: boolean;
   autoFillSavedAnswers: boolean;
+  /** Learn and fill gender, ethnicity, and pronouns. Veteran and disability are separate. */
+  learnDemographics: boolean;
   includeCoverLetterByDefault: boolean;
   deepAnalysisWithClaude: boolean;
   atsRefinePass: boolean;
@@ -88,6 +90,7 @@ export const DEFAULT_SETTINGS: Settings = {
   showPageLauncher: true,
   autoAdvanceSteps: true,
   autoFillSavedAnswers: true,
+  learnDemographics: true,
   includeCoverLetterByDefault: true,
   deepAnalysisWithClaude: false,
   atsRefinePass: false,

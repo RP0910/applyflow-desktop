@@ -445,18 +445,18 @@ export function DataManagement() {
       {reviews.length ? (
         <section className="card stack-sm" aria-labelledby="am-review-h">
           <h3 className="section-title" id="am-review-h">ApplyMind needs you ({reviews.length})</h3>
-          <p className="small muted">These questions are not filled until you decide. Confirm or correct makes the answer verified. Delete removes it.</p>
+          <p className="small muted">These questions and proposed facts are not filled until you decide. Confirm or correct saves the answer. Reject or delete drops it.</p>
           {reviews.map((item) => (
             <div key={item.id} className="card card-quiet stack-sm">
               <div className="strong">{item.question}</div>
               <div>{item.kind === 'conflict' ? 'This computer: ' : ''}{item.answer}</div>
               {item.otherAnswer != null ? <div>Other answer: {item.otherAnswer}{item.otherOrigin ? ` (${item.otherOrigin})` : ''}</div> : item.otherOrigin ? <div className="small muted">{item.otherOrigin}</div> : null}
-              {item.kind === 'review' ? (
+              {item.kind !== 'conflict' ? (
                 <div className="row">
                   <button type="button" className="btn btn-sm btn-primary" disabled={working} onClick={() => void run('import', async () => { await b.invoke('applymind.resolve', { id: item.id, action: 'confirm' }); })}>Confirm</button>
                   <input className="input" aria-label={`Correct ${item.question}`} value={drafts[item.id] ?? ''} onChange={(e) => setDrafts((d) => ({ ...d, [item.id]: e.target.value }))} />
                   <button type="button" className="btn btn-sm" disabled={working || !(drafts[item.id] ?? '').trim()} onClick={() => void run('import', async () => { await b.invoke('applymind.resolve', { id: item.id, action: 'correct', answer: drafts[item.id] }); })}>Correct</button>
-                  <button type="button" className="btn btn-sm btn-danger" disabled={working} onClick={() => void run('import', async () => { await b.invoke('applymind.resolve', { id: item.id, action: 'delete' }); })}>Delete</button>
+                  <button type="button" className="btn btn-sm btn-danger" disabled={working} onClick={() => void run('import', async () => { await b.invoke('applymind.resolve', { id: item.id, action: 'delete' }); })}>{item.kind === 'fact' ? 'Reject' : 'Delete'}</button>
                 </div>
               ) : (
                 <div className="row">

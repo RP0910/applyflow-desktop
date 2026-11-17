@@ -25,6 +25,9 @@ import { folderFor, planApplicationFiles } from '@/services/downloads/planner';
 import { downloadFiles, showInFolder, type DownloadsApi } from '@/services/downloads/downloader';
 import { ensureApplicationOpen, INITIAL_RUN, leftThisJob, processStep, returnUrl, runSteps, stepKey, type ApplyRunState, type RunnerIO } from '@/services/workflow/applyRunner';
 import { rememberAnswer, toScreeningControl } from '@/services/forms/mapper';
+import { isExcludedCapture } from '@/services/applymind/capture';
+import { factFamilyOf, factStoreKind } from '@/services/applymind/factRules';
+import { canonicalizeQuestion } from '@/services/forms/questionMatch';
 import { ClaudeError } from '@/services/claude/errors';
 import { newId, newToken } from '@/utils/id';
 import { addDays, nowIso, todayLocal } from '@/utils/dates';
@@ -461,6 +464,27 @@ export function useWorkflow(inputs: WorkflowInputs, deps: WorkflowDeps) {
         notify('critical', e instanceof Error && e.message ? e.message : 'ApplyMind could not record that fill.');
       }
     },
+    fillContext: async () => {
+      const b = bridge();
+      if (!b) return { facts: [], drafts: {} };
+      try {
+        const raw = await b.invoke('applymind.fillContext');
+        return {
+          facts: raw.facts.flatMap((f) => {
+            const family = factFamilyOf(f.factKey);
+            return family ? [{ ...f, family }] : [];
+          }),
+          drafts: raw.drafts,
+        };
+      } catch {
+        return { facts: [], drafts: {} };
+      }
+    },
+    learnPage: async (items) => {
+      const b = bridge();
+      if (!b) return { profileAnswers: [], longFormIds: [], prompts: [], trained: false };
+      return b.invoke('applymind.learnPage', { items, learnDemographics: settings.learnDemographics !== false });
+    },
     ensureSiteCredential: (url, email) => ensureSiteCredential(url, email),
     rememberSiteLogin: (c) => saveSiteCredential(c),
     payload: (kind) => (sessionRef.current ? uploadPayload(sessionRef.current, settings, kind) : Promise.resolve(null)),
@@ -569,7 +593,8 @@ export function useWorkflow(inputs: WorkflowInputs, deps: WorkflowDeps) {
       notify('warning', res?.error ? `Couldn’t set “${q.label}”: ${res.error}` : `Couldn’t set “${q.label}”. Answer it on the page.`);
       return;
     }
-    if (remember && q.sensitive !== 'legal_consent') {
+    const learn = remember && !isExcludedCapture(q.label, q.sensitive, q.control);
+    if (learn) {
       const p = profileRef.current;
       const category: ApprovedAnswer['category'] = q.sensitive ?? 'general';
       const pattern = q.label.trim().slice(0, 160);
@@ -596,12 +621,55 @@ export function useWorkflow(inputs: WorkflowInputs, deps: WorkflowDeps) {
         notify('critical', e.message);
       }
     }
-    const done: FieldProposal = { ...q, action: 'answer', proposedValue: res.finalValue ?? value, source: remember && q.sensitive !== 'legal_consent' ? 'Your answer (saved)' : 'Your answer', status: 'user-completed' };
+    const done: FieldProposal = { ...q, action: 'answer', proposedValue: res.finalValue ?? value, source: learn ? 'Your answer (saved)' : 'Your answer', status: 'user-completed' };
     await setSession({ ...s, fieldProposals: [...s.fieldProposals.filter((p) => p.fieldId !== q.fieldId), done] });
     const remaining = runRef.current.questions.filter((x) => x.fieldId !== q.fieldId);
     report({ ...runRef.current, questions: remaining, optional: runRef.current.optional.filter((x) => x.fieldId !== q.fieldId), label: remaining.length ? `${remaining.length} question${remaining.length > 1 ? 's' : ''} left` : 'Continuing…' });
     if (!remaining.length && runRef.current.status === 'questions') void continueRun();
   }, [tabId, deps.messenger, setSession, report, notify, continueRun]);
+
+  const undoLearn = useCallback(async () => {
+    const learned = runRef.current.learned;
+    if (!learned) return;
+    const b = bridge();
+    if (learned.longFormIds.length && b) await b.invoke('applymind.undoLearn', learned.longFormIds).catch(() => undefined);
+    try {
+      const saved = await saveProfile({ ...profileRef.current, approvedAnswers: learned.previousAnswers });
+      profileRef.current = saved;
+    } catch (e) {
+      if (e instanceof KnowledgeSyncError) {
+        profileRef.current = e.profile;
+        notify('critical', e.message);
+      }
+    }
+    report({ ...runRef.current, learned: null });
+  }, [report, notify]);
+
+  const decideFact = useCallback(async (accept: boolean) => {
+    const prompt = runRef.current.factPrompts[0];
+    const b = bridge();
+    if (!prompt || !b) return;
+    await b.invoke('applymind.decideFact', {
+      factKey: prompt.factKey,
+      accept,
+      label: prompt.label,
+      kind: factStoreKind(prompt.factKey),
+      country: prompt.country,
+      value: prompt.value,
+      question: prompt.question,
+    }).catch(() => undefined);
+    report({ ...runRef.current, factPrompts: runRef.current.factPrompts.slice(1) });
+  }, [report]);
+
+  const approveStep = useCallback(async () => {
+    const s = sessionRef.current;
+    const b = bridge();
+    if (!s || !b) return;
+    const items = s.fieldProposals.filter((p) => p.needsReview && p.factKey).map((p) => ({ factKey: p.factKey as string, normalized: canonicalizeQuestion(p.label).trim() }));
+    if (!items.length) return;
+    await b.invoke('applymind.approveWordings', items).catch(() => undefined);
+    await setSession({ ...s, fieldProposals: s.fieldProposals.map((p) => (p.needsReview && p.factKey ? { ...p, needsReview: false, source: 'Your saved answer' } : p)) });
+  }, [setSession]);
 
   const pageRef = useRef<PageState | null>(null);
   pageRef.current = page;
@@ -851,6 +919,15 @@ export function useWorkflow(inputs: WorkflowInputs, deps: WorkflowDeps) {
     return confirmJobrightApplied(s.job.url);
   }, [confirmJobrightApplied]);
 
+  const savePageSnapshot = useCallback(async (delayMs = 0): Promise<{ path: string; unopened: string[] }> => {
+    if (tabId === null) return { path: '', unopened: [] };
+    const snap = await deps.messenger.send(tabId, { type: 'AF_PAGE_SNAPSHOT', delayMs }).catch(() => null);
+    const b = bridge();
+    if (!b || !snap?.html) return { path: '', unopened: snap?.unopened ?? [] };
+    const path = await b.invoke('snapshots.save', { html: snap.html, unopened: snap.unopened });
+    return { path, unopened: snap.unopened };
+  }, [tabId, deps.messenger]);
+
   const diagnose = useCallback(async (): Promise<string> => {
     if (tabId === null) return '';
     const r = await deps.messenger.send(tabId, { type: 'AF_DIAGNOSE' }).catch(() => null);
@@ -1059,7 +1136,7 @@ export function useWorkflow(inputs: WorkflowInputs, deps: WorkflowDeps) {
     tabId, page, session, master, extractionError, phase, busy, progressText, notices, dismiss, notify, duplicates, duplicateApplied, application,
     view, setView, tone, setTone, run, fileName,
     leftApplication, returnToApplication, leaveApplication,
-    detect, quickApply, continueRun, answerQuestion, submit, recordManualSubmit, markOnJobright, markingJobright, jobrightMarked: Boolean(session && jobrightMarkedKey === session.jobKey), markJobClosed, keepDiceResume, cancel, diagnose,
+    detect, quickApply, continueRun, answerQuestion, undoLearn, decideFact, approveStep, submit, recordManualSubmit, markOnJobright, markingJobright, jobrightMarked: Boolean(session && jobrightMarkedKey === session.jobKey), markJobClosed, keepDiceResume, cancel, diagnose, savePageSnapshot,
     selectResume, regenerate, optimizeResume, updateResume, autoFixResume, confirmSkills, coverLetterAction, saveLetterText, patchSession, editJob, downloadNow, openFolder,
   };
 }

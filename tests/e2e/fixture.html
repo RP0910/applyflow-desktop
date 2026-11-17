@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Trusted input fixture</title></head>
+<body>
+<form data-testid="application-wizard">
+  <label for="city">City</label>
+  <input id="city" type="text">
+  <div>Level</div>
+  <button id="level" type="button" aria-haspopup="listbox" aria-controls="level-list">Select One</button>
+  <div id="level-list" role="listbox" hidden>
+    <div role="option" id="opt-ba">Bachelor's</div>
+    <div role="option">Master's</div>
+  </div>
+  <label for="phone">Phone</label>
+  <input id="phone" type="tel" value="555-0100">
+  <label for="essay">Explain why you are the ideal candidate</label>
+  <textarea id="essay"></textarea>
+  <button type="button" id="go">Continue</button>
+</form>
+<script>
+  document.getElementById('level').addEventListener('click', () => {
+    document.getElementById('level-list').hidden = false;
+  });
+  document.getElementById('opt-ba').addEventListener('click', () => {
+    document.getElementById('level').textContent = "Bachelor's";
+    document.getElementById('level-list').hidden = true;
+  });
+</script>
+</body>
+</html>

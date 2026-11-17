@@ -17,7 +17,10 @@ import { ATS_SUCCESS_PATTERNS } from '@/services/platforms/ats/common';
 import { appliedConfirmDialog, confirmAppliedControl, jobrightJobId } from '@/services/platforms/jobright/adapter';
 import { postJobrightApplied, readJobrightApplyResult } from '@/services/platforms/jobright/markApplied';
 import { controlLabel, visibleText } from '@/services/platforms/dom';
-import { answerFieldAsync, fillFieldsAsync, highlightField, probeComboboxes, scanFields } from '@/services/forms/domFields';
+import { FIELD_ATTR, answerFieldAsync, fillFieldsAsync, highlightField, probeComboboxes, scanFields } from '@/services/forms/domFields';
+import { fieldRejected } from '@/services/applymind/capture';
+import { capturePageSnapshot } from '@/services/forms/pageSnapshot';
+import { emptyWatch, noteBaseline, noteFiller, noteTrusted, snapshot, type FieldWatch } from '@/services/forms/fieldWatch';
 import { browserUploadDeps, uploadDocument, type UploadDeps } from '@/services/forms/upload';
 import { loginStep, verifyNotice, type LoginInput } from '@/services/forms/siteLogin';
 
@@ -52,11 +55,88 @@ const loginOn = (adapter: JobSiteAdapter | null, doc: Document) => (adapter?.log
 
 const NO_UPLOADS = { resume: { method: null, currentFileName: null }, coverLetter: { method: null, currentFileName: null } } as const;
 
+function elEscape(doc: Document): void {
+  const target = doc.activeElement instanceof Element ? doc.activeElement : doc.body;
+  target.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true }));
+}
+
 export function createContentController(env: ControllerEnv) {
   const now = env.now ?? (() => Date.now());
   const sleep = env.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
   let armed: { token: string; expires: number } | null = null;
   let busy = false;
+  const watch: FieldWatch = emptyWatch();
+
+  function currentStepKey(): string {
+    const step = pageState().step;
+    return `${env.url()}#${step ? `${step.current}/${step.total}` : '-'}`;
+  }
+
+  function bindWatch(fields: ScanResponse['fields']): void {
+    noteBaseline(watch, currentStepKey(), fields);
+    for (const f of fields) {
+      const el = env.doc.querySelector<HTMLElement>(`[${FIELD_ATTR}="${CSS.escape(f.fieldId)}"]`);
+      if (!el) continue;
+      const radios = el instanceof HTMLInputElement && el.type === 'radio' && el.name
+        ? Array.from(env.doc.querySelectorAll<HTMLElement>(`input[type="radio"][name="${CSS.escape(el.name)}"]`))
+        : [el];
+      const onEvent = (ev: Event) => noteTrusted(watch, f.fieldId, '', ev.isTrusted);
+      for (const target of radios) {
+        if (target.hasAttribute('data-applyflow-watch')) continue;
+        target.setAttribute('data-applyflow-watch', '1');
+        target.addEventListener('input', onEvent);
+        target.addEventListener('change', onEvent);
+        target.addEventListener('click', onEvent);
+      }
+    }
+  }
+
+  async function savePageSnapshot(delayMs?: number): Promise<{ html: string; unopened: string[] }> {
+    const adapter = adapterForUrl(env.url());
+    const root = adapter?.findApplicationRoot(env.doc) ?? env.doc.querySelector('form');
+    const trusted = env.uploadDeps?.trusted;
+    return capturePageSnapshot(env.doc, {
+      pageUrl: env.url(),
+      root,
+      delayMs,
+      sleep: sleep,
+      click: async (el) => {
+        const box = el.getBoundingClientRect();
+        if (trusted && box.width > 0 && box.height > 0) {
+          await trusted.clickAt(box.left + box.width / 2, box.top + box.height / 2);
+          return;
+        }
+        el.click();
+      },
+      key: async () => {
+        if (trusted?.pressKey) {
+          await trusted.pressKey('Escape');
+          return;
+        }
+        elEscape(env.doc);
+      },
+    });
+  }
+
+  function holdCapture(): void {
+    const adapter = adapterForUrl(env.url());
+    const root = adapter?.findApplicationRoot(env.doc);
+    if (!adapter || !root) return;
+    const fields = snapshot(watch, scanFields(root));
+    const errors = formsOf(adapter).pageErrors(root);
+    watch.pending = { stepKey: watch.stepKey, fields: fields.map((f) => ({ ...f, rejected: fieldRejected(f.label, errors) })) };
+  }
+
+  env.doc.addEventListener('click', (ev) => {
+    if (!ev.isTrusted) return;
+    const t = ev.target;
+    if (!(t instanceof Element)) return;
+    const btn = t.closest('button, [role="button"], input[type="submit"]');
+    if (!btn) return;
+    const text = `${btn.textContent ?? ''} ${(btn as HTMLInputElement).value ?? ''}`.replace(/\s+/g, ' ');
+    if (!/\b(save and continue|continue|next|submit)\b/i.test(text)) return;
+    holdCapture();
+  }, true);
 
   function pageState(): PageState {
     const url = env.url();
@@ -129,6 +209,7 @@ export function createContentController(env: ControllerEnv) {
       step: forms.step(doc),
       pageErrors: forms.pageErrors(root),
     };
+    bindWatch(fields);
     if (!fields.length && !submit.el && !next.el && !hasUpload) {
       return { ...out, ok: false, error: submit.reason && !/no submit button (yet|was found)/i.test(submit.reason) ? submit.reason : `${siteName(env.url())} changed this page layout, so I could not safely identify the application fields.` };
     }
@@ -164,6 +245,7 @@ export function createContentController(env: ControllerEnv) {
     if (!next.el) return { ok: false, label: null, advanced: false, pageErrors: forms.pageErrors(root), message: next.reason ?? 'There is no Next button on this step.' };
     const label = controlLabel(next.el);
     const before = stepSignature();
+    holdCapture();
     next.el.click();
     const polls = Math.ceil((env.stepTimeoutMs ?? 8000) / 150);
     let errors: string[] = [];
@@ -372,9 +454,22 @@ export function createContentController(env: ControllerEnv) {
       case 'AF_SCAN_FIELDS':
         return scanAsync() as Promise<ContentResponseMap[K]>;
       case 'AF_FILL_FIELDS':
-        return fillFieldsAsync(env.doc, m.instructions, sleep).then((results) => ({ ok: true, results })) as Promise<ContentResponseMap[K]>;
+        return fillFieldsAsync(env.doc, m.instructions, sleep).then((results) => {
+          for (const r of results) if (r.ok && r.finalValue != null) noteFiller(watch, r.fieldId, r.finalValue);
+          return { ok: true, results };
+        }) as Promise<ContentResponseMap[K]>;
       case 'AF_ANSWER_FIELD':
-        return answerFieldAsync(env.doc, m.fieldId, m.value, sleep) as Promise<ContentResponseMap[K]>;
+        return answerFieldAsync(env.doc, m.fieldId, m.value, sleep).then((r) => {
+          if (r.ok && r.finalValue != null) noteFiller(watch, r.fieldId, r.finalValue);
+          return r;
+        }) as Promise<ContentResponseMap[K]>;
+      case 'AF_READ_CAPTURE':
+        return (watch.pending ? { stepKey: watch.pending.stepKey, fields: watch.pending.fields } : null) as ContentResponseMap[K];
+      case 'AF_CLEAR_CAPTURE':
+        watch.pending = null;
+        return { ok: true } as ContentResponseMap[K];
+      case 'AF_PAGE_SNAPSHOT':
+        return savePageSnapshot(m.delayMs) as Promise<ContentResponseMap[K]>;
       case 'AF_UPLOAD_DOCUMENT':
         return upload(m.kind, m.file) as Promise<ContentResponseMap[K]>;
       case 'AF_NEXT_STEP':

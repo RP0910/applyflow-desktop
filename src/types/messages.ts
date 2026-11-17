@@ -25,7 +25,10 @@ export type PanelToContent =
   | { type: 'AF_SET_LAUNCHER'; visible: boolean }
   | { type: 'AF_DIAGNOSE' }
   | { type: 'AF_CHECK_SUCCESS' }
-  | { type: 'AF_CONFIRM_JOBRIGHT_APPLIED' };
+  | { type: 'AF_CONFIRM_JOBRIGHT_APPLIED' }
+  | { type: 'AF_READ_CAPTURE' }
+  | { type: 'AF_CLEAR_CAPTURE' }
+  | { type: 'AF_PAGE_SNAPSHOT'; delayMs?: number };
 
 export interface UploadTarget {
   method: 'input' | 'replace-menu' | 'dropzone' | null;
@@ -112,6 +115,9 @@ export type ContentResponseMap = {
   AF_DIAGNOSE: { ok: boolean; text: string };
   AF_CHECK_SUCCESS: { ok: boolean; success: boolean };
   AF_CONFIRM_JOBRIGHT_APPLIED: { ok: boolean; clicked: boolean; message: string; settled?: boolean; via?: 'dialog' | 'api' };
+  AF_READ_CAPTURE: { stepKey: string; fields: { fieldId: string; label: string; control: string; options: string[]; sensitive: string | null; baseline: string; finalValue: string; fillerValue: string | null; touched: boolean; rejected: boolean }[] } | null;
+  AF_CLEAR_CAPTURE: { ok: true };
+  AF_PAGE_SNAPSHOT: { html: string; unopened: string[] };
 };
 
 export type ContentEvent =

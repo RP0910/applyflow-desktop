@@ -27,6 +27,7 @@ function trustedInput(): TrustedInput {
     },
     setInputFile: (input, f) => marked(input, async (marker) => Boolean(await call({ op: 'setInputFile', marker, name: f.name, base64: f.base64 }))),
     clickElement: (el) => marked(el, async (marker) => Boolean(await call({ op: 'clickMarked', marker }))),
+    pressKey: async (key) => Boolean(await call({ op: 'pressKey', key })),
     installPageHelper: async () => Boolean(await call({ op: 'pageHelper' })),
     postJobrightApplied: async (jobId) => {
       const raw = await call({ op: 'jobrightApply', jobId });

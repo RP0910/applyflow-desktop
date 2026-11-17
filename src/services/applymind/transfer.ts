@@ -119,7 +119,7 @@ export type ReviewAction = 'confirm' | 'correct' | 'delete' | 'keep-local' | 'ke
 
 export interface ReviewItem {
   id: string;
-  kind: 'review' | 'conflict';
+  kind: 'review' | 'conflict' | 'fact';
   question: string;
   answer: string;
   otherAnswer: string | null;

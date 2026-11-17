@@ -58,6 +58,8 @@ export interface FieldProposal {
   status: 'pending' | 'filled' | 'failed' | 'user-completed' | 'skipped';
   /** A loose saved-answer match was written into the form and still needs the user to check it. */
   needsReview?: boolean;
+  /** Confirmed fact this fill came from, so the wording can be approved. */
+  factKey?: string;
   error?: string;
   stepUrl?: string;
   options?: string[];
