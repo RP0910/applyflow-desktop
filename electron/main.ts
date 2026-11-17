@@ -36,7 +36,9 @@ const TRAY_HINT_KEY = 'applyflow.trayHintShown';
 
 app.setName(APP_NAME);
 app.userAgentFallback = browserUserAgent(app.userAgentFallback);
-if (!app.isPackaged && process.env.APPLYFLOW_USER_DATA) app.setPath('userData', process.env.APPLYFLOW_USER_DATA);
+const dataDirArg = process.argv.find((arg) => arg.startsWith('--user-data-dir='));
+if (dataDirArg) app.setPath('userData', resolve(dataDirArg.slice('--user-data-dir='.length)));
+else if (!app.isPackaged && process.env.APPLYFLOW_USER_DATA) app.setPath('userData', process.env.APPLYFLOW_USER_DATA);
 const MOCK_DICE = !app.isPackaged ? process.env.APPLYFLOW_MOCK_DICE ?? '' : '';
 if (process.platform === 'win32') app.setAppUserModelId('com.applyflow.desktop');
 
@@ -470,7 +472,7 @@ function registerIpc(): void {
       const saved = store.saveProfile(p);
       let syncError: string | null = null;
       try {
-        await applyMind.syncFromProfile(saved, { backup: async () => (await syncService().backupFor('before-applymind')).path });
+        await applyMind.syncFromProfile(saved, { corrections: true, backup: async () => (await syncService().backupFor('before-applymind')).path });
       } catch (e) {
         syncError = knowledgeSyncMessage(e);
         console.error(syncError);
@@ -482,6 +484,9 @@ function registerIpc(): void {
     'applymind.proposals': () => applyMind.proposals(),
     'applymind.exact': (q: { question: string; options: string[]; control: string }) => applyMind.exact(q),
     'applymind.accept': (items: { question: string; answer: string; category: string; options: string[]; control: string }[]) => applyMind.acceptFills(items),
+    'applymind.reviews': () => applyMind.reviews(),
+    'applymind.resolve': (req: { id: string; action: 'confirm' | 'correct' | 'delete' | 'keep-local' | 'keep-incoming' | 'keep-both' | 'replace'; answer?: string }) => applyMind.resolve(req.id, req.action, req.answer),
+    'applymind.blocked': () => applyMind.blocked(),
     'siteCredentials.list': () => store.listSiteCredentials().map(decryptSiteCred),
     'siteCredentials.get': (host: string) => {
       const c = store.getSiteCredential(host);
@@ -631,6 +636,7 @@ function registerIpc(): void {
     'sync.backups': () => syncService().listBackups(),
     'sync.backupNow': () => syncService().backupNow(),
     'sync.restore': (name: string) => syncService().restore(String(name)),
+    'sync.restoreApplyMind': () => syncService().restoreApplyMind(),
     'app.info': () => ({ version: app.getVersion(), dataDir: app.getPath('userData'), dbPath: store.path, platform: process.platform }),
     'app.openExternal': (url: string) => {
       if (/^https?:\/\//i.test(url)) void shell.openExternal(url);
@@ -895,12 +901,28 @@ app.whenReady().then(async () => {
     deviceName: hostname(),
     platform: process.platform,
     progress: (p) => send('sync:progress', p),
-    afterCommit: () => applyMind.syncFromProfile(store.getProfile(), { alreadyBackedUp: true }),
+    afterCommit: () => applyMind.syncFromProfile(store.getProfile(), { alreadyBackedUp: true, corrections: false }),
+    applyMind: {
+      prepareExport: async () => {
+        const current = sync;
+        if (!current) return;
+        await applyMind.holdFillerRecords(async () => (await current.backupFor('before-applymind')).path);
+      },
+      exportSection: () => {
+        const saved = store.kvGet(SETTINGS_KEY) as { autoFillSavedAnswers?: boolean } | null;
+        const autoFill = typeof saved?.autoFillSavedAnswers === 'boolean' ? saved.autoFillSavedAnswers : null;
+        return applyMind.exportSection({ appVersion: app.getVersion(), autoFillSavedAnswers: autoFill });
+      },
+      prepareImport: (section) => applyMind.prepareImport(section),
+    },
   });
   let migrationNote = '';
   let startupSyncError: string | null = null;
+  let heldForReview = 0;
   try {
+    heldForReview = await applyMind.holdFillerRecords(async () => (await syncService().backupFor('before-applymind')).path);
     const report = await applyMind.syncFromProfile(store.getProfile(), {
+      corrections: false,
       backup: async () => (await syncService().backupFor('before-applymind')).path,
     });
     migrationNote = report.logLine;
@@ -913,7 +935,14 @@ app.whenReady().then(async () => {
   if (process.env.APPLYMIND_REPORT) {
     try {
       const proposals = migrationNote.startsWith('ApplyMind migration') ? await applyMind.proposals() : [];
-      writeFileSync(process.env.APPLYMIND_REPORT, JSON.stringify({ logLine: migrationNote, status: await applyMind.status(), proposals }));
+      const reviews = await applyMind.reviews();
+      writeFileSync(process.env.APPLYMIND_REPORT, JSON.stringify({
+        heldForReview,
+        logLine: migrationNote,
+        status: await applyMind.status(),
+        proposals,
+        openReviews: reviews.map((r) => ({ kind: r.kind, question: r.question })),
+      }));
     } finally {
       app.exit(0);
     }

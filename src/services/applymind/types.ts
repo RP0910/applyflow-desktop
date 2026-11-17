@@ -31,6 +31,8 @@ export interface Provenance {
   sourceAnswerId: string | null;
   catalogId: string | null;
   factId: string | null;
+  /** Held until the user confirms or corrects it. Profile sync must not clear this. */
+  review?: 'pending';
 }
 
 export interface PlannedRecord {

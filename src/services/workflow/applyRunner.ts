@@ -67,6 +67,8 @@ export interface RunnerIO {
   saveProfile?: (p: CareerProfile) => Promise<CareerProfile>;
   /** Exact verified answer for this question text, or null. Does not use a model. */
   exactAnswer?: (q: { question: string; options: string[]; control: string }) => Promise<string | null>;
+  /** Normalized questions with an open review or conflict. Not filled from saved answers either. */
+  blockedQuestions?: () => Promise<string[]>;
   /** Record a fill the user has not approved. Must not create a verified answer. */
   recordAccepted?: (items: { question: string; answer: string; category: string; options: string[]; control: string }[]) => Promise<void>;
   ensureSiteCredential?: (url: string, email: string) => Promise<SiteCredential | null>;
@@ -424,6 +426,7 @@ export async function processStep(io: RunnerIO): Promise<'ready' | 'next' | 'mov
     useSavedAnswers: io.settings.autoFillSavedAnswers,
     overwrite: scan.parsesResume && attempted ? (['first_name', 'last_name', 'full_name', 'email', 'phone'] as FieldSemantic[]) : undefined,
     exactAnswers,
+    blockedQuestions: io.blockedQuestions ? await io.blockedQuestions() : [],
   };
   let proposals = proposeFieldValues(scan.fields, ctx).map((p) => ({ ...p, stepUrl: scan!.pageUrl }));
   const fills: FillInstruction[] = [];

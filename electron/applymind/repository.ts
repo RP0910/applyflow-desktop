@@ -3,9 +3,10 @@ import type { DatabaseSync } from 'node:sqlite';
 import { canonicalizeQuestion } from '../../src/services/forms/questionMatch';
 import { exactVerifiedValue, GENERAL_CONTEXT, type ExactLookup, type ExactRecord } from '../../src/services/applymind/exact';
 import { questionTypeOf } from '../../src/services/applymind/questionType';
-import type { AnswerContext, LearnedBundle, MigrationPlan, ProposalView, TrainingRecord } from '../../src/services/applymind/types';
+import type { AnswerContext, LearnedBundle, MigrationPlan, ProposalView, Provenance, TrainingRecord } from '../../src/services/applymind/types';
 import type { ApprovedAnswer, ScreeningControl } from '../../src/types';
 import { openJson, sealJson, type Sealed } from './crypto';
+import { blockedQuestions, isHeld, openConflict } from './exchange';
 import { ensureApplyMindSchema } from './schema';
 
 interface RecordRow {
@@ -16,6 +17,9 @@ interface RecordRow {
   pattern_id: string;
   original_question: string;
   normalized_question: string;
+  status: string;
+  provenance_json: string;
+  context_json: string;
 }
 
 export interface ApplyCounts {
@@ -66,15 +70,16 @@ export class KnowledgeRepository {
     return Number(rows(this.db, "SELECT COUNT(*) AS n FROM applymind_records WHERE deleted_at IS NULL AND status = 'verified'")[0]?.n ?? 0);
   }
 
-  /** Verified answer for this exact question. Predictions and accepted fills are ignored. */
+  /** Verified answer for this exact question. A question waiting for review is not filled. */
   exactVerified(key: Uint8Array, query: ExactLookup): string | null {
+    const blocked = new Set(blockedQuestions(this.db));
     const records: ExactRecord[] = rows(this.db, `SELECT normalized_question, answer_blob, status, context_json
       FROM applymind_records WHERE deleted_at IS NULL AND status = 'verified'`).map((r) => ({
       normalizedQuestion: String(r.normalized_question),
       answer: openJson<string>(key, String(r.answer_blob)),
-      status: 'verified',
+      status: 'verified' as const,
       context: parseContext(r.context_json),
-    }));
+    })).filter((r) => !blocked.has(r.normalizedQuestion.trim()));
     return exactVerifiedValue(records, query);
   }
 
@@ -129,13 +134,14 @@ export class KnowledgeRepository {
     return Number(rows(this.db, 'SELECT COUNT(DISTINCT pattern_id) AS n FROM applymind_records WHERE deleted_at IS NULL')[0]?.n ?? 0);
   }
 
-  apply(plan: MigrationPlan, key: Uint8Array, now: string): ApplyCounts {
+  apply(plan: MigrationPlan, key: Uint8Array, now: string, mode: 'correct' | 'preserve' = 'correct'): ApplyCounts {
     const counts: ApplyCounts = {
       answersSeen: plan.records.length, created: 0, unchanged: 0, edited: 0, restored: 0, deleted: 0,
       proposals: 0, patterns: new Set(plan.records.map((r) => r.patternId)).size, changed: false,
     };
     this.tx(() => {
-      const existing = rows(this.db, 'SELECT id, source_answer_id, answer_blob, deleted_at, pattern_id, original_question, normalized_question FROM applymind_records').map((r) => ({
+      const existing = rows(this.db, `SELECT id, source_answer_id, answer_blob, deleted_at, pattern_id, original_question, normalized_question, status, provenance_json, context_json
+        FROM applymind_records`).map((r) => ({
         id: String(r.id),
         source_answer_id: r.source_answer_id == null ? null : String(r.source_answer_id),
         answer_blob: String(r.answer_blob),
@@ -143,6 +149,9 @@ export class KnowledgeRepository {
         pattern_id: String(r.pattern_id),
         original_question: String(r.original_question),
         normalized_question: String(r.normalized_question),
+        status: String(r.status),
+        provenance_json: String(r.provenance_json),
+        context_json: String(r.context_json),
       })) as RecordRow[];
       const bySource = new Map(existing.filter((r) => r.source_answer_id).map((r) => [r.source_answer_id!, r]));
       const seen = new Set<string>();
@@ -160,6 +169,32 @@ export class KnowledgeRepository {
         }
         const current = openJson<string>(key, prev.answer_blob);
         const same = current.trim() === rec.answer.trim();
+        let held = false;
+        try { held = isHeld(JSON.parse(prev.provenance_json) as Provenance); } catch { held = false; }
+        if (held) {
+          counts.unchanged++;
+          continue;
+        }
+        if (mode === 'preserve' && prev.status === 'verified' && !prev.deleted_at && !same) {
+          openConflict(this.db, key, {
+            id: `cf_profile_${prev.id}`,
+            kind: 'conflict',
+            status: 'open',
+            normalizedQuestion: prev.normalized_question,
+            question: prev.original_question,
+            recordId: prev.id,
+            otherRecordId: null,
+            answer: current,
+            otherAnswer: rec.answer,
+            context: parseContext(prev.context_json),
+            otherContext: GENERAL_CONTEXT,
+            origin: 'This computer',
+            otherOrigin: 'Imported profile',
+            createdAt: now,
+          });
+          counts.unchanged++;
+          continue;
+        }
         if (same && !prev.deleted_at) {
           if (prev.original_question !== rec.originalQuestion || prev.normalized_question !== rec.normalizedQuestion || prev.pattern_id !== rec.patternId) {
             this.db.prepare('UPDATE applymind_records SET pattern_id = ?, original_question = ?, normalized_question = ?, updated_at = ? WHERE id = ?').run(
@@ -185,6 +220,29 @@ export class KnowledgeRepository {
 
       for (const row of existing) {
         if (!row.source_answer_id || seen.has(row.source_answer_id) || row.deleted_at) continue;
+        let held = false;
+        try { held = isHeld(JSON.parse(row.provenance_json) as Provenance); } catch { held = false; }
+        if (held) continue;
+        if (mode === 'preserve' && row.status === 'verified') {
+          const current = openJson<string>(key, row.answer_blob);
+          openConflict(this.db, key, {
+            id: `cf_missing_${row.id}`,
+            kind: 'conflict',
+            status: 'open',
+            normalizedQuestion: row.normalized_question,
+            question: row.original_question,
+            recordId: row.id,
+            otherRecordId: null,
+            answer: current,
+            otherAnswer: null,
+            context: parseContext(row.context_json),
+            otherContext: null,
+            origin: 'This computer',
+            otherOrigin: 'The other computer no longer has this saved answer',
+            createdAt: now,
+          });
+          continue;
+        }
         this.db.prepare('UPDATE applymind_records SET deleted_at = ?, updated_at = ? WHERE id = ?').run(now, now, row.id);
         this.db.prepare(`INSERT INTO applymind_tombstones(id, source_answer_id, pattern_id, deleted_at, device_id) VALUES (?, ?, ?, ?, ?)
           ON CONFLICT(id) DO UPDATE SET deleted_at = excluded.deleted_at`).run(

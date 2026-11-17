@@ -1,3 +1,7 @@
+# 2.3.9
+
+Added: a `.applyflow` export now carries ApplyMind knowledge (format version 2). Import merges it, lists conflicts on Data management, and retrains on this computer. Answers the filler wrote are held for confirmation and are not filled until you confirm or correct them. An imported change does not overwrite a verified answer. See docs/releases/RELEASE-2.3.9.md.
+
 # 2.3.8
 
 Added: ApplyMind fills a verified answer when the question text matches exactly, without waiting for a trained model. A fill you leave unchanged is recorded as accepted, not as a verified answer. A loosely similar saved answer is filled and marked for review; work authorization, sponsorship, legal declarations, identity, date of birth, and certifications are left for you. A failed knowledge update is shown in the app. See docs/releases/RELEASE-2.3.8.md.

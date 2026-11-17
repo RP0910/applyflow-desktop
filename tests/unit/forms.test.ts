@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { detectSensitive, classifyFieldSensitivity } from '@/services/forms/sensitive';
 import { scanFields, fillFields } from '@/services/forms/domFields';
 import { approvedFor, looseMatchAsks, proposeFieldValues, rememberAnswer, semanticOf } from '@/services/forms/mapper';
+import { canonicalizeQuestion } from '@/services/forms/questionMatch';
 import { EMPTY_PROFILE } from '@/storage/repositories';
 import type { CareerProfile } from '@/types';
 import { tailorLocally } from '@/services/tailoring/localTailor';
@@ -185,6 +186,24 @@ describe('field scanning and proposals', () => {
       exactAnswers: { [auth.fieldId]: 'Yes' },
     });
     expect(verified[0]).toMatchObject({ action: 'answer', proposedValue: 'Yes', source: 'Your verified answer' });
+    const quiet = proposeFieldValues([auth], {
+      profile: { ...profile, approvedAnswers: [{ id: 'a1', category: 'work_authorization', questionPattern: auth.label, answer: 'Yes', approvedAt: '', options: ['Yes', 'No'], control: 'radio' }] },
+      resume: null, coverLetter: null, includeCoverLetter: false, resumeFileName: null, coverLetterFileName: null, useSavedAnswers: true,
+      exactAnswers: { [auth.fieldId]: 'Yes' },
+      blockedQuestions: [canonicalizeQuestion(auth.label).trim()],
+    });
+    expect(quiet[0]).toMatchObject({ action: 'manual', proposedValue: '' });
+    const link = {
+      fieldId: 'li', label: 'Linkedin', context: '', control: 'text' as const,
+      name: '', required: false, options: [], currentValue: '', accept: '', sensitive: null,
+    };
+    const fromProfile = proposeFieldValues([link], {
+      profile: { ...profile, linkedinUrl: 'https://www.linkedin.com/in/grant-ai' },
+      resume: null, coverLetter: null, includeCoverLetter: false, resumeFileName: null, coverLetterFileName: null, useSavedAnswers: true,
+      exactAnswers: { li: 'https://www.linkedin.com/in/grant-ai' },
+      blockedQuestions: [canonicalizeQuestion('Linkedin').trim()],
+    });
+    expect(fromProfile[0]).toMatchObject({ action: 'manual', proposedValue: '' });
   });
 
   it('reuses similar screening questions and category-only answers', () => {

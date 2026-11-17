@@ -12,6 +12,7 @@ import type {
 } from '@/platform/syncTypes';
 import { emitChange } from '@/storage/events';
 import { saveSettings } from '@/storage/settingsStore';
+import type { ReviewItem } from '@/services/applymind/transfer';
 import { Icon } from './Icon';
 import { WarningBanner } from './WarningBanner';
 
@@ -158,10 +159,12 @@ export function DataManagement() {
   const [busy, setBusy] = useState<null | 'export' | 'inspect' | 'import' | 'backup' | 'restore'>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const [protect, setProtect] = useState(false);
+  const [protect, setProtect] = useState(true);
   const [pw1, setPw1] = useState('');
   const [pw2, setPw2] = useState('');
   const [exported, setExported] = useState<SyncExportResult | null>(null);
+  const [reviews, setReviews] = useState<ReviewItem[]>([]);
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
 
   const [imp, setImp] = useState<ImportState>({ phase: 'idle' });
   const [importPw, setImportPw] = useState('');
@@ -174,9 +177,10 @@ export function DataManagement() {
 
   const refresh = useCallback(async () => {
     if (!b) return;
-    const [h, bk] = await Promise.all([b.invoke('sync.history'), b.invoke('sync.backups')]);
+    const [h, bk, openReviews] = await Promise.all([b.invoke('sync.history'), b.invoke('sync.backups'), b.invoke('applymind.reviews')]);
     setHistory(h);
     setBackups(bk);
+    setReviews(openReviews);
   }, [b]);
 
   useEffect(() => {
@@ -270,8 +274,8 @@ export function DataManagement() {
         <Icon name="database" /> Data management
       </h2>
       <p className="small muted">
-        Move your applications, documents, recruiter contacts and analytics between computers with a single <span className="strong">.applyflow</span> file, without any cloud service. Importing merges with what is
-        already here: duplicates are combined, newer changes win, deletions carry over, and nothing is replaced wholesale. To keep several computers in step, export from one, import on the next, and pass the
+        Move your applications, documents, recruiter contacts, analytics, and ApplyMind knowledge between computers with a single <span className="strong">.applyflow</span> file, without any cloud service. Importing merges with what is
+        already here: duplicates are combined, newer changes win for applications and documents, and a verified answer is never replaced silently. To keep several computers in step, export from one, import on the next, and pass the
         newest file along.
       </p>
       {error ? (
@@ -291,13 +295,14 @@ export function DataManagement() {
           Export all data
         </h3>
         <span className="hint">
-          Includes the application history, job descriptions, tailored resumes and cover letters (PDF, Word and JSON), master resumes, recruiter contacts, notes, saved answers, usage history and
-          preferences. Your Claude API key, Claude.ai sign-in, job-site passwords and browser sessions are never exported.
+          Includes the application history, job descriptions, tailored resumes and cover letters (PDF, Word and JSON), master resumes, recruiter contacts, notes, saved answers, ApplyMind knowledge (verified and accepted answers, history, profile facts, and deletions), usage history and
+          preferences. Your Claude API key, Claude.ai sign-in, job-site passwords, browser sessions, and this computer’s encryption key are never exported. Without a password the file’s checksums detect corruption, not someone changing the file on purpose.
         </span>
         <label className="check" htmlFor="dm-protect">
           <input id="dm-protect" type="checkbox" checked={protect} onChange={(e) => setProtect(e.target.checked)} disabled={working} />
           <span>Protect the file with a password (AES-256 encryption)</span>
         </label>
+        {!protect ? <span className="hint">Without a password, your answers and profile facts can be read by anyone who has the file.</span> : null}
         {protect ? (
           <div className="grid-2">
             <div className="field">
@@ -330,6 +335,7 @@ export function DataManagement() {
             }
           >
             <span className="wrap-anywhere">{exported.path}</span> · {bytes(exported.bytes)} · {exported.counts.applications ?? 0} applications · {exported.files} files
+            {exported.applymind ? ` · ${exported.applymind.verified} verified answers · ${exported.applymind.patterns} patterns` : ''}
             {exported.encrypted ? ' · password protected' : ''}
             {exported.missingFiles ? ` · ${exported.missingFiles} document${exported.missingFiles === 1 ? ' was' : 's were'} missing on disk and left out` : ''}
           </WarningBanner>
@@ -426,9 +432,45 @@ export function DataManagement() {
               Analytics and search now include the merged records. A backup from just before the import was saved as {imp.result.backup.name}.
             </WarningBanner>
             <ReportTable report={imp.result.report} />
+            {imp.result.report.applymind ? (
+              <p className="small">
+                ApplyMind: {imp.result.report.applymind.added} added, {imp.result.report.applymind.merged} merged, {imp.result.report.applymind.skipped} already here, {imp.result.report.applymind.conflicts} waiting for you.
+                {imp.result.report.applymind.retrained ? ' Retraining finished.' : ' Retraining did not run.'}
+              </p>
+            ) : null}
           </div>
         ) : null}
       </div>
+
+      {reviews.length ? (
+        <section className="card stack-sm" aria-labelledby="am-review-h">
+          <h3 className="section-title" id="am-review-h">ApplyMind needs you ({reviews.length})</h3>
+          <p className="small muted">These questions are not filled until you decide. Confirm or correct makes the answer verified. Delete removes it.</p>
+          {reviews.map((item) => (
+            <div key={item.id} className="card card-quiet stack-sm">
+              <div className="strong">{item.question}</div>
+              <div>{item.kind === 'conflict' ? 'This computer: ' : ''}{item.answer}</div>
+              {item.otherAnswer != null ? <div>Other answer: {item.otherAnswer}{item.otherOrigin ? ` (${item.otherOrigin})` : ''}</div> : item.otherOrigin ? <div className="small muted">{item.otherOrigin}</div> : null}
+              {item.kind === 'review' ? (
+                <div className="row">
+                  <button type="button" className="btn btn-sm btn-primary" disabled={working} onClick={() => void run('import', async () => { await b.invoke('applymind.resolve', { id: item.id, action: 'confirm' }); })}>Confirm</button>
+                  <input className="input" aria-label={`Correct ${item.question}`} value={drafts[item.id] ?? ''} onChange={(e) => setDrafts((d) => ({ ...d, [item.id]: e.target.value }))} />
+                  <button type="button" className="btn btn-sm" disabled={working || !(drafts[item.id] ?? '').trim()} onClick={() => void run('import', async () => { await b.invoke('applymind.resolve', { id: item.id, action: 'correct', answer: drafts[item.id] }); })}>Correct</button>
+                  <button type="button" className="btn btn-sm btn-danger" disabled={working} onClick={() => void run('import', async () => { await b.invoke('applymind.resolve', { id: item.id, action: 'delete' }); })}>Delete</button>
+                </div>
+              ) : (
+                <div className="row">
+                  <button type="button" className="btn btn-sm" disabled={working} onClick={() => void run('import', async () => { await b.invoke('applymind.resolve', { id: item.id, action: 'keep-local' }); })}>Keep this one</button>
+                  <button type="button" className="btn btn-sm" disabled={working || item.otherAnswer == null} onClick={() => void run('import', async () => { await b.invoke('applymind.resolve', { id: item.id, action: 'keep-incoming' }); })}>Keep the other</button>
+                  <button type="button" className="btn btn-sm" disabled={working} onClick={() => void run('import', async () => { await b.invoke('applymind.resolve', { id: item.id, action: 'keep-both' }); })}>Keep both</button>
+                  <input className="input" aria-label={`New answer for ${item.question}`} value={drafts[item.id] ?? ''} onChange={(e) => setDrafts((d) => ({ ...d, [item.id]: e.target.value }))} />
+                  <button type="button" className="btn btn-sm" disabled={working || !(drafts[item.id] ?? '').trim()} onClick={() => void run('import', async () => { await b.invoke('applymind.resolve', { id: item.id, action: 'replace', answer: drafts[item.id] }); })}>Use a new answer</button>
+                </div>
+              )}
+            </div>
+          ))}
+        </section>
+      ) : null}
 
       <details>
         <summary className="field-label" style={{ cursor: 'pointer' }}>
@@ -497,6 +539,19 @@ export function DataManagement() {
             >
               {busy === 'backup' ? <span className="spinner" aria-hidden="true" /> : <Icon name="history" size={14} />}
               Back up now
+            </button>
+            <button
+              type="button"
+              className="btn btn-sm"
+              disabled={working || backups.length === 0}
+              onClick={() =>
+                void run('restore', async () => {
+                  const r = await b.invoke('sync.restoreApplyMind');
+                  setNotice(`ApplyMind restored from ${r.name}. Applications and documents were left as they are.`);
+                })
+              }
+            >
+              Restore last ApplyMind backup
             </button>
           </div>
           {backups.length ? (

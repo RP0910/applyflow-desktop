@@ -15,10 +15,11 @@ import {
   SyncReport,
   SyncSourceInfo,
 } from '../../src/platform/syncTypes';
-import { ArchiveError, FORMAT_ID, FORMAT_VERSION, isApplyFlowArchive, isEncryptedArchive, MAX_ARCHIVE_BYTES, readBundle, sha256, writeBundle, type ArchiveManifest } from './archive';
+import { ArchiveError, FORMAT_ID, isApplyFlowArchive, isEncryptedArchive, MAX_ARCHIVE_BYTES, readBundle, sha256, writeBundle, type ArchiveManifest } from './archive';
 import { applyPlan, exportableKv, readLocal, sanitizeSnapshot } from './local';
 import { mergeSnapshots, planIsEmpty, type MergePlan } from './merge';
 import { SETTINGS_KEY, type Snapshot, type SyncSavedFile } from './types';
+import { verifySection, type ApplyMindSection } from '../../src/services/applymind/transfer';
 
 export const SYNC_EXTENSION = 'applyflow';
 const MAX_FILE_BYTES = 256 * 1024 * 1024;
@@ -41,6 +42,15 @@ export interface SyncHost {
   beforeCommit?: () => void;
   /** Runs after a successful import commits. Failures are recorded and do not roll back the import. */
   afterCommit?: () => void | Promise<unknown>;
+  applyMind?: {
+    prepareExport: () => Promise<void>;
+    exportSection: () => Promise<ApplyMindSection>;
+    prepareImport: (section: ApplyMindSection) => Promise<{
+      report: { added: number; merged: number; skipped: number; conflicts: number };
+      write: () => void;
+      retrain: () => void;
+    }>;
+  };
 }
 
 class OpLog {
@@ -65,6 +75,7 @@ interface Pending {
   incoming: Snapshot;
   files: Map<string, Buffer>;
   warnings: string[];
+  applymind: ApplyMindSection | null;
 }
 
 const stamp = (d = new Date()) => d.toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, 'Z');
@@ -308,11 +319,21 @@ export class SyncService {
           deletions: data.tombstones.length,
         };
         const exportedAt = new Date().toISOString();
+        if (this.host.applyMind) await this.host.applyMind.prepareExport();
+        const section = this.host.applyMind ? await this.host.applyMind.exportSection() : null;
+        const applymind = section
+          ? {
+              verified: section.records.filter((r) => !r.deletedAt && r.status === 'verified').length,
+              accepted: section.records.filter((r) => !r.deletedAt && r.status === 'accepted').length,
+              patterns: new Set(section.records.filter((r) => !r.deletedAt).map((r) => r.patternId)).size,
+              history: section.history.length,
+            }
+          : undefined;
         this.progress('export', 'Compressing');
         const buf = await writeBundle(
           {
             format: FORMAT_ID,
-            formatVersion: FORMAT_VERSION,
+            formatVersion: section ? 2 : 1,
             appVersion: this.host.appVersion,
             schemaVersion: SCHEMA_VERSION,
             exportedAt,
@@ -322,6 +343,7 @@ export class SyncService {
           data,
           files,
           password,
+          section ? [{ name: 'applymind.json', data: Buffer.from(JSON.stringify(section)) }] : [],
         );
         if (buf.length > MAX_ARCHIVE_BYTES) throw new Error('The export is larger than ApplyFlow can import on another computer.');
 
@@ -338,7 +360,7 @@ export class SyncService {
         const logPath = await this.writeLog(log);
         const summary = `${counts.applications} applications, ${files.size} files${missing ? `, ${missing} missing files skipped` : ''}${password ? ', password protected' : ''}`;
         this.record('export', true, filePath, null, summary, logPath, null);
-        return { path: filePath, bytes: buf.length, counts, files: files.size, missingFiles: missing, encrypted: Boolean(password) };
+        return { path: filePath, bytes: buf.length, counts, files: files.size, missingFiles: missing, encrypted: Boolean(password), applymind };
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         log.add(`FAILED: ${msg}`);
@@ -407,8 +429,12 @@ export class SyncService {
         const opened = await readBundle(buf, password);
         const warnings: string[] = [];
         const incoming = sanitizeSnapshot(opened.data, warnings);
+        let applymind: ApplyMindSection | null = null;
+        if (opened.applymind) {
+          applymind = verifySection(opened.applymind);
+        }
         if (opened.manifest.schemaVersion > SCHEMA_VERSION) warnings.push(`The file came from a newer ApplyFlow (${opened.manifest.appVersion}). Data this version does not understand is kept as it is.`);
-        const pending: Pending = { token: randomUUID(), path, manifest: opened.manifest, incoming, files: opened.files, warnings };
+        const pending: Pending = { token: randomUUID(), path, manifest: opened.manifest, incoming, files: opened.files, warnings, applymind };
         this.progress('inspect', 'Comparing with this computer');
         const { plan } = await this.computePlan(pending, false);
         this.pending = pending;
@@ -468,8 +494,23 @@ export class SyncService {
         }
 
         this.progress('import', 'Merging records');
-        if (!planIsEmpty(plan) || plan.apps.touched.length || plan.tombstones.length || plan.aliases.length) {
-          applyPlan(this.host.store(), plan, blobs, new Date().toISOString(), this.host.beforeCommit);
+        const prepared = p.applymind && this.host.applyMind ? await this.host.applyMind.prepareImport(p.applymind) : null;
+        if (!planIsEmpty(plan) || plan.apps.touched.length || plan.tombstones.length || plan.aliases.length || prepared) {
+          applyPlan(this.host.store(), plan, blobs, new Date().toISOString(), () => {
+            prepared?.write();
+            this.host.beforeCommit?.();
+          });
+        }
+        if (prepared) {
+          let retrained = false;
+          try {
+            prepared.retrain();
+            retrained = true;
+          } catch (err) {
+            const detail = err instanceof Error ? err.message : 'retrain failed';
+            log.add(`Warning: ApplyMind retrain failed (${detail.slice(0, 180)}).`);
+          }
+          plan.report.applymind = { ...prepared.report, retrained };
         }
         for (const c of plan.report.conflicts) log.add(`Conflict: ${c.label}${c.field ? ` [${c.field}]` : ''}: here “${c.local ?? ''}”, other “${c.incoming ?? ''}”. ${c.resolution}`);
         for (const w of plan.report.warnings) log.add(`Warning: ${w}`);
@@ -517,6 +558,39 @@ export class SyncService {
   private prune(): void {
     const auto = this.listBackups().filter((b) => b.reason !== 'manual' && b.reason !== 'before-applymind');
     for (const b of auto.slice(AUTO_BACKUPS_KEPT)) void rm(b.path, { force: true }).catch(() => undefined);
+  }
+
+  async restoreApplyMind(): Promise<SyncBackupInfo> {
+    return this.exclusive(async () => {
+      const latest = this.listBackups()[0];
+      if (!latest) throw new Error('There is no ApplyMind backup to restore.');
+      await this.backupInternal('before-applymind-restore');
+      const src = new DatabaseSync(latest.path, { readOnly: true });
+      const db = this.host.store().db;
+      const names = ['applymind_patterns', 'applymind_records', 'applymind_history', 'applymind_tombstones', 'applymind_proposals', 'applymind_facts', 'applymind_models', 'applymind_reviews'];
+      try {
+        db.exec('BEGIN');
+        try {
+          for (const name of names) {
+            const exists = src.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(name);
+            if (!exists) continue;
+            const copied = src.prepare(`SELECT * FROM ${name}`).all() as Record<string, unknown>[];
+            db.prepare(`DELETE FROM ${name}`).run();
+            if (!copied.length) continue;
+            const cols = Object.keys(copied[0]!);
+            const insert = db.prepare(`INSERT INTO ${name}(${cols.join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`);
+            for (const row of copied) insert.run(...cols.map((c) => row[c] as string | number | null | Uint8Array));
+          }
+          db.exec('COMMIT');
+        } catch (e) {
+          db.exec('ROLLBACK');
+          throw e;
+        }
+      } finally {
+        src.close();
+      }
+      return latest;
+    });
   }
 
   listBackups(): SyncBackupInfo[] {

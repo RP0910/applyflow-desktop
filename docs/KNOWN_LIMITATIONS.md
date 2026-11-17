@@ -27,6 +27,8 @@
 - An exact match of a question saved in Screening Q&A, or a verified ApplyMind answer with the same wording, is filled. That exact reuse does not wait for the trained model.
 - A loosely similar question, or the only saved answer in a category, is filled and marked for review before submit. Work authorization, sponsorship, legal declarations, identity, date of birth, and certifications are not filled from a loose match.
 - A fill left unchanged is recorded as accepted. It is not stored as a verified answer. Legal attestations ("I certify…", terms and conditions) are never remembered or reused. Edit or delete answers under Screening Q&A.
+- An answer waiting on Data management (a conflict, or a filler-written answer you have not confirmed) is not filled from your saved answers or from ApplyMind until you confirm, correct, or delete it.
+- A `.applyflow` file without a password uses checksums to detect a damaged file. Those checksums do not stop someone who has the file from changing it and recomputing the checksums. Use a password when the file will leave this computer.
 
 ## ATS resume engine
 - **The ATS score is ApplyFlow's own simulation** of keyword-based filtering (literal keywords, job title, structure, dates, file format). Each employer configures its ATS differently, and many use recruiters' searches and AI ranking on top; no score guarantees an interview.

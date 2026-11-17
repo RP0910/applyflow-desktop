@@ -72,6 +72,23 @@ export function ensureApplyMindSchema(db: DatabaseSync): void {
       device_id TEXT NOT NULL,
       value_blob TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS applymind_reviews (
+      id TEXT PRIMARY KEY,
+      kind TEXT NOT NULL,
+      status TEXT NOT NULL,
+      normalized_question TEXT NOT NULL,
+      question TEXT NOT NULL,
+      record_id TEXT,
+      other_record_id TEXT,
+      answer_blob TEXT NOT NULL,
+      other_answer_blob TEXT,
+      context_json TEXT NOT NULL,
+      other_context_json TEXT,
+      origin TEXT NOT NULL,
+      other_origin TEXT,
+      created_at TEXT NOT NULL,
+      resolved_at TEXT
+    );
     CREATE TABLE IF NOT EXISTS applymind_models (
       version TEXT PRIMARY KEY,
       trained_at TEXT NOT NULL,

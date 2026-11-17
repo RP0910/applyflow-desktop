@@ -438,6 +438,15 @@ export function useWorkflow(inputs: WorkflowInputs, deps: WorkflowDeps) {
         throw e;
       }
     },
+    blockedQuestions: async () => {
+      const b = bridge();
+      if (!b) return [];
+      try {
+        return await b.invoke('applymind.blocked');
+      } catch {
+        return [];
+      }
+    },
     exactAnswer: async (q) => {
       const b = bridge();
       if (!b) return null;

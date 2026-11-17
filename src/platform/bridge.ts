@@ -4,6 +4,7 @@ import type { ContentEvent, ContentResponseMap, PanelToContent } from '@/types/m
 import type { SyncBackupInfo, SyncExportResult, SyncImportResult, SyncInspectResult, SyncLogEntry, SyncProgress } from './syncTypes';
 import type { ApplyMindStatus, ProposalView } from '@/services/applymind/types';
 import type { ExactLookup } from '@/services/applymind/exact';
+import type { ReviewAction, ReviewItem } from '@/services/applymind/transfer';
 
 export interface BridgeMethods {
   'kv.get': (key: string) => unknown;
@@ -23,6 +24,9 @@ export interface BridgeMethods {
   'applymind.proposals': () => ProposalView[];
   'applymind.exact': (q: ExactLookup) => string | null;
   'applymind.accept': (items: { question: string; answer: string; category: string; options: string[]; control: string }[]) => number;
+  'applymind.reviews': () => ReviewItem[];
+  'applymind.resolve': (req: { id: string; action: ReviewAction; answer?: string }) => void;
+  'applymind.blocked': () => string[];
   'siteCredentials.list': () => SiteCredential[];
   'siteCredentials.get': (host: string) => SiteCredential | null;
   'siteCredentials.save': (c: SiteCredential) => SiteCredential;
@@ -92,6 +96,7 @@ export interface BridgeMethods {
   'sync.backups': () => SyncBackupInfo[];
   'sync.backupNow': () => SyncBackupInfo;
   'sync.restore': (name: string) => { restored: SyncBackupInfo; safetyBackup: SyncBackupInfo };
+  'sync.restoreApplyMind': () => SyncBackupInfo;
   'app.info': () => { version: string; dataDir: string; dbPath: string; platform: string };
   'app.openExternal': (url: string) => void;
   'claudeChat.status': () => ClaudeChatStatus;

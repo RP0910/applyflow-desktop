@@ -80,6 +80,8 @@ export interface MapperContext {
   overwrite?: FieldSemantic[];
   /** Values already resolved by an exact verified lookup. Keyed by field id. */
   exactAnswers?: Readonly<Record<string, string>>;
+  /** Normalized questions that must not be filled while a review or conflict is open. */
+  blockedQuestions?: readonly string[];
 }
 
 export function countryOf(location: string): string {
@@ -234,6 +236,8 @@ export function proposeFieldValues(fields: FormFieldDescriptor[], ctx: MapperCon
   const portfolio = p.portfolioLinks[0] || links.find((l) => !/linkedin|github/i.test(l)) || '';
 
   return fields.map((f): FieldProposal => {
+    const blocked = new Set((ctx.blockedQuestions ?? []).map((q) => q.trim()));
+    const held = blocked.has(canonicalizeQuestion(f.label).trim());
     const base: FieldProposal = {
       fieldId: f.fieldId,
       label: f.label || f.name || 'Unlabeled field',
@@ -250,12 +254,16 @@ export function proposeFieldValues(fields: FormFieldDescriptor[], ctx: MapperCon
       status: 'pending',
       options: f.options.length ? f.options : undefined,
     };
+    if (held) {
+      if (f.currentValue) return { ...base, action: 'skip', proposedValue: f.currentValue, source: 'Already answered on the page', confidence: 'high', reason: 'Already answered.', status: 'skipped' };
+      return { ...base, action: 'manual', reason: 'This answer is waiting for you to confirm it. ApplyFlow will not fill it until you do.', source: 'You (manual)' };
+    }
     const exactValue = !f.currentValue && f.sensitive !== 'legal_consent' ? ctx.exactAnswers?.[f.fieldId]?.trim() : '';
     if (exactValue) {
       return { ...base, action: 'answer', proposedValue: exactValue, approvedSuggestion: exactValue, source: 'Your verified answer', confidence: 'high', reason: 'This question matches a verified answer exactly.' };
     }
     const saved = (): FieldProposal | null => {
-      if (!ctx.useSavedAnswers || f.currentValue || f.sensitive === 'legal_consent') return null;
+      if (!ctx.useSavedAnswers || held || f.currentValue || f.sensitive === 'legal_consent') return null;
       const hit = matchApproved(p.approvedAnswers, f);
       if (!hit) return null;
       if (hit.kind !== 'exact' && looseMatchAsks(f)) return null;

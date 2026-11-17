@@ -43,6 +43,13 @@ export interface SyncReport {
   conflicts: SyncConflict[];
   warnings: string[];
   settingsApplied: boolean;
+  applymind?: {
+    added: number;
+    merged: number;
+    skipped: number;
+    conflicts: number;
+    retrained: boolean;
+  };
 }
 
 export interface SyncSourceInfo {
@@ -71,6 +78,7 @@ export interface SyncExportResult {
   files: number;
   missingFiles: number;
   encrypted: boolean;
+  applymind?: { verified: number; accepted: number; patterns: number; history: number };
 }
 
 export type SyncInspectResult =

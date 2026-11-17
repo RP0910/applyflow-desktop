@@ -297,3 +297,38 @@ describe('encrypted knowledge store', () => {
     expect(await svc.retrain()).not.toBeNull();
   });
 });
+
+describe('held answers and imported profiles', () => {
+  it('does not turn a filler-written answer back into verified from the profile', async () => {
+    const { svc, repo } = world();
+    const held = answer({ id: 'linked', category: 'general', questionPattern: 'Linkedin', answer: 'https://www.linkedin.com/in/grant-ai', control: 'checkbox', options: [] });
+    await svc.syncFromProfile(profile([held]), { backup: async () => 'backup' });
+    expect(repo().countVerified()).toBe(1);
+    const changed = await svc.holdFillerRecords(async () => 'backup');
+    expect(changed).toBe(1);
+    expect(repo().countVerified()).toBe(0);
+    await svc.syncFromProfile(profile([held]), { corrections: true, backup: async () => 'backup' });
+    await svc.syncFromProfile(profile([held]), { corrections: false, alreadyBackedUp: true });
+    expect(repo().countVerified()).toBe(0);
+    const reviews = await svc.reviews();
+    expect(reviews.map((r) => r.question)).toContain('Linkedin');
+    await svc.resolve(reviews[0]!.id, 'confirm');
+    expect(repo().countVerified()).toBe(1);
+    expect(await svc.exact({ question: 'Linkedin', options: [], control: 'text' })).toBe('https://www.linkedin.com/in/grant-ai');
+  });
+
+  it('treats an imported text change as a conflict and does not delete a verified answer missing from the profile', async () => {
+    const { svc, repo } = world();
+    await svc.syncFromProfile(profile([auth]), { backup: async () => 'backup' });
+    const changed = profile([answer({ ...auth, answer: 'No' })]);
+    const report = await svc.syncFromProfile(changed, { corrections: false, alreadyBackedUp: true });
+    expect(report.edited).toBe(0);
+    expect(await svc.exact({ question: auth.questionPattern, options: ['Yes', 'No'], control: 'radio' })).toBeNull();
+    expect((await svc.reviews()).some((r) => r.kind === 'conflict' && r.answer === 'Yes' && r.otherAnswer === 'No')).toBe(true);
+
+    const gone = await svc.syncFromProfile(profile([]), { corrections: false, alreadyBackedUp: true });
+    expect(gone.deleted).toBe(0);
+    expect(repo().countVerified()).toBe(1);
+    expect((await svc.reviews()).length).toBeGreaterThan(0);
+  });
+});

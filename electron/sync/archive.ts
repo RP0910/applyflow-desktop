@@ -21,10 +21,10 @@ const TAG = 16;
 /** Largest export ApplyFlow will create or open, before and after decompression. */
 export const MAX_ARCHIVE_BYTES = 1536 * 1024 * 1024;
 const MAX_ENTRIES = 200_000;
-const ENTRY_NAME = /^(manifest\.json|data\.json|files\/[0-9a-f]{64})$/;
+const ENTRY_NAME = /^(manifest\.json|data\.json|applymind\.json|files\/[0-9a-f]{64})$/;
 
 export const FORMAT_ID = 'applyflow-sync';
-export const FORMAT_VERSION = 1;
+export const FORMAT_VERSION = 2;
 
 export type ArchiveErrorCode = 'not-applyflow' | 'unsupported' | 'password-required' | 'bad-password' | 'corrupt' | 'too-large';
 
@@ -174,9 +174,10 @@ export interface OpenedArchive {
   manifest: ArchiveManifest;
   data: unknown;
   files: Map<string, Buffer>;
+  applymind: unknown | null;
 }
 
-export async function writeBundle(manifest: Omit<ArchiveManifest, 'dataSha256' | 'files'>, data: unknown, files: Map<string, Buffer>, password?: string | null): Promise<Buffer> {
+export async function writeBundle(manifest: Omit<ArchiveManifest, 'dataSha256' | 'files'>, data: unknown, files: Map<string, Buffer>, password?: string | null, extras: ArchiveEntry[] = []): Promise<Buffer> {
   const dataBuf = Buffer.from(JSON.stringify(data), 'utf8');
   const full: ArchiveManifest = {
     ...manifest,
@@ -187,6 +188,7 @@ export async function writeBundle(manifest: Omit<ArchiveManifest, 'dataSha256' |
     { name: 'manifest.json', data: Buffer.from(JSON.stringify(full, null, 2), 'utf8') },
     { name: 'data.json', data: dataBuf },
     ...[...files.entries()].map(([sha, b]) => ({ name: `files/${sha}`, data: b })),
+    ...extras,
   ];
   return packArchive(entries, password);
 }
@@ -223,5 +225,14 @@ export async function readBundle(buf: Buffer, password?: string | null): Promise
   } catch {
     throw new ArchiveError('corrupt', 'The file’s data is damaged.');
   }
-  return { manifest, data, files };
+  const mind = byName.get('applymind.json');
+  let applymind: unknown | null = null;
+  if (mind) {
+    try {
+      applymind = JSON.parse(mind.toString('utf8'));
+    } catch {
+      throw new ArchiveError('corrupt', 'The ApplyMind section is damaged.');
+    }
+  }
+  return { manifest, data, files, applymind };
 }
