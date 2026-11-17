@@ -37,7 +37,19 @@ export function primaryAction(wf: Workflow, hasResume: boolean): Primary {
   if (r.status === 'working') return { label: r.label || 'Working…', spinning: true, disabled: true, secondary: { label: 'Cancel', run: wf.cancel } };
   if (r.status === 'submitting') return { label: 'Submitting…', spinning: true, disabled: true };
   if (!hasResume) return { label: 'Tailor & Apply', disabled: true, hint: 'Add your resume above to begin.' };
-  if (!s) return { label: 'Tailor & Apply', disabled: true, hint: wf.busy ? 'Reading the job…' : 'Open a job on dice.com to begin.' };
+  if (!s) {
+    if (r.status === 'external' && /Apply Now/i.test(r.label || '')) {
+      return { label: 'Done', disabled: true, hint: 'SKIPPED — Apply Now. Open a Jobright job labeled Apply with Autofill.' };
+    }
+    if (wf.page?.listScan) {
+      return {
+        label: 'Tailor & Apply',
+        disabled: true,
+        hint: `${wf.page.listScan.eligible} Autofill-eligible · ${wf.page.listScan.skippedApplyNow} Apply Now skipped. Open an Autofill job.`,
+      };
+    }
+    return { label: 'Tailor & Apply', disabled: true, hint: wf.busy ? 'Reading the job…' : 'Open a job on dice.com to begin.' };
+  }
   if (s.submittedAt) {
     return isDesktop()
       ? { label: 'Back to search results', run: () => void backToDiceSearch(), hint: 'Applied and saved in Applications. Pick your next job.' }

@@ -27,6 +27,9 @@ export const log = {
   debug(...args: unknown[]): void {
     if (isDev) console.debug('[ApplyFlow]', ...args.map(redact));
   },
+  info(...args: unknown[]): void {
+    if (isDev) console.info('[ApplyFlow]', ...args.map(redact));
+  },
   warn(...args: unknown[]): void {
     console.warn('[ApplyFlow]', ...args.map(redact));
   },

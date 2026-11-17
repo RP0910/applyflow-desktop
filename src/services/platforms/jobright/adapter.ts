@@ -6,6 +6,8 @@ import { canonicalSkill } from '@/services/skills/extract';
 import type { JobSiteAdapter } from '../types';
 import { controlLabel, deepQueryAll, isPageChrome, isVisible, visibleText } from '../dom';
 import { couldSubmit, hostOf, pageText, visibleCaptcha } from '../ats/common';
+import { isJobBoardSyndicationUrl, pickEmployerApplyUrl } from '../applyDestination';
+import { AUTOFILL_APPLY_RE, detectJobrightApplyMethod } from './applyMethod';
 
 export const JOBRIGHT_HOSTS = /(^|\.)jobright\.ai$/i;
 
@@ -70,7 +72,13 @@ function readJsonLd(doc: Document): Found | null {
           employmentType: Array.isArray(o.employmentType) ? o.employmentType.join(', ') : typeof o.employmentType === 'string' ? o.employmentType : undefined,
           posted: typeof o.datePosted === 'string' ? o.datePosted : undefined,
           remote: o.jobLocationType === 'TELECOMMUTE' || undefined,
-          applyUrl: typeof o.url === 'string' && !JOBRIGHT_HOSTS.test(hostOf(o.url)) ? o.url : undefined,
+          // schema.org JobPosting.url is the canonical posting page (often a LinkedIn/Indeed
+          // mirror), not the employer apply form — only keep it when it looks like a real ATS.
+          applyUrl: (() => {
+            const u = typeof o.url === 'string' ? o.url : undefined;
+            if (!u || JOBRIGHT_HOSTS.test(hostOf(u)) || isJobBoardSyndicationUrl(u)) return undefined;
+            return u;
+          })(),
         };
       }
     } catch {
@@ -95,7 +103,27 @@ export function cleanJobTitle(t: string | undefined): { title?: string; company?
 function externalUrl(v: unknown): string | undefined {
   const s = str(v);
   if (!s || !/^https?:\/\//i.test(s)) return undefined;
-  return JOBRIGHT_HOSTS.test(hostOf(s)) ? undefined : s;
+  if (JOBRIGHT_HOSTS.test(hostOf(s))) return undefined;
+  return s;
+}
+
+/** Next.js apply fields in preference order (applyLink first; bare job url last). */
+function nextApplyUrl(j: Record<string, unknown>): string | undefined {
+  return (
+    externalUrl(j.applyLink) ??
+    externalUrl(j.applyUrl) ??
+    externalUrl(j.originalUrl) ??
+    externalUrl(j.companyApplyUrl) ??
+    externalUrl(j.externalApplyUrl) ??
+    // jobUrl / url are often syndication mirrors — only keep if not a job board listing.
+    (() => {
+      for (const key of ['jobUrl', 'url'] as const) {
+        const u = externalUrl(j[key]);
+        if (u && !isJobBoardSyndicationUrl(u)) return u;
+      }
+      return undefined;
+    })()
+  );
 }
 
 function readNextData(doc: Document, jobId?: string | null): Found | null {
@@ -139,7 +167,7 @@ function readNextData(doc: Document, jobId?: string | null): Found | null {
     employmentType: str(j.employmentType) ?? str(j.jobType),
     posted: str(j.publishTime) ?? str(j.publishTimeDesc) ?? str(j.postedAt),
     remote: j.isRemote === true || /remote/i.test(str(j.workModel) ?? '') || undefined,
-    applyUrl: externalUrl(j.applyLink) ?? externalUrl(j.applyUrl) ?? externalUrl(j.originalUrl) ?? externalUrl(j.jobUrl) ?? externalUrl(j.url),
+    applyUrl: nextApplyUrl(j),
   };
 }
 
@@ -278,7 +306,8 @@ export function extractJobrightJob(doc: Document, url: string): ExtractionResult
     platform: 'jobright',
     jobId: id,
     url: url.split('#')[0]!,
-    applicationUrl: ld?.applyUrl ?? nd?.applyUrl ?? null,
+    // Prefer Jobright’s applyLink / originalUrl over JSON-LD JobPosting.url (often LinkedIn).
+    applicationUrl: pickEmployerApplyUrl(nd?.applyUrl, ld?.applyUrl),
     title,
     company,
     location,
@@ -355,7 +384,9 @@ async function defaultFetch(u: string): Promise<string> {
 }
 
 
-const APPLY = /^(apply|apply now|apply on (the )?(company|employer)(['’]s)? (site|website|page)|apply externally|apply with autofill|easy apply|apply on company site|continue to apply|go to application)$/i;
+/** CTAs ApplyFlow may press on Jobright — Autofill only (not “Apply Now”). */
+const APPLY = AUTOFILL_APPLY_RE;
+const APPLY_ANY_VISIBLE = /^(apply|apply now|apply on (the )?(company|employer)(['’]s)? (site|website|page)|apply externally|apply with autofill|easy apply|apply on company site|continue to apply|go to application)$/i;
 const DIALOG_APPLY = /^(apply without customi[sz]ing|apply without (changes|optimi[sz]ing|tailoring|autofill)|apply manually|continue (to apply|without customi[sz]ing)|skip( and apply| for now)?|apply anyway|apply directly|no,? (thanks|just apply)|go to (the )?(company|employer)('s)? (site|website)|apply on (the )?(company|employer)('s)? (site|website))$/i;
 const APPLIED_PROMPT = /did you apply\??/i;
 const APPLIED_YES = /^(yes,? i applied!?|i applied!?)$/i;
@@ -414,11 +445,16 @@ export function dialogChoice(doc: Document): HTMLElement | null {
 function applyControl(doc: Document): HTMLElement | null {
   const choice = dialogChoice(doc);
   if (choice) return choice;
-  const els = deepQueryAll<HTMLElement>(doc, 'a[href], button, [role="button"]', 800).filter(
-    (el) => isVisible(el) && !isPageChrome(el) && !couldSubmit(el) && !el.closest(DIALOG) && APPLY.test(words(controlLabel(el))),
+  // Only “Apply with Autofill” — never press “Apply Now” (LinkedIn / unsupported externals).
+  const detected = detectJobrightApplyMethod(doc);
+  if (detected.method === 'autofill' && detected.element) return detected.element;
+  return null;
+}
+
+function anyApplyVisible(doc: Document): boolean {
+  return deepQueryAll<HTMLElement>(doc, 'a[href], button, [role="button"]', 800).some(
+    (el) => isVisible(el) && !isPageChrome(el) && !couldSubmit(el) && !el.closest(DIALOG) && APPLY_ANY_VISIBLE.test(words(controlLabel(el))),
   );
-  const title = deepQueryAll<HTMLElement>(doc, 'h1, [class*="job-title" i], [class*="jobTitle" i]', 5)[0] ?? null;
-  return (title ? els.find((el) => title.compareDocumentPosition(el) & 4) : null) ?? els[0] ?? null;
 }
 
 function classify(doc: Document, url: string): PageType {
@@ -443,10 +479,18 @@ function loginRequired(doc: Document): boolean {
 function blocker(doc: Document, url: string): PageBlocker | null {
   if (classify(doc, url) !== 'job-detail') return null;
   const text = pageText(doc, 20000);
-  if (/no longer (available|accepting applications|open)|this job (has )?(expired|closed|been closed)|position (has been )?filled|job (is )?(expired|closed)/i.test(text) && !applyControl(doc)) {
+  const method = detectJobrightApplyMethod(doc);
+  if (method.method === 'apply_now') {
+    return {
+      kind: 'apply_now',
+      message:
+        'SKIPPED — Apply Now (unsupported). ApplyFlow only processes Jobright jobs labeled “Apply with Autofill”. This posting’s Apply Now button usually opens LinkedIn or another external site — open an Autofill job instead.',
+    };
+  }
+  if (/no longer (available|accepting applications|open)|this job (has )?(expired|closed|been closed)|position (has been )?filled|job (is )?(expired|closed)/i.test(text) && !anyApplyVisible(doc)) {
     return { kind: 'closed', message: 'Jobright says this job is no longer available.' };
   }
-  if (!applyControl(doc) && /send my profile/i.test(text)) {
+  if (method.method === 'referral' || (!method.element && /send my profile/i.test(text))) {
     return { kind: 'referral', message: 'This is a Jobright referral role: there is no employer application to fill. Use “Send My Profile” on the page; your tailored documents are saved.' };
   }
   return null;
@@ -479,7 +523,10 @@ export const jobrightAdapter: JobSiteAdapter = {
   findSubmitControl: () => ({ match: null, reason: 'Applications happen on the employer’s site.' }),
   successPatterns: [],
   blocker,
-  applicationUrl: (doc) => readJsonLd(doc)?.applyUrl ?? readNextData(doc)?.applyUrl ?? null,
+  applicationUrl: (doc, url) => {
+    const id = jobrightJobId(url);
+    return pickEmployerApplyUrl(readNextData(doc, id)?.applyUrl, readJsonLd(doc)?.applyUrl);
+  },
   canSubmit: false,
   captchaVisible: visibleCaptcha,
   loginRequired,

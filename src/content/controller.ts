@@ -15,9 +15,11 @@ import { describeWizard, findDocumentCard, findFileInputFor, findNextControl, pa
 import type { FormSupport, JobSiteAdapter } from '@/services/platforms/types';
 import { ATS_SUCCESS_PATTERNS } from '@/services/platforms/ats/common';
 import { appliedConfirmDialog, confirmAppliedControl, jobrightJobId } from '@/services/platforms/jobright/adapter';
+import { detectJobrightApplyMethod, scanJobrightList } from '@/services/platforms/jobright/applyMethod';
 import { postJobrightApplied, readJobrightApplyResult } from '@/services/platforms/jobright/markApplied';
 import { controlLabel, visibleText } from '@/services/platforms/dom';
 import { peekPageCompany } from '@/services/platforms/pageSignals';
+import { isJobBoardSyndicationUrl, shouldAvoidDirectNavigate, syndicationBoardName } from '@/services/platforms/applyDestination';
 import { FIELD_ATTR, answerFieldAsync, fillFieldsAsync, highlightField, probeComboboxes, scanFields } from '@/services/forms/domFields';
 import { fieldRejected } from '@/services/applymind/capture';
 import { capturePageSnapshot } from '@/services/forms/pageSnapshot';
@@ -148,9 +150,24 @@ export function createContentController(env: ControllerEnv) {
     }
     const root = adapter.findApplicationRoot(doc);
     const h1 = doc.querySelector('h1')?.textContent?.trim();
+    const pageType = adapter.classifyPage(doc, url);
+    const jrMethod = adapter.id === 'jobright' && pageType === 'job-detail' ? detectJobrightApplyMethod(doc) : null;
+    const listScan =
+      adapter.id === 'jobright' && pageType === 'search'
+        ? (() => {
+            const s = scanJobrightList(doc, url);
+            return {
+              total: s.total,
+              eligible: s.eligible,
+              skippedApplyNow: s.skippedApplyNow,
+              skippedUnknown: s.skippedUnknown,
+              skippedReferral: s.skippedReferral,
+            };
+          })()
+        : null;
     return {
       url,
-      pageType: adapter.classifyPage(doc, url),
+      pageType,
       jobKey: adapter.jobKeyForUrl(url),
       title: h1 || doc.title,
       company: peekPageCompany(doc),
@@ -162,6 +179,9 @@ export function createContentController(env: ControllerEnv) {
       siteName: siteName(url),
       blocker: adapter.blocker?.(doc, url) ?? null,
       pendingChoice: adapter.pendingChoice?.(doc) ?? null,
+      applyMethod: jrMethod?.method ?? null,
+      applyMethodLabel: jrMethod?.label || null,
+      listScan,
     };
   }
 
@@ -408,19 +428,38 @@ export function createContentController(env: ControllerEnv) {
       }
     }
     const formUrl = adapter.applicationUrl?.(doc, env.url()) ?? null;
-    if (adapter.kind === 'ats' && formUrl && formUrl !== env.url()) {
-      navigate(formUrl);
-      return { ok: true, external: false, navigating: true, message: `Opening ${siteName(formUrl)}’s application form…` };
+    const safeFormUrl = formUrl && !shouldAvoidDirectNavigate(formUrl) ? formUrl : null;
+    if (adapter.kind === 'ats' && safeFormUrl && safeFormUrl !== env.url()) {
+      navigate(safeFormUrl);
+      return { ok: true, external: false, navigating: true, message: `Opening ${siteName(safeFormUrl)}’s application form…` };
     }
-    if (adapter.id === 'jobright' && direct && formUrl) {
-      navigate(formUrl);
-      return { ok: true, external: false, navigating: true, message: `Opening the employer’s application (${siteName(formUrl)})…` };
+    // Jobright direct fallback: only location.assign a real employer/ATS URL — never a
+    // LinkedIn/Indeed syndication mirror that JSON-LD may have exposed as JobPosting.url.
+    if (adapter.id === 'jobright' && direct && safeFormUrl) {
+      navigate(safeFormUrl);
+      return { ok: true, external: false, navigating: true, message: `Opening the employer’s application (${siteName(safeFormUrl)})…` };
+    }
+    if (adapter.id === 'jobright' && direct && formUrl && !safeFormUrl) {
+      const board = syndicationBoardName(formUrl) ?? 'another job board';
+      return {
+        ok: false,
+        external: false,
+        message: `ApplyFlow won’t open ${board} as the employer application (that link is a job listing mirror, not the apply form). Press Apply on Jobright, or open the employer’s application yourself, then press Continue.`,
+      };
     }
     const ctl = adapter.findApplyControl(doc);
     if (!ctl) {
-      if (formUrl) {
-        navigate(formUrl);
-        return { ok: true, external: false, navigating: true, message: `Opening the employer’s application (${siteName(formUrl)})…` };
+      if (safeFormUrl) {
+        navigate(safeFormUrl);
+        return { ok: true, external: false, navigating: true, message: `Opening the employer’s application (${siteName(safeFormUrl)})…` };
+      }
+      if (formUrl && isJobBoardSyndicationUrl(formUrl)) {
+        return {
+          ok: false,
+          external: true,
+          externalUrl: formUrl,
+          message: `This job’s stored apply link goes to ${syndicationBoardName(formUrl)}. ApplyFlow doesn’t open that as the employer form — your documents are ready to attach there yourself.`,
+        };
       }
       return { ok: false, external: false, message: `ApplyFlow could not find the Apply button on ${name}. Click it yourself, then press Continue.` };
     }
@@ -428,7 +467,7 @@ export function createContentController(env: ControllerEnv) {
       const href = (ctl.element as HTMLAnchorElement).href || null;
       return { ok: false, external: true, externalUrl: href, message: 'This job applies on the employer’s website. Your documents are ready — apply there.' };
     }
-    if (adapter.id === 'jobright' && ctl.href) {
+    if (adapter.id === 'jobright' && ctl.href && !shouldAvoidDirectNavigate(ctl.href, safeFormUrl)) {
       navigate(ctl.href);
       return { ok: true, external: false, navigating: true, message: `Opening the employer’s application (${siteName(ctl.href)})…` };
     }

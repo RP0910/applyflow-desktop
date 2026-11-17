@@ -48,14 +48,19 @@
 (function () {
   var id = decodeURIComponent((location.pathname.match(/\/jobs\/info\/([^/?#]+)/) || [])[1] || 'gh-1');
   var JOBS = {
-    'gh-1': { title: 'Hardware Test Engineer', company: 'Acme Robotics', location: 'Seattle, WA', apply: 'https://careers.acme-robotics.com/jobs/4012345?gh_jid=4012345' },
-    'ghnew-1': { title: 'Electronics Technician', company: 'Acme Robotics', location: 'Seattle, WA', apply: 'https://job-boards.greenhouse.io/acmerobotics/jobs/4019999' },
-    'lever-1': { title: 'PCB Layout Technician', company: 'Northwind Avionics', location: 'Indianapolis, IN', apply: 'https://jobs.lever.co/northwind/7c1f2e9a-5b3d-4c8e-9a10-2f6b8e0a5c71' },
-    'ashby-1': { title: 'Test Engineering Technician', company: 'Helio Systems', location: 'Remote (US)', apply: 'https://jobs.ashbyhq.com/helio/3b9e1d2c-8a7f-4e6d-b5c4-1a2b3c4d5e6f' },
-    'workday-1': { title: 'Engineering Technician III', company: 'Contoso Defense', location: 'Indianapolis, IN', apply: 'https://contoso.wd5.myworkdayjobs.com/en-US/External/job/Indianapolis-IN/Engineering-Technician-III_R12345' },
+    'gh-1': { title: 'Hardware Test Engineer', company: 'Acme Robotics', location: 'Seattle, WA', apply: 'https://careers.acme-robotics.com/jobs/4012345?gh_jid=4012345', mirror: 'https://www.linkedin.com/jobs/view/1111111111' },
+    'ghnew-1': { title: 'Electronics Technician', company: 'Acme Robotics', location: 'Seattle, WA', apply: 'https://job-boards.greenhouse.io/acmerobotics/jobs/4019999', mirror: 'https://www.linkedin.com/jobs/view/2222222222' },
+    'lever-1': { title: 'PCB Layout Technician', company: 'Northwind Avionics', location: 'Indianapolis, IN', apply: 'https://jobs.lever.co/northwind/7c1f2e9a-5b3d-4c8e-9a10-2f6b8e0a5c71', mirror: 'https://www.linkedin.com/jobs/view/3333333333' },
+    'ashby-1': { title: 'Test Engineering Technician', company: 'Helio Systems', location: 'Remote (US)', apply: 'https://jobs.ashbyhq.com/helio/3b9e1d2c-8a7f-4e6d-b5c4-1a2b3c4d5e6f', mirror: 'https://www.indeed.com/viewjob?jk=ashby1' },
+    'workday-1': { title: 'Engineering Technician III', company: 'Contoso Defense', location: 'Indianapolis, IN', apply: 'https://contoso.wd5.myworkdayjobs.com/en-US/External/job/Indianapolis-IN/Engineering-Technician-III_R12345', mirror: 'https://www.linkedin.com/jobs/view/4444444444' },
     'linkedin-1': { title: 'Engineering Technician', company: 'Fabrikam', location: 'Austin, TX', apply: 'https://www.linkedin.com/jobs/view/3999999999' },
     'closed-1': { title: 'Senior Test Technician', company: 'Acme Robotics', location: 'Seattle, WA', apply: 'https://boards.greenhouse.io/acmerobotics/jobs/4000001?error=true' },
     'tnt-1': { title: 'AI Engineer, Entry Level', company: 'Jobright.ai', location: 'United States', apply: null },
+    // Venn-style: Greenhouse embed applyLink + LinkedIn JobPosting.url in JSON-LD (the bug that opened authwall).
+    'venn-1': { title: 'GTM Engineer', company: 'Venn', location: 'United States', apply: 'https://job-boards.greenhouse.io/embed/job_app?for=venncity&token=4755173005&jr_id=6afcbc8ce0cdcfc91142f269', mirror: 'https://www.linkedin.com/jobs/view/4755173005', salary: '$165K/yr - $180K/yr' },
+    'hcl-1': { title: 'AI Product Manager', company: 'HCLTech', location: 'Remote', apply: 'https://www.linkedin.com/jobs/view/hcl1', cta: 'APPLY NOW' },
+    'tiger-1': { title: 'AI Product Manager', company: 'Tiger Analytics', location: 'Remote', apply: 'https://jobs.lever.co/northwind/7c1f2e9a-5b3d-4c8e-9a10-2f6b8e0a5c71', cta: 'APPLY WITH AUTOFILL' },
+    'imr-1': { title: 'Agentic AI Engineer', company: 'IMR Soft LLC', location: 'Remote', apply: 'https://www.linkedin.com/jobs/view/imr1', cta: 'APPLY NOW' },
   };
   var job = JOBS[id] || JOBS['gh-1'];
   window.__job = job;
@@ -67,7 +72,7 @@
     props: { pageProps: { dataSource: {
       jobResult: {
         jobId: id, jobTitle: job.title + ' Job Details | ' + legal, jobNlpTitle: job.title, jobLocation: job.location, workModel: /remote/i.test(job.location) ? 'Remote' : 'Onsite',
-        employmentType: 'Full-time', jobSeniority: 'Mid Level', salaryDesc: '$72K/yr - $95K/yr', publishTimeDesc: '3 days ago',
+        employmentType: 'Full-time', jobSeniority: 'Mid Level', salaryDesc: job.salary || '$72K/yr - $95K/yr', publishTimeDesc: '3 days ago',
         jobSummary: job.company + ' is hiring a ' + job.title + ' to build, test and troubleshoot electronic assemblies for flight and ground systems, working with design engineers from prototype to production.',
         coreResponsibilities: [
           'Build, test and troubleshoot printed circuit board assemblies and cable harnesses to schematics and drawings',
@@ -91,6 +96,20 @@
   s.id = '__NEXT_DATA__';
   s.textContent = JSON.stringify(data);
   document.head.appendChild(s);
+  // Real Jobright pages often also ship schema.org JobPosting.url pointing at a LinkedIn
+  // mirror of the same role. That must NOT become applicationUrl when applyLink is Greenhouse.
+  if (job.apply || job.mirror) {
+    var ld = document.createElement('script');
+    ld.type = 'application/ld+json';
+    ld.textContent = JSON.stringify({
+      '@context': 'https://schema.org',
+      '@type': 'JobPosting',
+      title: job.title,
+      hiringOrganization: { '@type': 'Organization', name: job.company },
+      url: job.mirror || job.apply
+    });
+    document.head.appendChild(ld);
+  }
 })();
 </script>
 </head>
@@ -112,7 +131,7 @@
       '<div class="chips"><span>' + esc(job.location) + '</span><span>' + d.workModel + '</span><span>' + d.employmentType + '</span><span>' + d.salaryDesc + '</span><span>' + d.jobSeniority + '</span></div>' +
       (tnt
         ? '<p><b>Skip the applicant queue, get reviewed like a referral.</b></p><button type="button" class="apply" id="send-profile">Send My Profile</button>'
-        : '<p style="margin-top:16px"><button type="button" class="apply" id="apply"><span>APPLY WITH AUTOFILL</span><svg width="12" height="12" aria-hidden="true"><path d="M2 10 10 2"/></svg></button> <button type="button" class="ghost">Ask Orion</button></p>') +
+        : '<p style="margin-top:16px"><button type="button" class="apply" id="apply"><span>' + esc(job.cta || 'APPLY WITH AUTOFILL') + '</span><svg width="12" height="12" aria-hidden="true"><path d="M2 10 10 2"/></svg></button> <button type="button" class="ghost">Ask Orion</button></p>') +
     '</section>' +
     '<section class="card"><h2>Overview</h2><p>' + esc(d.jobSummary) + '</p></section>' +
     '<section class="card"><h2>Responsibilities</h2><ul>' + li(d.coreResponsibilities) + '</ul></section>' +

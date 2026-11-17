@@ -93,9 +93,50 @@ describe('reading a Jobright job', () => {
     expect(ex.job!.requiredSkills.length).toBeGreaterThan(3);
   });
 
+  it('prefers Greenhouse applyLink over a LinkedIn JobPosting.url mirror (Venn / authwall bug)', async () => {
+    const b = new FakeBrowser('https://jobright.ai/jobs/info/venn-1?link=1');
+    const ex = await b.send({ type: 'AF_EXTRACT_JOB' });
+    expect(ex.ok).toBe(true);
+    expect(ex.job).toMatchObject({
+      jobKey: 'jobright:venn-1',
+      title: 'GTM Engineer',
+      company: 'Venn',
+      applicationUrl: 'https://job-boards.greenhouse.io/embed/job_app?for=venncity&token=4755173005&jr_id=6afcbc8ce0cdcfc91142f269',
+    });
+    expect(ex.job!.applicationUrl).not.toMatch(/linkedin/i);
+    // Live page-state helper must agree (used by AF_OPEN_APPLICATION direct path).
+    expect(b.ctl.pageState().site).toBe('jobright');
+    const formUrl = (await import('@/services/platforms/jobright/adapter')).jobrightAdapter.applicationUrl?.(document, b.url);
+    expect(formUrl).toMatch(/greenhouse\.io/);
+    expect(formUrl).not.toMatch(/linkedin/i);
+  });
+
   it('a Jobright list is a search page; the toolbar/Back logic treats it as your results', () => {
     const b = new FakeBrowser('https://jobright.ai/jobs/recommend');
     expect(b.ctl.pageState()).toMatchObject({ pageType: 'search', site: 'jobright' });
+  });
+
+  it('filters the recommend list: Apply with Autofill eligible, Apply Now skipped', () => {
+    const b = new FakeBrowser('https://jobright.ai/jobs/recommend');
+    expect(b.ctl.pageState().listScan).toMatchObject({ total: 3, eligible: 1, skippedApplyNow: 2 });
+  });
+});
+
+describe('Jobright Apply Now vs Apply with Autofill', () => {
+  it('skips HCLTech Apply Now before opening (no employer navigation)', async () => {
+    const h = await start('https://jobright.ai/jobs/info/hcl-1');
+    expect(h.b.ctl.pageState().applyMethod).toBe('apply_now');
+    expect(await ensureApplicationOpen(h.io)).toBe('external');
+    expect(h.state()).toMatchObject({ status: 'external', label: 'SKIPPED — Apply Now' });
+    expect(h.b.url).toMatch(/jobright\.ai\/jobs\/info\/hcl-1/);
+  });
+
+  it('processes Tiger Analytics Apply with Autofill', async () => {
+    const h = await start('https://jobright.ai/jobs/info/tiger-1');
+    expect(h.b.ctl.pageState().applyMethod).toBe('autofill');
+    expect(h.b.ctl.pageState().blocker).toBeNull();
+    expect(await ensureApplicationOpen(h.io)).toBe('open');
+    expect(h.b.url).toMatch(/lever\.co/);
   });
 });
 
@@ -269,6 +310,18 @@ describe('stops that need you', () => {
     expect(await ensureApplicationOpen(h.io)).toBe('external');
     expect(h.state().message).toMatch(/LinkedIn/);
     expect((document.querySelector('[name=firstName]') as HTMLInputElement).value).toBe('');
+  });
+
+  it('recovers when a LinkedIn authwall opens instead of the stored Greenhouse apply URL', async () => {
+    const h = await start('https://jobright.ai/jobs/info/venn-1?link=1');
+    const expected = h.job.applicationUrl!;
+    expect(expected).toMatch(/greenhouse\.io/);
+    h.io.navigate = async (url) => h.b.load(url);
+    // Simulate the bad path: Jobs tab was sent to LinkedIn authwall.
+    h.b.load('https://www.linkedin.com/authwall?trk=bf&sessionRedirect=https://www.linkedin.com/jobs/view/4755173005');
+    expect(await ensureApplicationOpen(h.io)).toBe('open');
+    expect(h.b.url).toMatch(/greenhouse\.io/);
+    expect(h.b.url).not.toMatch(/linkedin/i);
   });
 
   describe('Workday sign-in with the default job-site login', () => {

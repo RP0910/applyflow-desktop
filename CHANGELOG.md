@@ -1,3 +1,7 @@
+# 2.3.12
+
+Changed: on Jobright, ApplyFlow only processes jobs with **Apply with Autofill**. **Apply Now** (and unknown or referral CTAs) are skipped before extract, analysis, or CV generation, with clear status lines and list-scan counts. Apply clicks only the Autofill control; if the button changes mid-run, that job is blocked. Also prefers the employer ATS apply URL over job-board syndication links (for example LinkedIn mirrors) when opening the application. See docs/releases/RELEASE-2.3.12.md.
+
 # 2.3.11
 
 Fixed: Tailor & Apply verifies the Jobs tab still shows the same job as the tailored resume (job id/URL first, title and company as backup). If the tab drifted to a list or another posting, ApplyFlow navigates back and rechecks; if it cannot confirm the match, that job’s pipeline stops instead of applying the wrong form. Mid-apply, opening another job no longer swaps the session away from the resume already generated. See docs/releases/RELEASE-2.3.11.md.

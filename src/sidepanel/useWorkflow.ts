@@ -250,6 +250,30 @@ export function useWorkflow(inputs: WorkflowInputs, deps: WorkflowDeps) {
           setSessionState(null);
           sessionRef.current = null;
         }
+        if (state.pageType === 'search' && state.listScan) {
+          const s = state.listScan;
+          setLastResult(
+            `Jobright list: ${s.total} with Apply buttons · ${s.eligible} ELIGIBLE (Autofill) · ${s.skippedApplyNow} SKIPPED (Apply Now) · ${s.skippedUnknown + s.skippedReferral} other skipped`,
+          );
+        }
+        return;
+      }
+      // Jobright “Apply Now” — skip extract/analysis/CV entirely (expensive work never starts).
+      if (state.site === 'jobright' && (state.applyMethod === 'apply_now' || state.blocker?.kind === 'apply_now')) {
+        if (!['questions', 'attention', 'ready', 'submitted', 'external'].includes(runRef.current.status)) {
+          setSessionState(null);
+          sessionRef.current = null;
+        }
+        setExtractionError(null);
+        report({
+          ...INITIAL_RUN,
+          status: 'external',
+          label: 'SKIPPED — Apply Now',
+          message:
+            state.blocker?.message ??
+            'SKIPPED — Apply Now (unsupported). Open a Jobright job labeled “Apply with Autofill” instead.',
+        });
+        setLastResult('SKIPPED — Apply Now (unsupported)');
         return;
       }
       let existing = state.jobKey ? await getSession(state.jobKey) : undefined;
@@ -421,13 +445,50 @@ export function useWorkflow(inputs: WorkflowInputs, deps: WorkflowDeps) {
     return false;
   }, [tabId, deps.messenger, deps.pollMs, report]);
 
+  const assertJobrightAutofill = useCallback(async (): Promise<boolean> => {
+    if (tabId === null) return false;
+    const st = await deps.messenger.send(tabId, { type: 'AF_GET_PAGE_STATE' }).catch(() => null);
+    if (!st) return true;
+    setPage(st);
+    if (st.site !== 'jobright' || st.pageType !== 'job-detail') return true;
+    if (st.applyMethod === 'autofill') return true;
+    if (st.applyMethod === 'apply_now' || st.blocker?.kind === 'apply_now') {
+      report({
+        ...runRef.current,
+        status: 'external',
+        label: 'BLOCKED — Application method changed',
+        message:
+          st.blocker?.message ??
+          'BLOCKED — Application method changed. This Jobright posting is “Apply Now”, not “Apply with Autofill”. CV generation and autofill were stopped.',
+        stages: { ...runRef.current.stages, documents: 'skipped', open: 'skipped' },
+      });
+      setLastResult('BLOCKED — Application method changed');
+      return false;
+    }
+    if (st.applyMethod === 'unknown' || st.applyMethod === 'referral') {
+      report({
+        ...runRef.current,
+        status: 'external',
+        label: st.applyMethod === 'referral' ? 'SKIPPED — Referral' : 'SKIPPED — Application type unknown',
+        message:
+          st.applyMethod === 'referral'
+            ? 'SKIPPED — Referral / Send My Profile. ApplyFlow does not process referral-only Jobright roles.'
+            : 'SKIPPED — Application type unknown. Open a Jobright job that clearly shows “Apply with Autofill”.',
+        stages: { ...runRef.current.stages, documents: 'skipped', open: 'skipped' },
+      });
+      return false;
+    }
+    return true;
+  }, [tabId, deps.messenger, report]);
+
   const makeDocuments = useCallback(async (masterOverride?: MasterResume, opts: { optimize?: boolean } = {}): Promise<boolean> => {
     let s = sessionRef.current;
     const master = masterOverride ?? masterFromProps;
     if (!s || !master) return false;
+    if (!(await assertJobrightAutofill())) return false;
     if (!(await confirmSessionJobInTab(s))) return false;
     s = sessionRef.current ?? s;
-    setStep('Preparing tailored resume and cover letter…');
+    setStep('PROCESSING — Generating CV…');
     const d = await engineDeps();
     if (!s.analysis || s.resumeId !== master.id || masterOverride) s = await analyzeSession(s, master);
     const r = await runDocuments(s, master, profileRef.current, d, tone, setPhase, opts);
@@ -470,7 +531,7 @@ export function useWorkflow(inputs: WorkflowInputs, deps: WorkflowDeps) {
     const unsupported = next.evidence.filter((e) => e.importance === 'required' && (e.status === 'none' || e.status === 'conflict')).length;
     if (unsupported) notify('info', `${unsupported} required qualification${unsupported > 1 ? 's' : ''} from the job aren’t in your resume, so ${unsupported > 1 ? 'they were' : 'it was'} left out rather than claimed.`);
     return !resume.issues.some((i) => i.severity === 'critical') && !(next.coverLetter?.issues ?? []).some((i) => i.severity === 'critical');
-  }, [masterFromProps, engineDeps, analyzeSession, tone, settings, setSession, upsertRecord, notify, setStep, confirmSessionJobInTab]);
+  }, [masterFromProps, engineDeps, analyzeSession, tone, settings, setSession, upsertRecord, notify, setStep, confirmSessionJobInTab, assertJobrightAutofill]);
 
   const runnerIO = useCallback((): RunnerIO => ({
     send: (msg) => deps.messenger.send(tabId as number, msg),
@@ -565,6 +626,7 @@ export function useWorkflow(inputs: WorkflowInputs, deps: WorkflowDeps) {
       if (!s.duplicateAcknowledged && duplicates?.exact && hasApplied(duplicates.exact)) await setSession({ ...s, duplicateAcknowledged: true });
       setStep('Starting Tailor & Apply…');
       report({ ...INITIAL_RUN, status: 'working', label: 'Starting Tailor & Apply…' });
+      if (!(await assertJobrightAutofill())) return;
       if (!(await confirmSessionJobInTab(sessionRef.current!))) return;
       const cur = sessionRef.current!;
       const outdated = Boolean(cur.resume && !cur.submittedAt && (cur.documentsFrom !== masterStamp(master) || cur.resume.contentSource !== 'cv-generate'));
@@ -607,7 +669,7 @@ export function useWorkflow(inputs: WorkflowInputs, deps: WorkflowDeps) {
       setStatusLine('');
       setPhase('idle');
     }
-  }, [master, tabId, duplicates, setSession, report, makeDocuments, runnerIO, afterRun, setStep, confirmSessionJobInTab]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [master, tabId, duplicates, setSession, report, makeDocuments, runnerIO, afterRun, setStep, confirmSessionJobInTab, assertJobrightAutofill]); // eslint-disable-line react-hooks/exhaustive-deps
   quickApplyRef.current = quickApply;
 
   const continueRun = useCallback(async (opts: { autoAdvance?: boolean } = {}) => {

@@ -552,9 +552,25 @@ export function HomeView({ wf, lib, settings, hasKey }: { wf: Workflow; lib: Lib
   }
 
   if (!s) {
+    const list = wf.page?.listScan;
+    const skippedApplyNow =
+      wf.page?.applyMethod === 'apply_now' ||
+      wf.page?.blocker?.kind === 'apply_now' ||
+      (r.status === 'external' && /Apply Now/i.test(r.label || r.message || ''));
     return (
       <div className="stack">
         <ClosedJobBanner wf={wf} />
+        {list && wf.page?.pageType === 'search' ? (
+          <WarningBanner tone="info" title="Jobright apply filter">
+            {list.total} jobs with Apply buttons · <strong>{list.eligible} ELIGIBLE</strong> (Apply with Autofill) · {list.skippedApplyNow} SKIPPED (Apply Now)
+            {list.skippedUnknown + list.skippedReferral ? ` · ${list.skippedUnknown + list.skippedReferral} other skipped` : ''}. Open an Autofill job to continue — ApplyFlow does not generate CVs for Apply Now postings.
+          </WarningBanner>
+        ) : null}
+        {skippedApplyNow ? (
+          <WarningBanner tone="warning" title="SKIPPED — Apply Now (unsupported)">
+            {r.message || wf.page?.blocker?.message || 'This Jobright posting uses “Apply Now”, which often opens LinkedIn or another unsupported site. Choose a job labeled “Apply with Autofill” instead.'}
+          </WarningBanner>
+        ) : null}
         {wf.extractionError ? (
           <WarningBanner
             tone="warning"
@@ -574,10 +590,16 @@ export function HomeView({ wf, lib, settings, hasKey }: { wf: Workflow; lib: Lib
           >
             {wf.extractionError}
           </WarningBanner>
-        ) : (
+        ) : !skippedApplyNow ? (
           <div className="empty">
-            <strong>{wf.busy ? 'Reading the job…' : 'Open a job on Dice or Jobright to get started.'}</strong>
-            <span>{supported ? 'ApplyFlow is reading this page.' : 'Go to any job on dice.com. Your estimated match appears here right away.'}</span>
+            <strong>{wf.busy ? 'Reading the job…' : list ? 'Open an “Apply with Autofill” job to get started.' : 'Open a job on Dice or Jobright to get started.'}</strong>
+            <span>
+              {supported
+                ? 'ApplyFlow is reading this page.'
+                : list
+                  ? 'On Jobright, only jobs with Apply with Autofill are processed.'
+                  : 'Go to any job on dice.com. Your estimated match appears here right away.'}
+            </span>
             {!wf.busy ? (
               <div>
                 <button type="button" className="btn btn-sm" onClick={() => void wf.detect()}>
@@ -586,7 +608,7 @@ export function HomeView({ wf, lib, settings, hasKey }: { wf: Workflow; lib: Lib
               </div>
             ) : null}
           </div>
-        )}
+        ) : null}
       </div>
     );
   }

@@ -3,26 +3,40 @@
 <head>
 <meta charset="utf-8">
 <title>Recommended Jobs | Jobright.ai</title>
-<!-- MOCK PAGE for ApplyFlow tests: a Jobright job list (/jobs/recommend). Not a real Jobright page. -->
+<!-- MOCK: Jobright recommend list with Apply Now vs Apply with Autofill CTAs (screenshot filter cases). -->
 <style>
   body { margin: 0; font: 15px/1.5 -apple-system, "Segoe UI", Roboto, Arial, sans-serif; background: #f7f8fa; }
   header { height: 60px; display: flex; align-items: center; padding: 0 24px; background: #fff; border-bottom: 1px solid #e5e7eb; }
   main { max-width: 860px; margin: 24px auto; padding: 0 16px; }
   .job { display: block; background: #fff; border-radius: 12px; padding: 16px 20px; margin-bottom: 12px; color: #18181b; text-decoration: none; box-shadow: 0 1px 3px rgba(0,0,0,.06); }
+  .apply { background: #00c48c; color: #fff; border: 0; border-radius: 8px; padding: 10px 20px; font-weight: 700; cursor: pointer; }
+  .meta { color: #6b7280; font-size: 13px; margin: 6px 0 12px; }
 </style>
 </head>
 <body>
 <header><b>jobright</b></header>
 <main>
   <h1>Recommended for you</h1>
+  <article class="job" data-job-id="hcl-1">
+    <a href="/jobs/info/hcl-1"><h2 class="job-title">AI Product Manager</h2></a>
+    <div class="company">HCLTech</div>
+    <p class="meta">Remote · Full-time · Senior</p>
+    <button type="button" class="apply">APPLY NOW</button>
+  </article>
+  <article class="job" data-job-id="tiger-1">
+    <a href="/jobs/info/tiger-1"><h2 class="job-title">AI Product Manager</h2></a>
+    <div class="company">Tiger Analytics</div>
+    <p class="meta">Remote · Full-time · Senior</p>
+    <button type="button" class="apply">APPLY WITH AUTOFILL</button>
+  </article>
+  <article class="job" data-job-id="imr-1">
+    <a href="/jobs/info/imr-1"><h2 class="job-title">Agentic AI Engineer</h2></a>
+    <div class="company">IMR Soft LLC</div>
+    <p class="meta">Remote · Full-time · Mid</p>
+    <button type="button" class="apply">APPLY NOW</button>
+  </article>
   <a class="job" href="/jobs/info/gh-1"><b>Hardware Test Engineer</b> · Acme Robotics · Seattle, WA</a>
-  <a class="job" href="/jobs/info/ghnew-1"><b>Electronics Technician</b> · Acme Robotics · Seattle, WA</a>
   <a class="job" href="/jobs/info/lever-1"><b>PCB Layout Technician</b> · Northwind Avionics · Indianapolis, IN</a>
-  <a class="job" href="/jobs/info/ashby-1"><b>Test Engineering Technician</b> · Helio Systems · Remote (US)</a>
-  <a class="job" href="/jobs/info/workday-1"><b>Engineering Technician III</b> · Contoso Defense · Indianapolis, IN</a>
-  <a class="job" href="/jobs/info/linkedin-1"><b>Engineering Technician</b> · Fabrikam · Austin, TX</a>
-  <a class="job" href="/jobs/info/closed-1"><b>Senior Test Technician</b> · Acme Robotics · Seattle, WA</a>
-  <a class="job" href="/jobs/info/tnt-1"><b>AI Engineer, Entry Level</b> · Jobright.ai · United States</a>
 </main>
 </body>
 </html>

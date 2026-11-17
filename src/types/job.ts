@@ -45,9 +45,19 @@ export type PageType = 'job-detail' | 'application' | 'search' | 'other' | 'unsu
 
 export type SiteId = 'dice' | 'jobright' | 'greenhouse' | 'lever' | 'ashby' | 'jobvite' | 'generic';
 
+export type JobrightApplyMethod = 'autofill' | 'apply_now' | 'referral' | 'unknown';
+
 export interface PageBlocker {
-  kind: 'closed' | 'applied' | 'unsupported' | 'referral';
+  kind: 'closed' | 'applied' | 'unsupported' | 'referral' | 'apply_now';
   message: string;
+}
+
+export interface JobrightListScanSummary {
+  total: number;
+  eligible: number;
+  skippedApplyNow: number;
+  skippedUnknown: number;
+  skippedReferral: number;
 }
 
 export interface PageState {
@@ -66,4 +76,9 @@ export interface PageState {
   siteName?: string;
   blocker?: PageBlocker | null;
   pendingChoice?: string | null;
+  /** Jobright detail: Apply with Autofill vs Apply Now (etc.). */
+  applyMethod?: JobrightApplyMethod | null;
+  applyMethodLabel?: string | null;
+  /** Jobright list/recommend: counts from on-page Apply CTAs. */
+  listScan?: JobrightListScanSummary | null;
 }

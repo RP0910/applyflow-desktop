@@ -12,6 +12,13 @@ import {
   observedFromPage,
   pageLeftThisJob,
 } from '@/services/workflow/jobIdentity';
+import {
+  isJobBoardSyndicationUrl,
+  pickEmployerApplyUrl,
+  shouldAvoidDirectNavigate,
+  unexpectedSyndicationDestination,
+} from '@/services/platforms/applyDestination';
+import { log } from '@/utils/logger';
 
 export type StageKey = 'documents' | 'open' | 'attach' | 'questions' | 'review';
 export type StageState = 'todo' | 'active' | 'done' | 'skipped' | 'error';
@@ -121,9 +128,14 @@ async function safe<T>(p: Promise<T>): Promise<T | null> {
 export const stepKey = (url: string, step: { current: number } | null | undefined) => `${url}#${step?.current ?? '-'}`;
 
 function stopFor(io: RunnerIO, b: PageBlocker): 'external' | 'stopped' {
-  if (b.kind === 'unsupported' || b.kind === 'referral') {
+  if (b.kind === 'unsupported' || b.kind === 'referral' || b.kind === 'apply_now') {
     stage(io, 'open', 'skipped');
-    patch(io, { status: 'external', label: b.kind === 'referral' ? 'Jobright referral role' : 'Apply on the employer’s site yourself', message: b.message, externalUrl: null });
+    patch(io, {
+      status: 'external',
+      label: b.kind === 'referral' ? 'Jobright referral role' : b.kind === 'apply_now' ? 'SKIPPED — Apply Now' : 'Apply on the employer’s site yourself',
+      message: b.message,
+      externalUrl: null,
+    });
     return 'external';
   }
   stage(io, 'open', 'error');
@@ -264,10 +276,47 @@ async function ensureOnThisJob(io: RunnerIO, st: PageState | null): Promise<Page
 export async function ensureApplicationOpen(io: RunnerIO): Promise<'open' | 'external' | 'stopped'> {
   const poll = io.pollMs ?? 400;
   let st = await safe(io.send({ type: 'AF_GET_PAGE_STATE' }));
+  const session0 = io.session();
+  const expectedApply = pickEmployerApplyUrl(session0?.job.applicationUrl);
+  log.info('Navigation open', {
+    jobKey: session0?.jobKey ?? null,
+    company: session0?.job.company ?? null,
+    title: session0?.job.title ?? null,
+    sourceUrl: session0?.job.url ?? null,
+    expectedApply,
+    pageUrl: st?.url ?? null,
+  });
+  let syndicationRecoveries = 0;
+  // If the Jobs tab already shows a job-board mirror/authwall but this session has a real
+  // employer apply URL, go there before treating LinkedIn/Indeed as a terminal “unsupported”.
+  if (st && unexpectedSyndicationDestination(st.url, expectedApply) && expectedApply && io.navigate) {
+    syndicationRecoveries += 1;
+    log.warn('Navigation mismatch on entry: recovering to employer apply URL', {
+      jobKey: session0?.jobKey ?? null,
+      expectedApply,
+      actual: st.url,
+    });
+    patch(io, {
+      status: 'working',
+      label: 'Wrong site opened — going to the employer application…',
+      message: `Application navigation mismatch detected. Expected ${session0?.job.company || 'the employer'}’s application, but the browser opened a job-board page. Recovering…`,
+    });
+    await io.navigate(expectedApply);
+    st = await safe(io.send({ type: 'AF_GET_PAGE_STATE' }));
+  }
   const ensured = await ensureOnThisJob(io, st);
   if (ensured === 'stopped') return 'stopped';
   st = ensured;
-  if (st.blocker) return stopFor(io, st.blocker);
+  if (st.blocker) {
+    if (unexpectedSyndicationDestination(st.url, expectedApply) && expectedApply) {
+      return attention(
+        io,
+        `Application navigation mismatch detected. Expected ${session0?.job.company || 'the employer'}’s ${session0?.job.title || 'job'} application, but the browser opened a job-board page. Autofill was paused to prevent applying to the wrong job. Open the employer’s application, then press Continue.`,
+        'Wrong application site',
+      );
+    }
+    return stopFor(io, st.blocker);
+  }
   if (st.hasApplicationForm) return formOpened(io, st);
   stage(io, 'open', 'active');
   patch(io, { status: 'working', label: 'Opening the application…' });
@@ -288,23 +337,40 @@ export async function ensureApplicationOpen(io: RunnerIO): Promise<'open' | 'ext
       if (st.blocker) return stopFor(io, st.blocker);
     }
     const before = st.url;
-    const open = await safe(io.send({ type: 'AF_OPEN_APPLICATION', direct }));
-    if (!open) return attention(io, 'ApplyFlow can’t reach this page. Reload it and try again.');
-    if (!open.ok) {
-      if (open.blocker) return stopFor(io, open.blocker);
-      if (open.external) {
-        stage(io, 'open', 'skipped');
-        patch(io, { status: 'external', label: 'Applies on the employer’s site', message: open.message, externalUrl: open.externalUrl ?? null });
-        return 'external';
+    let openMessage = 'Opening the application…';
+    // Prefer a verified employer apply URL over a Jobright “direct” assign to a bad formUrl.
+    if (direct && expectedApply && !shouldAvoidDirectNavigate(expectedApply) && io.navigate && (st.site === 'jobright' || st.site === 'dice')) {
+      log.info('Navigation direct-to-expected', { expectedApply, from: st.url });
+      openMessage = 'Opening the employer’s application…';
+      patch(io, { label: openMessage });
+      await io.navigate(expectedApply);
+      direct = false;
+    } else {
+      const open = await safe(io.send({ type: 'AF_OPEN_APPLICATION', direct }));
+      if (!open) return attention(io, 'ApplyFlow can’t reach this page. Reload it and try again.');
+      if (!open.ok) {
+        if (open.blocker) return stopFor(io, open.blocker);
+        if (open.external) {
+          stage(io, 'open', 'skipped');
+          patch(io, { status: 'external', label: 'Applies on the employer’s site', message: open.message, externalUrl: open.externalUrl ?? null });
+          return 'external';
+        }
+        if (st.site === 'jobright' && !direct) {
+          // Only flip to direct when we have a safe employer URL to assign (or click path exhausted).
+          if (expectedApply && !shouldAvoidDirectNavigate(expectedApply)) direct = true;
+          else if (!expectedApply || !isJobBoardSyndicationUrl(expectedApply)) direct = true;
+          else {
+            stage(io, 'open', 'error');
+            return attention(io, open.message);
+          }
+          continue;
+        }
+        stage(io, 'open', 'error');
+        return attention(io, open.message);
       }
-      if (st.site === 'jobright' && !direct) {
-        direct = true;
-        continue;
-      }
-      stage(io, 'open', 'error');
-      return attention(io, open.message);
+      openMessage = open.message;
+      if (multiHop) patch(io, { label: open.message });
     }
-    if (multiHop) patch(io, { label: open.message });
     let movedAt = 0;
     let lastUrl = before;
     const started = Date.now();
@@ -329,7 +395,35 @@ export async function ensureApplicationOpen(io: RunnerIO): Promise<'open' | 'ext
         return attention(io, `${siteOf(s)} wants you to sign in. Sign in on the page, then press Continue.`, `Sign in to ${siteOf(s)}`);
       }
       if (s.captchaDetected) return attention(io, `${siteOf(s)} is showing a CAPTCHA. Complete it on the page, then press Continue.`, 'Complete the CAPTCHA');
-      if (s.blocker) return stopFor(io, s.blocker);
+      // Landed on LinkedIn/Indeed/… while this job’s real apply URL is an employer ATS → recover once.
+      if (unexpectedSyndicationDestination(s.url, expectedApply) && expectedApply && io.navigate && syndicationRecoveries < 2) {
+        syndicationRecoveries += 1;
+        log.warn('Navigation mismatch: syndication instead of employer apply', {
+          jobKey: io.session()?.jobKey ?? null,
+          expectedApply,
+          actual: s.url,
+          recovery: syndicationRecoveries,
+        });
+        patch(io, {
+          status: 'working',
+          label: 'Wrong site opened — going to the employer application…',
+          message: `Application navigation mismatch detected. Expected ${io.session()?.job.company || 'the employer'}’s application, but the browser opened a job-board page. Recovering…`,
+        });
+        await io.navigate(expectedApply);
+        movedAt = Date.now();
+        lastUrl = s.url;
+        continue;
+      }
+      if (s.blocker) {
+        if (unexpectedSyndicationDestination(s.url, expectedApply) && expectedApply) {
+          return attention(
+            io,
+            `Application navigation mismatch detected. Expected ${io.session()?.job.company || 'the employer'}’s ${io.session()?.job.title || 'job'} application, but the browser opened a job-board page. Autofill was paused to prevent applying to the wrong job. Open the employer’s application, then press Continue.`,
+            'Wrong application site',
+          );
+        }
+        return stopFor(io, s.blocker);
+      }
       if (s.hasApplicationForm) return formOpened(io, s);
       if (!multiHop) continue;
       if (s.url !== lastUrl) {
@@ -340,13 +434,16 @@ export async function ensureApplicationOpen(io: RunnerIO): Promise<'open' | 'ext
       if (movedAt && Date.now() - movedAt >= settleMs) break;
       if (s.pendingChoice && s.site === 'jobright' && Date.now() - started >= poll * 2) break;
       if (!movedAt && Date.now() - started >= Math.max(settleMs * 2, poll * 12)) {
-        if (s.site === 'jobright') direct = true;
+        if (s.site === 'jobright') {
+          if (expectedApply && !shouldAvoidDirectNavigate(expectedApply)) direct = true;
+          else if (!expectedApply || !isJobBoardSyndicationUrl(expectedApply)) direct = true;
+        }
         break;
       }
     }
     if (!movedAt && st.site === 'jobright' && !st.pendingChoice) {
-      const n = (idle.get(open.message) ?? 0) + 1;
-      idle.set(open.message, n);
+      const n = (idle.get(openMessage) ?? 0) + 1;
+      idle.set(openMessage, n);
       if (n >= 2) {
         stage(io, 'open', 'error');
         return attention(
@@ -357,8 +454,8 @@ export async function ensureApplicationOpen(io: RunnerIO): Promise<'open' | 'ext
       }
     }
     if (!movedAt && !direct && st.site !== 'jobright') {
-      if (open.message === lastPressed) break;
-      lastPressed = open.message;
+      if (openMessage === lastPressed) break;
+      lastPressed = openMessage;
     }
   }
   stage(io, 'open', 'error');
