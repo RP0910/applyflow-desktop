@@ -1,6 +1,6 @@
 # ApplyFlow Desktop 2.1.0
 
-See [RELEASE-2.2.0.md](RELEASE-2.2.0.md) for applying from Jobright.ai (Greenhouse, Lever, Ashby), [RELEASE-2.1.3.md](RELEASE-2.1.3.md) for getting back to your search after applying, [RELEASE-2.1.2.md](RELEASE-2.1.2.md) for the Education settings, [RELEASE-2.1.1.md](RELEASE-2.1.1.md) for the resume-replacement fix and [RELEASE-2.1.0.md](RELEASE-2.1.0.md) for the current setup, generation flow, installation steps and limitations. The older documentation below describes the 2.0 architecture; its master-resume/work-history workflow has been replaced.
+See [RELEASE-2.2.0.md](docs/releases/RELEASE-2.2.0.md) for applying from Jobright.ai (Greenhouse, Lever, Ashby), [RELEASE-2.1.3.md](docs/releases/RELEASE-2.1.3.md) for getting back to your search after applying, [RELEASE-2.1.2.md](docs/releases/RELEASE-2.1.2.md) for the Education settings, [RELEASE-2.1.1.md](docs/releases/RELEASE-2.1.1.md) for the resume-replacement fix and [RELEASE-2.1.0.md](docs/releases/RELEASE-2.1.0.md) for the current setup, generation flow, installation steps and limitations. The older documentation below describes the 2.0 architecture; its master-resume/work-history workflow has been replaced.
 
 # ApplyFlow Desktop
 
@@ -101,10 +101,13 @@ On Linux/macOS, `npm run dist:win` also works with Wine installed. `npm run icon
 
 ```
 electron/
-  main.ts          window, app:// protocol, IPC, built-in Dice browser (WebContentsView), reminders, Ctrl+Alt+Shift+F
+  main.ts          window, app:// protocol, IPC, reminders, Ctrl+Alt+Shift+F
   db.ts            SQLite store: resumes, profile, sessions, applications, documents, contacts, usage, FTS5 search
   preload.ts       window.applyflow bridge (invoke / on)
-  dicePreload.ts   the page helper for dice.com (runs the content controller)
+  browser/         built-in browser, Chrome host, and the dice.com page helper
+  claude/          Claude.ai chat, sign-in window, and reply reading
+  applymind/       encrypted knowledge store
+  sync/            .applyflow export, import, and merge
 src/
   desktop/         shell (DesktopApp), BrowserPane, ApplicationsView ("who is calling?"), PdfStudio, PdfFrame
   platform/        bridge.ts — every IPC method and event, typed
@@ -136,4 +139,5 @@ build/                icon.ico, icon.png, icons/
 - [Resume JSON and the renderer](docs/RESUME_JSON.md)
 - [Privacy](docs/PRIVACY.md)
 - [Known limitations](docs/KNOWN_LIMITATIONS.md)
+- [Release notes](docs/releases/RELEASE-2.3.8.md)
 - [Changelog](CHANGELOG.md)

@@ -2,6 +2,8 @@ import type { CompanyResearchReply } from '@/prompts/companyResearch';
 import type { ApplicationRecord, CareerProfile, JobSession, MasterResume, SiteCredential } from '@/types';
 import type { ContentEvent, ContentResponseMap, PanelToContent } from '@/types/messages';
 import type { SyncBackupInfo, SyncExportResult, SyncImportResult, SyncInspectResult, SyncLogEntry, SyncProgress } from './syncTypes';
+import type { ApplyMindStatus, ProposalView } from '@/services/applymind/types';
+import type { ExactLookup } from '@/services/applymind/exact';
 
 export interface BridgeMethods {
   'kv.get': (key: string) => unknown;
@@ -16,7 +18,11 @@ export interface BridgeMethods {
   'resumes.setDefault': (id: string) => void;
   'resumes.delete': (id: string) => void;
   'profile.get': () => CareerProfile | null;
-  'profile.save': (p: CareerProfile) => CareerProfile;
+  'profile.save': (p: CareerProfile) => { profile: CareerProfile; syncError: string | null };
+  'applymind.status': () => ApplyMindStatus;
+  'applymind.proposals': () => ProposalView[];
+  'applymind.exact': (q: ExactLookup) => string | null;
+  'applymind.accept': (items: { question: string; answer: string; category: string; options: string[]; control: string }[]) => number;
   'siteCredentials.list': () => SiteCredential[];
   'siteCredentials.get': (host: string) => SiteCredential | null;
   'siteCredentials.save': (c: SiteCredential) => SiteCredential;
@@ -104,6 +110,7 @@ export interface BridgeEvents {
   'app:navigate': { view: DesktopView; focus?: string | null; search?: boolean };
   'claudeChat:status': ClaudeChatStatus;
   'sync:progress': SyncProgress;
+  'applymind:sync-error': { message: string };
 }
 
 export type ClaudeChatState = 'checking' | 'connecting' | 'ready' | 'signed_out' | 'error';

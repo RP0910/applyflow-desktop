@@ -1,9 +1,9 @@
-import type { PanelToContent } from '../src/types/messages';
+import type { PanelToContent } from '../../src/types/messages';
 import { pageIpc } from './pageIpc';
-import { createContentController } from '../src/content/controller';
-import { browserUploadDeps, UPLOAD_MARKER_ATTR, type TrustedInput } from '../src/services/forms/upload';
-import { mountLauncher, setLauncherHandler, setLauncherVisible } from '../src/content/launcher';
-import { APP_VERSION } from '../src/version';
+import { createContentController } from '../../src/content/controller';
+import { browserUploadDeps, UPLOAD_MARKER_ATTR, type TrustedInput } from '../../src/services/forms/upload';
+import { mountLauncher, setLauncherHandler, setLauncherVisible } from '../../src/content/launcher';
+import { APP_VERSION } from '../../src/version';
 
 const onWeb = () => /^https:\/\//i.test(location.href);
 

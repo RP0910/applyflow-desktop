@@ -44,6 +44,7 @@ const LEDES: Partial<Record<DesktopView, string>> = {
 const SECTION_TO_VIEW: Record<string, DesktopView> = { library: 'profile', profile: 'profile', answers: 'answers', history: 'applications', analytics: 'analytics', settings: 'settings', privacy: 'privacy' };
 export function DesktopApp() {
   const [view, setView] = useState<DesktopView>('apply');
+  const [syncError, setSyncError] = useState<string | null>(null);
   const [focus, setFocus] = useState<string | null>(null);
   const [focusTick, setFocusTick] = useState(0);
   const [searchSignal, setSearchSignal] = useState(0);
@@ -61,6 +62,7 @@ export function DesktopApp() {
       }
       if (n.search) setSearchSignal((x) => x + 1);
     });
+    const offSync = b?.on('applymind:sync-error', (p) => setSyncError(p.message));
     const onSection = (section: string, focusId?: string) => {
       setView(SECTION_TO_VIEW[section] ?? 'apply');
       if (focusId) {
@@ -71,6 +73,7 @@ export function DesktopApp() {
     navigateListeners.add(onSection);
     return () => {
       offNav?.();
+      offSync?.();
       navigateListeners.delete(onSection);
     };
   }, []);
@@ -114,6 +117,11 @@ export function DesktopApp() {
           <p className="rail-foot">Version {APP_VERSION}. Not affiliated with Dice or Jobright.</p>
         </div>
       </nav>
+      {syncError ? (
+        <WarningBanner tone="critical" live actions={<button type="button" className="btn btn-sm btn-quiet" onClick={() => setSyncError(null)}>Dismiss</button>}>
+          {syncError}
+        </WarningBanner>
+      ) : null}
 
       <div className="apply-view" hidden={view !== 'apply'}>
         <BrowserPane visible={view === 'apply'} />

@@ -10,6 +10,7 @@ import { getApiKey } from '@/storage/settingsStore';
 import { onDataChange } from '@/storage/events';
 import { formKeyFor } from '@/services/platforms/registry';
 import { ensureSiteCredential, saveSiteCredential, findApplicationsByJobKey, getApplication, getSession, latestSession, listApplications, saveApplication, saveProfile, saveSession } from '@/storage/repositories';
+import { KnowledgeSyncError } from '@/services/applymind/syncNotice';
 import { planAts, runAnalysis, runCoverLetter, runDocuments, revalidateEdited, revalidateLetter, scanTailored, scoreMaster, scoreTailored, type EngineDeps } from '@/services/workflow/engine';
 import { saveResume } from '@/storage/repositories';
 import { parseCheckPdf } from '@/services/ats/parseCheck';
@@ -424,9 +425,32 @@ export function useWorkflow(inputs: WorkflowInputs, deps: WorkflowDeps) {
     settings,
     profile: profileRef.current,
     saveProfile: async (p) => {
-      const saved = await saveProfile(p);
-      profileRef.current = saved;
-      return saved;
+      try {
+        const saved = await saveProfile(p);
+        profileRef.current = saved;
+        return saved;
+      } catch (e) {
+        if (e instanceof KnowledgeSyncError) {
+          profileRef.current = e.profile;
+          notify('critical', e.message);
+          return e.profile;
+        }
+        throw e;
+      }
+    },
+    exactAnswer: async (q) => {
+      const b = bridge();
+      if (!b) return null;
+      return b.invoke('applymind.exact', q);
+    },
+    recordAccepted: async (items) => {
+      const b = bridge();
+      if (!b) return;
+      try {
+        await b.invoke('applymind.accept', items);
+      } catch (e) {
+        notify('critical', e instanceof Error && e.message ? e.message : 'ApplyMind could not record that fill.');
+      }
     },
     ensureSiteCredential: (url, email) => ensureSiteCredential(url, email),
     rememberSiteLogin: (c) => saveSiteCredential(c),
@@ -438,7 +462,7 @@ export function useWorkflow(inputs: WorkflowInputs, deps: WorkflowDeps) {
     report,
     pollMs: deps.pollMs,
     navigate: (url) => openInJobTab(tabId, url),
-  }), [deps.messenger, deps.pollMs, tabId, settings, fileName, setSession, report]);
+  }), [deps.messenger, deps.pollMs, tabId, settings, fileName, setSession, report, notify]);
 
   const afterRun = useCallback(async (result: string) => {
     const s = sessionRef.current;
@@ -540,22 +564,28 @@ export function useWorkflow(inputs: WorkflowInputs, deps: WorkflowDeps) {
       const p = profileRef.current;
       const category: ApprovedAnswer['category'] = q.sensitive ?? 'general';
       const pattern = q.label.trim().slice(0, 160);
-      const saved = await saveProfile({
-        ...p,
-        approvedAnswers: rememberAnswer(
-          p.approvedAnswers,
-          {
-            category,
-            questionPattern: pattern,
-            answer: value.trim(),
-            control: toScreeningControl(q.control),
-            options: q.options?.length ? q.options : undefined,
-          },
-          () => newId('ans'),
-          nowIso(),
-        ),
-      });
-      profileRef.current = saved;
+      try {
+        const saved = await saveProfile({
+          ...p,
+          approvedAnswers: rememberAnswer(
+            p.approvedAnswers,
+            {
+              category,
+              questionPattern: pattern,
+              answer: value.trim(),
+              control: toScreeningControl(q.control),
+              options: q.options?.length ? q.options : undefined,
+            },
+            () => newId('ans'),
+            nowIso(),
+          ),
+        });
+        profileRef.current = saved;
+      } catch (e) {
+        if (!(e instanceof KnowledgeSyncError)) throw e;
+        profileRef.current = e.profile;
+        notify('critical', e.message);
+      }
     }
     const done: FieldProposal = { ...q, action: 'answer', proposedValue: res.finalValue ?? value, source: remember && q.sensitive !== 'legal_consent' ? 'Your answer (saved)' : 'Your answer', status: 'user-completed' };
     await setSession({ ...s, fieldProposals: [...s.fieldProposals.filter((p) => p.fieldId !== q.fieldId), done] });

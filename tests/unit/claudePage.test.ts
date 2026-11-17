@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, it } from 'vitest';
-import { CLAUDE_PAGE_API } from '../../electron/claudePage';
+import { CLAUDE_PAGE_API } from '../../electron/claude/claudePage';
 
 interface PageApi {
   snapshot: () => { sendEnabled: boolean; stop: boolean; assistant: string; fresh: boolean };

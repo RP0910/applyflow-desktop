@@ -4,10 +4,10 @@ const invoke = vi.hoisted(() => vi.fn());
 vi.mock('@/platform/bridge', () => ({
   bridge: () => ({ invoke }),
 }));
-import { CLAUDE_PAGE_API } from '../../electron/claudePage';
+import { CLAUDE_PAGE_API } from '../../electron/claude/claudePage';
 import { ClaudeError } from '@/services/claude/errors';
 import { claudeChatResearchTitle, claudeChatRoleTitlesTitle, claudeChatTitle, parseClaudeChatJson, ClaudeChatProvider } from '@/services/claude/chatResume';
-import { claudeReplyBody, claudeReplyReady } from '../../electron/claudeReply';
+import { claudeReplyBody, claudeReplyReady } from '../../electron/claude/claudeReply';
 import { claudeChatIndicator } from '@/desktop/ClaudeChatStatus';
 import { compactFacts } from '@/prompts/application';
 import { runAnalysis, runDocuments } from '@/services/workflow/engine';

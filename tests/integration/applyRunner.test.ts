@@ -99,6 +99,20 @@ describe('Quick Apply runner', () => {
     expect(h.wiz.state.submitClicks).toBe(0);
   });
 
+  it('fills an exact verified answer with no saved answers and no trained model', async () => {
+    const h = harness(EMPTY_PROFILE);
+    const asked: string[] = [];
+    h.io.exactAnswer = async (q) => {
+      asked.push(q.question);
+      return q.question === 'Are you legally authorized to work in the United States?' ? 'Yes' : null;
+    };
+    await runSteps(h.io);
+    expect(asked).toContain('Are you legally authorized to work in the United States?');
+    expect(h.wiz.state.answers.q_auth).toBe('yes');
+    expect(h.wiz.state.answers.q_spon).toBe('');
+    expect(h.session().fieldProposals.find((p) => p.label.includes('legally authorized'))).toMatchObject({ source: 'Your verified answer', proposedValue: 'Yes' });
+  });
+
   it('does not use saved answers when that setting is off, and never answers a different question', async () => {
     const saved = { id: '1', category: 'work_authorization' as const, questionPattern: 'Are you legally authorized to work in the United States?', answer: 'Yes', approvedAt: '' };
     const off = harness({ ...EMPTY_PROFILE, approvedAnswers: [saved] }, { autoFillSavedAnswers: false });
@@ -107,6 +121,32 @@ describe('Quick Apply runner', () => {
     const other = harness({ ...EMPTY_PROFILE, approvedAnswers: [{ ...saved, category: 'general', questionPattern: 'Do you like pizza?' }] });
     await runSteps(other.io);
     expect(other.wiz.state.answers.q_auth).toBe('');
+  });
+
+  it('does not save a filled answer as one the user entered', async () => {
+    const profile = {
+      ...EMPTY_PROFILE,
+      approvedAnswers: [
+        { id: '1', category: 'work_authorization' as const, questionPattern: 'Are you authorized to work in the US?', answer: 'Yes', approvedAt: '', options: ['Yes', 'No'], control: 'radio' as const },
+        { id: '2', category: 'years_experience' as const, questionPattern: 'How many years of experience do you have?', answer: '8', approvedAt: '', control: 'text' as const },
+      ],
+    };
+    let saved: CareerProfile | null = null;
+    const accepted: string[] = [];
+    const h = harness(profile);
+    h.io.saveProfile = async (p) => {
+      saved = p;
+      return p;
+    };
+    h.io.recordAccepted = async (items) => {
+      accepted.push(...items.map((i) => i.question));
+    };
+    await runSteps(h.io);
+    expect(saved).toBeNull();
+    expect(h.wiz.state.answers.q_auth).toBe('');
+    expect(h.wiz.state.answers.q_years).toBe('8');
+    expect(h.session().fieldProposals.find((p) => p.label.includes('years of experience'))).toMatchObject({ needsReview: true });
+    expect(accepted.some((q) => q.includes('years of experience'))).toBe(true);
   });
 
   it('waits on each step when automatic Next is turned off', async () => {

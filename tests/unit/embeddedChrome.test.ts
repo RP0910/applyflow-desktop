@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { findChromeExecutable } from '../../electron/chromePath';
-import { embedPixels } from '../../electron/win32Embed';
+import { findChromeExecutable } from '../../electron/browser/chromePath';
+import { embedPixels } from '../../electron/browser/win32Embed';
 
 describe('embedded Chrome', () => {
   it('finds Google Chrome and skips a missing install', () => {

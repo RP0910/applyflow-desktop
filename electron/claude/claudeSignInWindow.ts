@@ -1,7 +1,7 @@
 import { BrowserWindow, screen } from 'electron';
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import type { Win32Embed } from './win32Embed';
+import type { Win32Embed } from '../browser/win32Embed';
 
 const HEADER = 56;
 const WIDTH = 1100;

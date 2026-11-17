@@ -3,10 +3,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('electron', () => ({ app: {}, session: {}, BrowserWindow: class {} }));
 
 import type { ClaudeChatStatus } from '@/platform/bridge';
-import type { ClaudeBrowser, ClaudeTab } from '../../electron/claudeBrowser';
-import type { BrowserDiagnostics } from '../../electron/browserSession';
-import { startClaudeChat, type ClaudeChatController } from '../../electron/claudeChat';
-import { claudeReplyReady, extractClaudeJson, parseAssistantJson } from '../../electron/claudeReply';
+import type { ClaudeBrowser, ClaudeTab } from '../../electron/claude/claudeBrowser';
+import type { BrowserDiagnostics } from '../../electron/browser/browserSession';
+import { startClaudeChat, type ClaudeChatController } from '../../electron/claude/claudeChat';
+import { claudeReplyReady, extractClaudeJson, parseAssistantJson } from '../../electron/claude/claudeReply';
 
 const NEW_CHAT = 'https://claude.ai/new';
 const REPLY = '{"companies":[{"periodIndex":0,"name":"Northwind","activeYears":"2020","techFit":"platforms","hq":"Austin, TX"}]}';

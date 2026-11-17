@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { detectSensitive, classifyFieldSensitivity } from '@/services/forms/sensitive';
 import { scanFields, fillFields } from '@/services/forms/domFields';
-import { approvedFor, proposeFieldValues, rememberAnswer, semanticOf } from '@/services/forms/mapper';
+import { approvedFor, looseMatchAsks, proposeFieldValues, rememberAnswer, semanticOf } from '@/services/forms/mapper';
 import { EMPTY_PROFILE } from '@/storage/repositories';
 import type { CareerProfile } from '@/types';
 import { tailorLocally } from '@/services/tailoring/localTailor';
@@ -84,7 +84,15 @@ describe('field scanning and proposals', () => {
     const fields = scanFields(loadQuestions());
     const ctx = { profile, resume: tailored, coverLetter: null, includeCoverLetter: false, resumeFileName: null, coverLetterFileName: null };
     const on = proposeFieldValues(fields, { ...ctx, useSavedAnswers: true });
-    expect(on.find((p) => p.sensitive === 'work_authorization')).toMatchObject({ action: 'answer', proposedValue: 'Yes', source: 'Your saved answer' });
+    expect(on.find((p) => p.sensitive === 'work_authorization')).toMatchObject({ action: 'manual', proposedValue: '' });
+    const exactPattern = fields.find((f) => f.sensitive === 'work_authorization')!.label;
+    const exact = proposeFieldValues(fields, {
+      ...ctx,
+      useSavedAnswers: true,
+      profile: { ...profile, approvedAnswers: [{ id: 'a1', category: 'work_authorization', questionPattern: exactPattern, answer: 'Yes', approvedAt: '', options: ['Yes', 'No'], control: 'radio' }] },
+    });
+    expect(exact.find((p) => p.sensitive === 'work_authorization')).toMatchObject({ action: 'answer', proposedValue: 'Yes', source: 'Your saved answer' });
+    expect(exact.find((p) => p.sensitive === 'work_authorization')!.needsReview).toBeUndefined();
     expect(on.find((p) => p.sensitive === 'sponsorship')).toMatchObject({ action: 'manual', proposedValue: '' });
     const consent = proposeFieldValues(fields, { ...ctx, useSavedAnswers: true, profile: { ...profile, approvedAnswers: [{ id: 'c', category: 'legal_consent', questionPattern: '', answer: 'checked', approvedAt: '' }] } });
     expect(consent.filter((p) => p.sensitive === 'legal_consent').every((p) => p.action === 'manual')).toBe(true);
@@ -143,6 +151,40 @@ describe('field scanning and proposals', () => {
     expect(semanticOf({ label: '', name: 'applicant_email', control: 'email' })).toBe('email');
     expect(semanticOf({ label: 'Attach CV', name: '', control: 'file' })).toBe('resume_upload');
     expect(semanticOf({ label: 'Cover letter', name: '', control: 'textarea' })).toBe('cover_letter_text');
+  });
+
+  it('flags a loose match and asks instead of filling work authorization or a certificate', () => {
+    const years = {
+      fieldId: 'years', label: 'How many years of experience do you have with Java?', context: '', control: 'text' as const,
+      name: '', required: true, options: [], currentValue: '', accept: '', sensitive: 'years_experience' as const,
+    };
+    const loose = proposeFieldValues([years], {
+      profile: { ...profile, approvedAnswers: [{ id: 'y', category: 'years_experience', questionPattern: 'How many years of experience do you have?', answer: '8', approvedAt: '', control: 'text', options: [] }] },
+      resume: null, coverLetter: null, includeCoverLetter: false, resumeFileName: null, coverLetterFileName: null, useSavedAnswers: true,
+    });
+    expect(loose[0]).toMatchObject({ action: 'answer', proposedValue: '8', needsReview: true, source: 'Similar saved answer' });
+    const auth = scanFields(loadQuestions()).find((f) => f.sensitive === 'work_authorization')!;
+    const blocked = proposeFieldValues([auth], {
+      profile: { ...profile, approvedAnswers: [{ id: 'a1', category: 'work_authorization', questionPattern: 'Do you have the unrestricted right to work in the United States?', answer: 'Yes', approvedAt: '', options: ['Yes', 'No'], control: 'radio' }] },
+      resume: null,
+      coverLetter: null,
+      includeCoverLetter: false,
+      resumeFileName: null,
+      coverLetterFileName: null,
+      useSavedAnswers: true,
+    });
+    expect(blocked[0]).toMatchObject({ action: 'manual', proposedValue: '' });
+    expect(looseMatchAsks({ label: 'Which certifications do you hold?', context: '', sensitive: null })).toBe(true);
+    const verified = proposeFieldValues([auth], {
+      profile: { ...EMPTY_PROFILE },
+      resume: null,
+      coverLetter: null,
+      includeCoverLetter: false,
+      resumeFileName: null,
+      coverLetterFileName: null,
+      exactAnswers: { [auth.fieldId]: 'Yes' },
+    });
+    expect(verified[0]).toMatchObject({ action: 'answer', proposedValue: 'Yes', source: 'Your verified answer' });
   });
 
   it('reuses similar screening questions and category-only answers', () => {

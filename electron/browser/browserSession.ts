@@ -1,5 +1,5 @@
 import { app, session as electronSession, type Session } from 'electron';
-import type { BrowserDiagnosticEvent as DiagnosticEvent, BrowserDiagnosticsReport as DiagnosticsReport, BrowserPartitionReport as PartitionReport } from '../src/platform/bridge';
+import type { BrowserDiagnosticEvent as DiagnosticEvent, BrowserDiagnosticsReport as DiagnosticsReport, BrowserPartitionReport as PartitionReport } from '../../src/platform/bridge';
 import {
   isChallengeResponse,
   isChallengeTitle,

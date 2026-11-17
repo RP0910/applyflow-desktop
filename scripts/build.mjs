@@ -37,7 +37,7 @@ async function run() {
     rmSync(resolve(root, 'dist-electron'), { recursive: true, force: true });
     await electronBundle('electron/main.ts', 'main.cjs', 'node22', { __AF_CHROME__: 'false' });
     await electronBundle('electron/preload.ts', 'preload.cjs', 'node22', { __AF_CHROME__: 'false' });
-    await electronBundle('electron/dicePreload.ts', 'dice-preload.cjs', 'chrome140', { __AF_CHROME__: 'false' });
+    await electronBundle('electron/browser/dicePreload.ts', 'dice-preload.cjs', 'chrome140', { __AF_CHROME__: 'false' });
     await build({
       configFile: false,
       logLevel: 'warn',
@@ -48,7 +48,7 @@ async function run() {
         outDir: resolve(root, 'dist-electron'),
         emptyOutDir: false,
         target: 'chrome140',
-        lib: { entry: resolve(root, 'electron/dicePreload.ts'), formats: ['iife'], name: 'ApplyFlowDicePage', fileName: () => 'dice-page.js' },
+        lib: { entry: resolve(root, 'electron/browser/dicePreload.ts'), formats: ['iife'], name: 'ApplyFlowDicePage', fileName: () => 'dice-page.js' },
       },
     });
     await build({

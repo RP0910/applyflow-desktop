@@ -1,6 +1,6 @@
-import type { ClaudeChatCompleteRequest, ClaudeChatCompleteResult, ClaudeChatStatus } from '../src/platform/bridge';
-import { CHALLENGE_LOOP_COUNT, CHALLENGE_LOOP_WINDOW_MS, CHALLENGE_STUCK_MS, LoopDetector } from './browserPolicy';
-import { BrowserDiagnostics } from './browserSession';
+import type { ClaudeChatCompleteRequest, ClaudeChatCompleteResult, ClaudeChatStatus } from '../../src/platform/bridge';
+import { CHALLENGE_LOOP_COUNT, CHALLENGE_LOOP_WINDOW_MS, CHALLENGE_STUCK_MS, LoopDetector } from '../browser/browserPolicy';
+import { BrowserDiagnostics } from '../browser/browserSession';
 import { CLAUDE_PARTITION, type ClaudeBrowser, type ClaudeTab } from './claudeBrowser';
 import { CLAUDE_PAGE_API } from './claudePage';
 import { claudeReplyBody, parseAssistantJson } from './claudeReply';

@@ -1,6 +1,7 @@
 import type { ApplicationRecord, CareerProfile, JobSession, MasterResume, SiteCredential } from '@/types';
 import { nowIso } from '@/utils/dates';
 import { withSyncedLocation } from '@/utils/address';
+import { KnowledgeSyncError } from '@/services/applymind/syncNotice';
 import { getDb } from './db';
 import { emitChange } from './events';
 import { bridge } from '@/platform/bridge';
@@ -122,7 +123,8 @@ export async function saveProfile(profile: CareerProfile): Promise<CareerProfile
   if (b) {
     const saved = await b.invoke('profile.save', synced);
     emitChange('profile');
-    return saved;
+    if (saved.syncError) throw new KnowledgeSyncError(saved.syncError, saved.profile);
+    return saved.profile;
   }
   const next = { ...synced, updatedAt: nowIso() };
   await (await getDb()).put('profile', next, 'default');

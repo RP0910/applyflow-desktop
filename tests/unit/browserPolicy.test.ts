@@ -12,7 +12,7 @@ import {
   permissionRequestAllowed,
   redactUrl,
   webSearch,
-} from '../../electron/browserPolicy';
+} from '../../electron/browser/browserPolicy';
 
 const ELECTRON_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) applyflow/2.2.7 Chrome/156.0.8078.75 Electron/45.2.1 Safari/537.36';
 

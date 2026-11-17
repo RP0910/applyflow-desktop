@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { CareerProfile, FactStatus, MasterResume, VerifiedFact } from '@/types';
 import { deleteResume, getProfile, listResumes, saveProfile, saveResume, setDefaultResume, EMPTY_PROFILE } from '@/storage/repositories';
+import { KnowledgeSyncError, profileSaveFeedback } from '@/services/applymind/syncNotice';
 import { buildMasterResume, PARSER_VERSION } from '@/services/resume/facts';
 import { buildMasterFromForm, builderProblems } from '@/services/resume/builder';
 import type { BuilderForm } from '@/types';
@@ -135,8 +136,20 @@ export function useLibrary() {
   }, [profile, reload]);
 
   const updateProfile = useCallback(async (p: CareerProfile) => {
-    setProfile(await saveProfile(p));
-    setMessage({ tone: 'success', text: 'Profile saved.' });
+    try {
+      const saved = await saveProfile(p);
+      setProfile(saved);
+      const feedback = profileSaveFeedback(null);
+      setMessage({ tone: feedback.tone, text: feedback.text });
+    } catch (e) {
+      if (e instanceof KnowledgeSyncError) {
+        setProfile(e.profile);
+        const feedback = profileSaveFeedback(e.message);
+        setMessage({ tone: feedback.tone, text: feedback.text });
+        return;
+      }
+      throw e;
+    }
   }, []);
 
   return { resumes, profile, loaded, message, setMessage, busy, reload, addFromText, addFromFile, updateText, saveForm, makeDefault, remove, setFactStatus, setAllFacts, addFact, updateProfile };

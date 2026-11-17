@@ -1,5 +1,5 @@
 import { BrowserWindow, type WebContents } from 'electron';
-import { BrowserDiagnostics, monitorSession, watchContents, type SessionMonitor } from './browserSession';
+import { BrowserDiagnostics, monitorSession, watchContents, type SessionMonitor } from '../browser/browserSession';
 
 export interface ClaudeTab {
   readonly id: number;

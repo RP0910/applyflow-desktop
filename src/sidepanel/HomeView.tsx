@@ -374,6 +374,7 @@ function Review({ wf }: { wf: Workflow }) {
               {filled.slice(0, 10).map((p) => (
                 <li key={p.fieldId}>
                   <b>{p.label}:</b> {p.proposedValue.length > 60 ? `${p.proposedValue.slice(0, 59)}…` : p.proposedValue}
+                  {p.needsReview ? <span className="review-status warn"> Check this before you submit.</span> : null}
                 </li>
               ))}
               {filled.length > 10 ? <li>and {filled.length - 10} more</li> : null}

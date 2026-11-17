@@ -1,128 +1,132 @@
+# 2.3.8
+
+Added: ApplyMind fills a verified answer when the question text matches exactly, without waiting for a trained model. A fill you leave unchanged is recorded as accepted, not as a verified answer. A loosely similar saved answer is filled and marked for review; work authorization, sponsorship, legal declarations, identity, date of birth, and certifications are left for you. A failed knowledge update is shown in the app. See docs/releases/RELEASE-2.3.8.md.
+
 # 2.3.7
 
-Fixed: signing out of Claude.ai no longer loads the login page in the hidden tab, so account windows stay open and a different account can sign in. The sign-in window stays up until that account finishes, and closing it while it is still opening does not bring it back. See RELEASE-2.3.7.md.
+Fixed: signing out of Claude.ai no longer loads the login page in the hidden tab, so account windows stay open and a different account can sign in. The sign-in window stays up until that account finishes, and closing it while it is still opening does not bring it back. See docs/releases/RELEASE-2.3.7.md.
 
 # 2.3.6
 
-Changed: Claude.ai Chat starts each new conversation on the model and Speed chosen in Settings. A chat already in progress keeps the model it started with; changing the model or Speed starts a new chat. If Claude.ai cannot switch to that model, the prompt is not sent. See RELEASE-2.3.6.md.
+Changed: Claude.ai Chat starts each new conversation on the model and Speed chosen in Settings. A chat already in progress keeps the model it started with; changing the model or Speed starts a new chat. If Claude.ai cannot switch to that model, the prompt is not sent. See docs/releases/RELEASE-2.3.6.md.
 
 # 2.3.5
 
-Added: a Closed Job stage when Jobright reports a posting is closed, with a link back to that application. Analytics now shows what you sent, who replied, what is still waiting, and which postings closed, and each row opens that application. See RELEASE-2.3.5.md.
+Added: a Closed Job stage when Jobright reports a posting is closed, with a link back to that application. Analytics now shows what you sent, who replied, what is still waiting, and which postings closed, and each row opens that application. See docs/releases/RELEASE-2.3.5.md.
 
 # 2.3.4
 
-Added: after a Jobright application, ApplyFlow marks the job applied on Jobright using the signed-in page, including when “Did you apply?” is not showing. The submitted screen has **Mark as applied on Jobright** if that step still needs you. See RELEASE-2.3.4.md.
+Added: after a Jobright application, ApplyFlow marks the job applied on Jobright using the signed-in page, including when “Did you apply?” is not showing. The submitted screen has **Mark as applied on Jobright** if that step still needs you. See docs/releases/RELEASE-2.3.4.md.
 
 # 2.3.3
 
-Added: Settings → Data management. Export all data to one `.applyflow` file (optionally password-encrypted), and import files from other computers. Imports merge rather than replace: duplicates are combined, the newest change to each field wins, deletions carry over, and documents are restored into this computer’s save folder. Each import shows a preview first and makes an automatic backup. Also: import/export history and restore from backup. Database schema 2 adds sync metadata; existing data migrates automatically. See RELEASE-2.3.3.md.
+Added: Settings → Data management. Export all data to one `.applyflow` file (optionally password-encrypted), and import files from other computers. Imports merge rather than replace: duplicates are combined, the newest change to each field wins, deletions carry over, and documents are restored into this computer’s save folder. Each import shows a preview first and makes an automatic backup. Also: import/export history and restore from backup. Database schema 2 adds sync metadata; existing data migrates automatically. See docs/releases/RELEASE-2.3.3.md.
 
 # 2.3.2
 
-Fixed: the Claude.ai sign-in window takes keyboard focus, so typing reaches Claude.ai instead of the header. See RELEASE-2.3.2.md.
+Fixed: the Claude.ai sign-in window takes keyboard focus, so typing reaches Claude.ai instead of the header. See docs/releases/RELEASE-2.3.2.md.
 
 # 2.3.1
 
-Fixed: Claude.ai Chat clears the leave-site prompt so job titles can open after company research, and reads the titles JSON when an earlier companies reply is still on the page. Dice and Jobright buttons open in the tab you are on. See RELEASE-2.3.1.md.
+Fixed: Claude.ai Chat clears the leave-site prompt so job titles can open after company research, and reads the titles JSON when an earlier companies reply is still on the page. Dice and Jobright buttons open in the tab you are on. See docs/releases/RELEASE-2.3.1.md.
 
 # 2.3.0
 
-Fixed: Claude.ai Chat waits for a short JSON reply to finish writing (then presses Stop) before leaving the chat, so the next Tailor step is not blocked by Claude.ai’s leave-site prompt. See RELEASE-2.3.0.md.
+Fixed: Claude.ai Chat waits for a short JSON reply to finish writing (then presses Stop) before leaving the chat, so the next Tailor step is not blocked by Claude.ai’s leave-site prompt. See docs/releases/RELEASE-2.3.0.md.
 
 # 2.2.20
 
-Fixed: Claude.ai Chat keeps job titles in their own conversation, replaces a background tab that never opens, and waits until resume JSON is complete. The Claude.ai sign-in window stays above ApplyFlow’s header so clicks reach the page. See RELEASE-2.2.20.md.
+Fixed: Claude.ai Chat keeps job titles in their own conversation, replaces a background tab that never opens, and waits until resume JSON is complete. The Claude.ai sign-in window stays above ApplyFlow’s header so clicks reach the page. See docs/releases/RELEASE-2.2.20.md.
 
 # 2.2.19
 
-Changed: Tailor & Apply asks Claude for JD-aligned job titles (no company names) before CV generation, keeps a verified profile title when a suggestion does not fit, and falls back to a seniority ladder if that step fails. CV generation rewrites experience for those titles and no longer receives master-resume bullets. See RELEASE-2.2.19.md.
+Changed: Tailor & Apply asks Claude for JD-aligned job titles (no company names) before CV generation, keeps a verified profile title when a suggestion does not fit, and falls back to a seniority ladder if that step fails. CV generation rewrites experience for those titles and no longer receives master-resume bullets. See docs/releases/RELEASE-2.2.19.md.
 
 # 2.2.18
 
-Fixed: Claude.ai Chat continues when the page is already open even if the browser load event is late, and does not send the resume prompt into the research chat if the new conversation never opened. A page that failed to load is retried; only a security check still needs you. See RELEASE-2.2.18.md.
+Fixed: Claude.ai Chat continues when the page is already open even if the browser load event is late, and does not send the resume prompt into the research chat if the new conversation never opened. A page that failed to load is retried; only a security check still needs you. See docs/releases/RELEASE-2.2.18.md.
 
 # 2.2.17
 
-Changed: Tailor & Apply runs one CV pass by default; optional “Optimize with Claude” on the ATS card for a measured second revision. Fixed: Claude.ai background tab timeouts, stuck-page recycle, and clearer retry/failure status. See RELEASE-2.2.17.md.
+Changed: Tailor & Apply runs one CV pass by default; optional “Optimize with Claude” on the ATS card for a measured second revision. Fixed: Claude.ai background tab timeouts, stuck-page recycle, and clearer retry/failure status. See docs/releases/RELEASE-2.2.17.md.
 
 # 2.2.16
 
-Fixed: Claude.ai Chat reads the assistant reply from Claude’s own conversation API when DOM parsing fails, with prompt matching for reused chats; clearer error when Claude answers in prose instead of JSON. See RELEASE-2.2.16.md.
+Fixed: Claude.ai Chat reads the assistant reply from Claude’s own conversation API when DOM parsing fails, with prompt matching for reused chats; clearer error when Claude answers in prose instead of JSON. See docs/releases/RELEASE-2.2.16.md.
 
 # 2.2.15
 
-Fixed: Claude.ai Chat retries in the same thread accept a reply only after the newest prompt (including when Claude repeats the same research JSON word for word). See RELEASE-2.2.15.md.
+Fixed: Claude.ai Chat retries in the same thread accept a reply only after the newest prompt (including when Claude repeats the same research JSON word for word). See docs/releases/RELEASE-2.2.15.md.
 
 # 2.2.14
 
-Fixed: Claude.ai Chat reuses one research thread and one CV thread per job (retries and refine stay in the same chat instead of opening duplicates). Added: Profile default login for employer portals, with optional per-site overrides and account creation when the site allows. See RELEASE-2.2.14.md.
+Fixed: Claude.ai Chat reuses one research thread and one CV thread per job (retries and refine stay in the same chat instead of opening duplicates). Added: Profile default login for employer portals, with optional per-site overrides and account creation when the site allows. See docs/releases/RELEASE-2.2.14.md.
 
 # 2.2.13
 
-Fixed: Claude.ai replies that use curly typographic quotes around JSON keys are normalized before parsing, and chat prompts ask for straight ASCII quotes. Continue button label truncates with an ellipsis when long. See RELEASE-2.2.13.md.
+Fixed: Claude.ai replies that use curly typographic quotes around JSON keys are normalized before parsing, and chat prompts ask for straight ASCII quotes. Continue button label truncates with an ellipsis when long. See docs/releases/RELEASE-2.2.13.md.
 
 # 2.2.12
 
-Fixed: Claude.ai reply reading from code blocks and multi-part assistant messages so company research reliably continues into CV generation. Live one-line Tailor & Apply status in the footer (ellipsis when long). See RELEASE-2.2.12.md.
+Fixed: Claude.ai reply reading from code blocks and multi-part assistant messages so company research reliably continues into CV generation. Live one-line Tailor & Apply status in the footer (ellipsis when long). See docs/releases/RELEASE-2.2.12.md.
 
 # 2.2.11
 
-Fixed: Claude.ai Chat now recognizes completed company-research JSON and moves on to CV generation automatically, instead of timing out while the reply is already on screen. Separate research and resume chat titles; clearer errors when research or CV generation fails. See RELEASE-2.2.11.md.
+Fixed: Claude.ai Chat now recognizes completed company-research JSON and moves on to CV generation automatically, instead of timing out while the reply is already on screen. Separate research and resume chat titles; clearer errors when research or CV generation fails. See docs/releases/RELEASE-2.2.11.md.
 
 # 2.2.10
 
-Changed: company research now picks four real companies that match the job, saves that result with the job, and uses it to label employers on the draft resume. Claude.ai sign-in opens inside an ApplyFlow window, and the sidebar shows Writing… while a resume is being written. See RELEASE-2.2.10.md.
+Changed: company research now picks four real companies that match the job, saves that result with the job, and uses it to label employers on the draft resume. Claude.ai sign-in opens inside an ApplyFlow window, and the sidebar shows Writing… while a resume is being written. See docs/releases/RELEASE-2.2.10.md.
 
 # 2.2.9
 
-Changed: Claude.ai Chat runs in Google Chrome, with its own profile, so Claude.ai’s security check can finish. Sign in again in the Chrome window ApplyFlow opens. ApplyFlow still does not complete that check. If Chrome is missing, Claude.ai Chat uses the previous built-in browser. See RELEASE-2.2.9.md.
+Changed: Claude.ai Chat runs in Google Chrome, with its own profile, so Claude.ai’s security check can finish. Sign in again in the Chrome window ApplyFlow opens. ApplyFlow still does not complete that check. If Chrome is missing, Claude.ai Chat uses the previous built-in browser. See docs/releases/RELEASE-2.2.9.md.
 
 # 2.2.8
 
-Changed: the built-in browser is Google Chrome embedded in the ApplyFlow window, so site security checks can finish. Sign-in for Jobright and Dice is kept in that Chrome profile. ApplyFlow still does not complete those checks. Older installers in `release` are removed when a new Windows build starts. See RELEASE-2.2.8.md.
+Changed: the built-in browser is Google Chrome embedded in the ApplyFlow window, so site security checks can finish. Sign-in for Jobright and Dice is kept in that Chrome profile. ApplyFlow still does not complete those checks. Older installers in `release` are removed when a new Windows build starts. See docs/releases/RELEASE-2.2.8.md.
 
 # 2.2.7
 
-Changed: ApplyFlow opens Jobright recommendations (`https://jobright.ai/jobs/recommend`) when it starts. The Dice button still opens Dice. Claude.ai Chat now presents the signed-in session the way Chrome does (user agent and client hints) and leaves Cloudflare's security check for the user to finish. See RELEASE-2.2.7.md.
+Changed: ApplyFlow opens Jobright recommendations (`https://jobright.ai/jobs/recommend`) when it starts. The Dice button still opens Dice. Claude.ai Chat now presents the signed-in session the way Chrome does (user agent and client hints) and leaves Cloudflare's security check for the user to finish. See docs/releases/RELEASE-2.2.7.md.
 
 # 2.2.6
 
-Added: Claude.ai Chat as a resume generation method. Sign in once from the sidebar indicator and ApplyFlow writes each job in its own Claude.ai conversation, titled with the company and role, then validates the JSON and renders the PDF with the existing PDF Studio path. The Claude API method is unchanged. See RELEASE-2.2.6.md.
+Added: Claude.ai Chat as a resume generation method. Sign in once from the sidebar indicator and ApplyFlow writes each job in its own Claude.ai conversation, titled with the company and role, then validates the JSON and renders the PDF with the existing PDF Studio path. The Claude API method is unchanged. See docs/releases/RELEASE-2.2.6.md.
 
 # 2.2.5
 
-Fixed: the browser loading veil no longer covers Jobright while Tailor & Apply is writing the resume and cover letter. It appears only when opening the employer application (Step 2). See RELEASE-2.2.5.md.
+Fixed: the browser loading veil no longer covers Jobright while Tailor & Apply is writing the resume and cover letter. It appears only when opening the employer application (Step 2). See docs/releases/RELEASE-2.2.5.md.
 
 # 2.2.4
 
-Improved Screening Q&A with a built-in ATS question catalog, richer saved answers (control type, options, aliases), and conventional synonym-aware matching. Jobright’s “Did you apply?” is dismissed while opening the employer form and confirmed with “Yes, I applied!” only after a verified submission. Applications are not marked Applied from a submit click alone without site confirmation. The built-in browser shows an ApplyFlow veil while documents are prepared and the application opens. See RELEASE-2.2.4.md.
+Improved Screening Q&A with a built-in ATS question catalog, richer saved answers (control type, options, aliases), and conventional synonym-aware matching. Jobright’s “Did you apply?” is dismissed while opening the employer form and confirmed with “Yes, I applied!” only after a verified submission. Applications are not marked Applied from a submit click alone without site confirmation. The built-in browser shows an ApplyFlow veil while documents are prepared and the application opens. See docs/releases/RELEASE-2.2.4.md.
 
 # 2.2.1
 
-Fixed (Jobright): the run stopped at "Open the application". ApplyFlow now answers Jobright's "Customize Your Resume in 10 seconds" dialog with "Apply Without Customizing" (never "Fix My Resume Now", never "Do not remind me again"), follows the new tab Jobright opens for the employer's site into the built-in browser, recognises the "Sign Up to Apply" dialog as a sign-in, and stops with instructions instead of pressing Apply again and again. Job titles and companies are read correctly ("… Job Details | Company LLC", jobs opened inside Jobright's signed-in app: no more "Untitled job"). See RELEASE-2.2.1.md.
+Fixed (Jobright): the run stopped at "Open the application". ApplyFlow now answers Jobright's "Customize Your Resume in 10 seconds" dialog with "Apply Without Customizing" (never "Fix My Resume Now", never "Do not remind me again"), follows the new tab Jobright opens for the employer's site into the built-in browser, recognises the "Sign Up to Apply" dialog as a sign-in, and stops with instructions instead of pressing Apply again and again. Job titles and companies are read correctly ("… Job Details | Company LLC", jobs opened inside Jobright's signed-in app: no more "Untitled job"). See docs/releases/RELEASE-2.2.1.md.
 
 # 2.2.0
 
-Added: applying from Jobright.ai. ApplyFlow reads Jobright jobs, follows Apply to the employer's site and fills the application — full support for Greenhouse (classic, redesigned, framed), Lever and Ashby; best effort elsewhere (you submit); LinkedIn/Indeed left to you. Handles Jobright sign-in, referral roles, closed and already-applied jobs, resume-reading forms, dropdown comboboxes, Yes/No buttons, invisible vs. visible CAPTCHAs, Workday sign-in. See RELEASE-2.2.0.md.
+Added: applying from Jobright.ai. ApplyFlow reads Jobright jobs, follows Apply to the employer's site and fills the application — full support for Greenhouse (classic, redesigned, framed), Lever and Ashby; best effort elsewhere (you submit); LinkedIn/Indeed left to you. Handles Jobright sign-in, referral roles, closed and already-applied jobs, resume-reading forms, dropdown comboboxes, Yes/No buttons, invisible vs. visible CAPTCHAs, Workday sign-in. See docs/releases/RELEASE-2.2.0.md.
 
 # 2.1.3
 
 Changed: the Education section moved from Settings to Profile & answers (below Resume generation setup).
 
-Added: "Search results" button in the built-in browser and "Back to search results" after applying; Back leaves Dice's application pages in one step; Dice's "Your application is on its way" confirmation is recognized. See RELEASE-2.1.3.md.
+Added: "Search results" button in the built-in browser and "Back to search results" after applying; Back leaves Dice's application pages in one step; Dice's "Your application is on its way" confirmation is recognized. See docs/releases/RELEASE-2.1.3.md.
 
 # 2.1.2
 
-Added: Settings → Education — edit your university/school, degree, field of study, city, dates and details (GPA, honors). Placed on every tailored resume exactly as entered. See RELEASE-2.1.2.md.
+Added: Settings → Education — edit your university/school, degree, field of study, city, dates and details (GPA, honors). Placed on every tailored resume exactly as entered. See docs/releases/RELEASE-2.1.2.md.
 
 # 2.1.1
 
-Fixed: replacing the profile resume with the tailored one on Dice's application often stopped with the "…" menu open. Real clicks and file-chooser answers in the built-in browser, reliable "Replace" detection, one retry. See RELEASE-2.1.1.md.
+Fixed: replacing the profile resume with the tailored one on Dice's application often stopped with the "…" menu open. Real clicks and file-chooser answers in the built-in browser, reliable "Replace" detection, one retry. See docs/releases/RELEASE-2.1.1.md.
 
 # 2.1.0
 
-Claude CV Generate engine; employer-only setup; shared PDF Studio renderer; bounded score optimization; job-specific automatic resume replacement. See RELEASE-2.1.0.md.
+Claude CV Generate engine; employer-only setup; shared PDF Studio renderer; bounded score optimization; job-specific automatic resume replacement. See docs/releases/RELEASE-2.1.0.md.
 
 # Changelog
 

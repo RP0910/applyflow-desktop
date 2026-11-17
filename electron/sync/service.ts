@@ -39,6 +39,8 @@ export interface SyncHost {
   progress(p: SyncProgress): void;
   /** Test hook: runs inside the import transaction just before it commits. */
   beforeCommit?: () => void;
+  /** Runs after a successful import commits. Failures are recorded and do not roll back the import. */
+  afterCommit?: () => void | Promise<unknown>;
 }
 
 class OpLog {
@@ -473,6 +475,12 @@ export class SyncService {
         for (const w of plan.report.warnings) log.add(`Warning: ${w}`);
         const summary = summarize(plan.report);
         log.add(summary);
+        try {
+          await this.host.afterCommit?.();
+        } catch (err) {
+          const detail = err instanceof Error ? err.message : 'reconcile failed';
+          log.add(`Warning: ApplyMind reconcile failed (${detail.slice(0, 180)}).`);
+        }
         const logPath = await this.writeLog(log);
         this.record('import', true, p.path, peer, summary, logPath, null);
         this.pending = null;
@@ -507,7 +515,7 @@ export class SyncService {
   }
 
   private prune(): void {
-    const auto = this.listBackups().filter((b) => b.reason !== 'manual');
+    const auto = this.listBackups().filter((b) => b.reason !== 'manual' && b.reason !== 'before-applymind');
     for (const b of auto.slice(AUTO_BACKUPS_KEPT)) void rm(b.path, { force: true }).catch(() => undefined);
   }
 
@@ -527,6 +535,19 @@ export class SyncService {
       }
     }
     return out.sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.name.localeCompare(a.name));
+  }
+
+  async backupFor(reason: string): Promise<SyncBackupInfo> {
+    return this.exclusive(async () => {
+      this.progress('backup', 'Backing up');
+      try {
+        const b = await this.backupInternal(reason);
+        this.record('backup', true, b.path, null, `Backup ${b.name}`, null, null);
+        return b;
+      } finally {
+        this.progress('backup', 'Done', 1, 1);
+      }
+    });
   }
 
   async backupNow(): Promise<SyncBackupInfo> {

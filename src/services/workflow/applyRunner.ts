@@ -1,10 +1,8 @@
 import type { CareerProfile, FieldProposal, FieldSemantic, FillInstruction, JobSession, PageBlocker, PageState, Settings, SiteCredential } from '@/types';
 import type { ContentResponseMap, FilePayload, PanelToContent, ScanResponse, SignInResponse } from '@/types/messages';
 import type { LoginAction } from '@/services/forms/siteLogin';
-import { markAnswerUsed, proposeFieldValues, rememberAnswer, toScreeningControl } from '@/services/forms/mapper';
+import { proposeFieldValues } from '@/services/forms/mapper';
 import { formKeyFor } from '@/services/platforms/registry';
-import { nowIso } from '@/utils/dates';
-import { newId } from '@/utils/id';
 
 export type StageKey = 'documents' | 'open' | 'attach' | 'questions' | 'review';
 export type StageState = 'todo' | 'active' | 'done' | 'skipped' | 'error';
@@ -67,6 +65,10 @@ export interface RunnerIO {
   settings: Settings;
   profile: CareerProfile;
   saveProfile?: (p: CareerProfile) => Promise<CareerProfile>;
+  /** Exact verified answer for this question text, or null. Does not use a model. */
+  exactAnswer?: (q: { question: string; options: string[]; control: string }) => Promise<string | null>;
+  /** Record a fill the user has not approved. Must not create a verified answer. */
+  recordAccepted?: (items: { question: string; answer: string; category: string; options: string[]; control: string }[]) => Promise<void>;
   ensureSiteCredential?: (url: string, email: string) => Promise<SiteCredential | null>;
   /** Keep the login a new account was created with, so a later default-password change doesn't lock it out. */
   rememberSiteLogin?: (c: SiteCredential) => Promise<unknown>;
@@ -404,6 +406,14 @@ export async function processStep(io: RunnerIO): Promise<'ready' | 'next' | 'mov
   }
 
   patch(io, { label: 'Filling in your details…' });
+  const exactAnswers: Record<string, string> = {};
+  if (io.exactAnswer) {
+    for (const f of scan.fields) {
+      if (f.control === 'file' || f.currentValue.trim() || !f.label.trim() || f.sensitive === 'legal_consent') continue;
+      const value = await io.exactAnswer({ question: f.label, options: f.options, control: f.control }).catch(() => null);
+      if (value?.trim()) exactAnswers[f.fieldId] = value.trim();
+    }
+  }
   const ctx = {
     profile: io.profile,
     resume: s0.resume,
@@ -413,6 +423,7 @@ export async function processStep(io: RunnerIO): Promise<'ready' | 'next' | 'mov
     coverLetterFileName: io.fileName('cover_letter'),
     useSavedAnswers: io.settings.autoFillSavedAnswers,
     overwrite: scan.parsesResume && attempted ? (['first_name', 'last_name', 'full_name', 'email', 'phone'] as FieldSemantic[]) : undefined,
+    exactAnswers,
   };
   let proposals = proposeFieldValues(scan.fields, ctx).map((p) => ({ ...p, stepUrl: scan!.pageUrl }));
   const fills: FillInstruction[] = [];
@@ -439,32 +450,16 @@ export async function processStep(io: RunnerIO): Promise<'ready' | 'next' | 'mov
     const r = await safe(io.send({ type: 'AF_ANSWER_FIELD', fieldId: p.fieldId, value: p.proposedValue }));
     proposals = proposals.map((x) => (x.fieldId === p.fieldId ? { ...x, status: r?.ok ? 'filled' : 'failed', error: r?.ok ? undefined : r?.error } : x));
   }
-  if (io.saveProfile) {
-    const answered = proposals.filter((p) => p.action === 'answer' && p.status === 'filled' && p.proposedValue.trim() && p.sensitive !== 'legal_consent');
-    if (answered.length) {
-      const now = nowIso();
-      let answers = io.profile.approvedAnswers;
-      for (const p of answered) {
-        const category = p.sensitive ?? 'general';
-        answers = markAnswerUsed(answers, p.proposedValue, category, now);
-        if (p.label.trim()) {
-          answers = rememberAnswer(
-            answers,
-            {
-              category,
-              questionPattern: p.label.trim().slice(0, 160),
-              answer: p.proposedValue.trim(),
-              lastUsedAt: now,
-              useCount: 1,
-              control: toScreeningControl(p.control),
-              options: p.options?.length ? p.options : undefined,
-            },
-            () => newId('ans'),
-            now,
-          );
-        }
-      }
-      await io.saveProfile({ ...io.profile, approvedAnswers: answers });
+  if (io.recordAccepted) {
+    const accepted = proposals.filter((p) => p.action === 'answer' && p.status === 'filled' && p.proposedValue.trim() && p.sensitive !== 'legal_consent' && p.source !== 'Your verified answer');
+    if (accepted.length) {
+      await io.recordAccepted(accepted.map((p) => ({
+        question: p.label.trim().slice(0, 220),
+        answer: p.proposedValue.trim(),
+        category: p.sensitive ?? 'general',
+        options: p.options ?? [],
+        control: p.control,
+      })));
     }
   }
   if (fills.length || proposals.some((p) => p.action === 'answer')) scan = (await safe(io.send({ type: 'AF_SCAN_FIELDS' }))) ?? scan;

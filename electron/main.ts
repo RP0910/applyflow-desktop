@@ -4,19 +4,22 @@ import { dirname, extname, isAbsolute, join, normalize, relative, resolve, sep }
 import { pathToFileURL } from 'node:url';
 import { hostname } from 'node:os';
 import { Store } from './db';
+import { ApplyMindService } from './applymind/service';
+import type { KeyWrapper } from './applymind/crypto';
+import { knowledgeSyncMessage } from '../src/services/applymind/syncNotice';
 import { SyncService, SYNC_EXTENSION } from './sync/service';
-import { DiceInput, type TrustedRequest } from './diceInput';
+import { DiceInput, type TrustedRequest } from './browser/diceInput';
 import { backTargetIndex, DICE_SEARCH_HOME, isDiceApplicationUrl, isDiceSearchUrl, searchIndex } from '../src/services/platforms/dice/navigation';
 import { jobrightApplyScript } from '../src/services/platforms/jobright/markApplied';
 import type { BridgeMethod, BrowserState, ClaudeChatCompleteRequest, ClaudeChatStatus } from '../src/platform/bridge';
-import { startClaudeChat, type ClaudeChatController } from './claudeChat';
-import { browserUserAgent, isSignInUrl } from './browserPolicy';
-import { allMonitors, BrowserDiagnostics, monitorSession, type SessionMonitor } from './browserSession';
-import { BrowserTabs } from './browserTabs';
-import { electronSurface } from './browserSurface';
-import { electronClaudeBrowser, type ClaudeBrowser } from './claudeBrowser';
-import { launchClaudeChrome } from './claudeChrome';
-import type { PageController } from './pageController';
+import { startClaudeChat, type ClaudeChatController } from './claude/claudeChat';
+import { browserUserAgent, isSignInUrl } from './browser/browserPolicy';
+import { allMonitors, BrowserDiagnostics, monitorSession, type SessionMonitor } from './browser/browserSession';
+import { BrowserTabs } from './browser/browserTabs';
+import { electronSurface } from './browser/browserSurface';
+import { electronClaudeBrowser, type ClaudeBrowser } from './claude/claudeBrowser';
+import { launchClaudeChrome } from './claude/claudeChrome';
+import type { PageController } from './browser/pageController';
 import type { PanelToContent } from '../src/types/messages';
 import type { SiteCredential } from '../src/types';
 
@@ -53,6 +56,7 @@ let diceReady = false;
 let diceVisible = true;
 let diceBounds = { x: 0, y: 0, width: 0, height: 0 };
 let store: Store;
+let applyMind: ApplyMindService;
 let mainWorldScript = '';
 let diceInput: DiceInput | null = null;
 let claudeChat: ClaudeChatController | null = null;
@@ -462,7 +466,22 @@ function registerIpc(): void {
     'resumes.setDefault': (id: string) => store.setDefaultResume(id),
     'resumes.delete': (id: string) => store.deleteResume(id),
     'profile.get': () => store.getProfile(),
-    'profile.save': (p: Parameters<Store['saveProfile']>[0]) => store.saveProfile(p),
+    'profile.save': async (p: Parameters<Store['saveProfile']>[0]) => {
+      const saved = store.saveProfile(p);
+      let syncError: string | null = null;
+      try {
+        await applyMind.syncFromProfile(saved, { backup: async () => (await syncService().backupFor('before-applymind')).path });
+      } catch (e) {
+        syncError = knowledgeSyncMessage(e);
+        console.error(syncError);
+        send('applymind:sync-error', { message: syncError });
+      }
+      return { profile: saved, syncError };
+    },
+    'applymind.status': () => applyMind.status(),
+    'applymind.proposals': () => applyMind.proposals(),
+    'applymind.exact': (q: { question: string; options: string[]; control: string }) => applyMind.exact(q),
+    'applymind.accept': (items: { question: string; answer: string; category: string; options: string[]; control: string }[]) => applyMind.acceptFills(items),
     'siteCredentials.list': () => store.listSiteCredentials().map(decryptSiteCred),
     'siteCredentials.get': (host: string) => {
       const c = store.getSiteCredential(host);
@@ -847,10 +866,24 @@ app.on('before-quit', () => {
   claudeChat?.dispose();
 });
 
-app.whenReady().then(() => {
+function osKeyWrapper(): KeyWrapper {
+  return {
+    async wrap(plain) {
+      if (!(await safeStorage.isAsyncEncryptionAvailable())) throw new Error('Windows data protection is not available, so ApplyMind did not store an encryption key.');
+      return new Uint8Array(await safeStorage.encryptStringAsync(Buffer.from(plain).toString('base64')));
+    },
+    async unwrap(wrapped) {
+      const decoded = await safeStorage.decryptStringAsync(Buffer.from(wrapped));
+      return new Uint8Array(Buffer.from(decoded.result, 'base64'));
+    },
+  };
+}
+
+app.whenReady().then(async () => {
   const dataDir = app.getPath('userData');
   mkdirSync(dataDir, { recursive: true });
   store = new Store(join(dataDir, 'applyflow.sqlite'));
+  applyMind = new ApplyMindService(() => store, join(dataDir, 'applymind.key'), osKeyWrapper());
   sync = new SyncService({
     store: () => store,
     replaceStore: (next) => {
@@ -862,7 +895,30 @@ app.whenReady().then(() => {
     deviceName: hostname(),
     platform: process.platform,
     progress: (p) => send('sync:progress', p),
+    afterCommit: () => applyMind.syncFromProfile(store.getProfile(), { alreadyBackedUp: true }),
   });
+  let migrationNote = '';
+  let startupSyncError: string | null = null;
+  try {
+    const report = await applyMind.syncFromProfile(store.getProfile(), {
+      backup: async () => (await syncService().backupFor('before-applymind')).path,
+    });
+    migrationNote = report.logLine;
+    console.log(report.logLine);
+  } catch (e) {
+    startupSyncError = knowledgeSyncMessage(e);
+    migrationNote = startupSyncError;
+    console.error(startupSyncError);
+  }
+  if (process.env.APPLYMIND_REPORT) {
+    try {
+      const proposals = migrationNote.startsWith('ApplyMind migration') ? await applyMind.proposals() : [];
+      writeFileSync(process.env.APPLYMIND_REPORT, JSON.stringify({ logLine: migrationNote, status: await applyMind.status(), proposals }));
+    } finally {
+      app.exit(0);
+    }
+    return;
+  }
   diceInput = new DiceInput(join(app.getPath('temp'), 'ApplyFlow-uploads'));
   const mw = join(here, 'main-world.js');
   mainWorldScript = existsSync(mw) ? readFileSync(mw, 'utf8') : '';
@@ -887,6 +943,7 @@ app.whenReady().then(() => {
   registerIpc();
   buildMenu();
   createWindow();
+  if (startupSyncError) send('applymind:sync-error', { message: startupSyncError });
   claudeChat = startClaudeChat({
     emit: (status) => {
       if (!app.isPackaged) console.log(`[claudeChat] ${new Date().toISOString().slice(11, 19)} ${status.state}: ${status.detail}`);

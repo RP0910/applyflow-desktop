@@ -7,6 +7,7 @@ import { withSyncedLocation } from '../src/utils/address';
 import { parseClock, stampChanges } from './sync/clock';
 import type { TombstoneEntity } from './sync/types';
 import { randomUUID } from 'node:crypto';
+import { ensureApplyMindSchema } from './applymind/schema';
 
 export const SCHEMA_VERSION = 2;
 
@@ -94,6 +95,7 @@ export class Store {
       this.run("INSERT INTO meta(key, value) VALUES ('device_id', ?)", randomUUID());
     }
     this.run("UPDATE usage SET gid = ? || ':' || id WHERE gid IS NULL", this.deviceId);
+    ensureApplyMindSchema(this.db);
     this.db.prepare('INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?)').run('schema', String(SCHEMA_VERSION));
   }
 

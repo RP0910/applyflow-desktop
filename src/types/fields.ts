@@ -56,6 +56,8 @@ export interface FieldProposal {
   reason: string;
   approvedSuggestion: string | null;
   status: 'pending' | 'filled' | 'failed' | 'user-completed' | 'skipped';
+  /** A loose saved-answer match was written into the form and still needs the user to check it. */
+  needsReview?: boolean;
   error?: string;
   stepUrl?: string;
   options?: string[];

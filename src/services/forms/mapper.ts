@@ -5,6 +5,7 @@ import { truncate } from '@/utils/text';
 import {
   MATCH_THRESHOLD,
   answerFitsField,
+  canonicalizeQuestion,
   matchOption,
   patternsForAnswer,
   questionSimilarity,
@@ -77,6 +78,8 @@ export interface MapperContext {
   coverLetterFileName: string | null;
   useSavedAnswers?: boolean;
   overwrite?: FieldSemantic[];
+  /** Values already resolved by an exact verified lookup. Keyed by field id. */
+  exactAnswers?: Readonly<Record<string, string>>;
 }
 
 export function countryOf(location: string): string {
@@ -125,11 +128,35 @@ function splitName(full: string): { first: string; last: string } {
   return { first: parts[0] ?? '', last: parts.length > 1 ? parts[parts.length - 1]! : '' };
 }
 
-export function approvedFor(answers: ApprovedAnswer[], f: Pick<FormFieldDescriptor, 'label' | 'context' | 'sensitive' | 'options' | 'control'>): string | null {
+export type ApprovedMatchKind = 'exact' | 'similar' | 'category';
+
+export interface ApprovedMatch {
+  answer: string;
+  kind: ApprovedMatchKind;
+}
+
+/** Loose wording for these questions is never written into the form. The user is asked. */
+const ASK_ON_LOOSE = new Set<FormFieldDescriptor['sensitive']>([
+  'work_authorization',
+  'sponsorship',
+  'legal_consent',
+  'demographic',
+  'date_of_birth',
+]);
+
+export function looseMatchAsks(f: Pick<FormFieldDescriptor, 'label' | 'context' | 'sensitive'>): boolean {
+  if (f.sensitive && ASK_ON_LOOSE.has(f.sensitive)) return true;
+  return /\bcertificat/i.test(`${f.label} ${f.context}`);
+}
+
+export function matchApproved(answers: ApprovedAnswer[], f: Pick<FormFieldDescriptor, 'label' | 'context' | 'sensitive' | 'options' | 'control'>): ApprovedMatch | null {
   const fieldText = `${f.label} ${f.context}`.trim();
+  const labelKey = canonicalizeQuestion(f.label).trim();
   const category = f.sensitive ? f.sensitive : 'general';
-  const ranked = answers
-    .filter((a) => a.category === category && answerFitsField(a, f))
+  const fitting = answers.filter((a) => a.category === category && answerFitsField(a, f));
+  const exact = fitting.find((a) => patternsForAnswer(a).some((p) => canonicalizeQuestion(p).trim() === labelKey && labelKey.length > 0));
+  if (exact) return { answer: exact.answer, kind: 'exact' };
+  const ranked = fitting
     .map((a) => {
       const patterns = patternsForAnswer(a);
       if (!patterns.length || patterns.every((p) => !questionWords(p).length)) return { a, score: 0.78 };
@@ -137,10 +164,13 @@ export function approvedFor(answers: ApprovedAnswer[], f: Pick<FormFieldDescript
     })
     .filter((x) => x.score >= MATCH_THRESHOLD)
     .sort((x, y) => y.score - x.score || (y.a.useCount ?? 0) - (x.a.useCount ?? 0));
-  if (ranked[0]) return ranked[0].a.answer;
-  const categoryOnly = answers.filter((a) => a.category === category && answerFitsField(a, f));
-  if (categoryOnly.length === 1) return categoryOnly[0]!.answer;
+  if (ranked[0]) return { answer: ranked[0].a.answer, kind: 'similar' };
+  if (fitting.length === 1) return { answer: fitting[0]!.answer, kind: 'category' };
   return null;
+}
+
+export function approvedFor(answers: ApprovedAnswer[], f: Pick<FormFieldDescriptor, 'label' | 'context' | 'sensitive' | 'options' | 'control'>): string | null {
+  return matchApproved(answers, f)?.answer ?? null;
 }
 
 export function rememberAnswer(
@@ -220,12 +250,19 @@ export function proposeFieldValues(fields: FormFieldDescriptor[], ctx: MapperCon
       status: 'pending',
       options: f.options.length ? f.options : undefined,
     };
+    const exactValue = !f.currentValue && f.sensitive !== 'legal_consent' ? ctx.exactAnswers?.[f.fieldId]?.trim() : '';
+    if (exactValue) {
+      return { ...base, action: 'answer', proposedValue: exactValue, approvedSuggestion: exactValue, source: 'Your verified answer', confidence: 'high', reason: 'This question matches a verified answer exactly.' };
+    }
     const saved = (): FieldProposal | null => {
       if (!ctx.useSavedAnswers || f.currentValue || f.sensitive === 'legal_consent') return null;
-      const ans = approvedFor(p.approvedAnswers, f);
-      if (!ans) return null;
-      const value = f.options.length && (f.control === 'radio' || f.control === 'select' || f.control === 'combobox') ? matchOption(f.options, ans) : ans;
-      return value ? { ...base, action: 'answer', proposedValue: value, approvedSuggestion: ans, source: 'Your saved answer', confidence: 'high', reason: 'You saved this answer earlier.' } : null;
+      const hit = matchApproved(p.approvedAnswers, f);
+      if (!hit) return null;
+      if (hit.kind !== 'exact' && looseMatchAsks(f)) return null;
+      const value = f.options.length && (f.control === 'radio' || f.control === 'select' || f.control === 'combobox') ? matchOption(f.options, hit.answer) : hit.answer;
+      if (!value) return null;
+      if (hit.kind === 'exact') return { ...base, action: 'answer', proposedValue: value, approvedSuggestion: hit.answer, source: 'Your saved answer', confidence: 'high', reason: 'You saved this answer earlier.' };
+      return { ...base, action: 'answer', proposedValue: value, approvedSuggestion: hit.answer, source: 'Similar saved answer', confidence: 'low', needsReview: true, reason: 'The wording is similar to an answer you saved. Check it before you submit.' };
     };
 
     if (f.sensitive) {

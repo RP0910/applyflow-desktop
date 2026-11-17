@@ -1,5 +1,5 @@
 import { BrowserWindow, shell, WebContentsView } from 'electron';
-import type { BrowserTab, BrowserTabsState } from '../src/platform/bridge';
+import type { BrowserTab, BrowserTabsState } from '../../src/platform/bridge';
 import { electronSurface, type BrowserSurface } from './browserSurface';
 import type { PageController } from './pageController';
 import { CHALLENGE_LOOP_COUNT, CHALLENGE_LOOP_WINDOW_MS, CHALLENGE_STUCK_MS, isNavigable, LoopDetector, normalizeAddress, webSearch } from './browserPolicy';
