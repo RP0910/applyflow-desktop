@@ -66,8 +66,13 @@
     '<form id="application-form" class="application--form" novalidate>' +
       text('first_name', 'First Name', 'text', true) + text('last_name', 'Last Name', 'text', true) + text('preferred_name', 'Preferred First Name', 'text', false) +
       text('email', 'Email', 'email', true) +
+      // Live Greenhouse wraps Country + Phone in fieldset.phone-input and embeds intl-tel-input's
+      // type=search country filter. That must NOT make isPageChrome treat the whole form as site chrome.
+      '<fieldset class="phone-input"><legend class="visually-hidden">Phone</legend>' +
       combo('country', 'Country', ['United States', 'Canada', 'Mexico', 'United Kingdom', 'India'], { required: true }) +
+      '<input type="search" class="iti__search-input" id="iti-0__search-input" aria-label="Search" style="display:none" tabindex="-1">' +
       text('phone', 'Phone', 'tel', true) +
+      '</fieldset>' +
       combo('candidate-location', 'Location (City)', CITIES, { required: true, async: true }) +
       upload('resume', 'Resume/CV', true) + upload('cover_letter', 'Cover Letter', false) +
       text('question_30001', 'LinkedIn Profile', 'text', false) +
@@ -138,6 +143,11 @@
     control.addEventListener('mousedown', function (e) { if (menu) close(); else open(); });
     input.addEventListener('keydown', function (e) {
       if (e.key === 'ArrowDown' && !menu) open();
+      if (e.key === 'Enter' && menu) {
+        var focused = menu.querySelector('.select__option--is-focused') || menu.querySelector('[role=option]');
+        if (focused) focused.click();
+        e.preventDefault();
+      }
       if (e.key === 'Escape') close();
     });
     input.addEventListener('input', function () { open(); });

@@ -26,6 +26,7 @@ import { controlLabel, visibleText } from '@/services/platforms/dom';
 import { peekPageCompany } from '@/services/platforms/pageSignals';
 import { isJobBoardSyndicationUrl, shouldAvoidDirectNavigate, syndicationBoardName } from '@/services/platforms/applyDestination';
 import { FIELD_ATTR, answerFieldAsync, fillFieldsAsync, highlightField, probeComboboxes, scanFields } from '@/services/forms/domFields';
+import { answerGreenhouseField, fillGreenhouseFields } from '@/services/platforms/ats/greenhouseFill';
 import { fieldRejected } from '@/services/applymind/capture';
 import { capturePageSnapshot } from '@/services/forms/pageSnapshot';
 import { emptyWatch, noteBaseline, noteFiller, noteTrusted, snapshot, type FieldWatch } from '@/services/forms/fieldWatch';
@@ -509,16 +510,20 @@ export function createContentController(env: ControllerEnv) {
       }
       case 'AF_SCAN_FIELDS':
         return scanAsync() as Promise<ContentResponseMap[K]>;
-      case 'AF_FILL_FIELDS':
-        return fillFieldsAsync(env.doc, m.instructions, sleep).then((results) => {
+      case 'AF_FILL_FIELDS': {
+        const fill = adapterForUrl(env.url())?.id === 'greenhouse' ? fillGreenhouseFields : fillFieldsAsync;
+        return fill(env.doc, m.instructions, sleep).then((results) => {
           for (const r of results) if (r.ok && r.finalValue != null) noteFiller(watch, r.fieldId, r.finalValue);
           return { ok: true, results };
         }) as Promise<ContentResponseMap[K]>;
-      case 'AF_ANSWER_FIELD':
-        return answerFieldAsync(env.doc, m.fieldId, m.value, sleep).then((r) => {
+      }
+      case 'AF_ANSWER_FIELD': {
+        const answer = adapterForUrl(env.url())?.id === 'greenhouse' ? answerGreenhouseField : answerFieldAsync;
+        return answer(env.doc, m.fieldId, m.value, sleep).then((r) => {
           if (r.ok && r.finalValue != null) noteFiller(watch, r.fieldId, r.finalValue);
           return r;
         }) as Promise<ContentResponseMap[K]>;
+      }
       case 'AF_READ_CAPTURE':
         return (watch.pending ? { stepKey: watch.pending.stepKey, fields: watch.pending.fields } : null) as ContentResponseMap[K];
       case 'AF_CLEAR_CAPTURE':

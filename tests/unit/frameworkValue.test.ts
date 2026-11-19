@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { answerField, fillFields, pageAccepted, scanFields, setNativeValue } from '@/services/forms/domFields';
+import { answerField, fillFields, fillFieldsAsync, pageAccepted, scanFields, setNativeValue } from '@/services/forms/domFields';
 
 /** A stand-in for a framework that ignores a value assignment once its tracker already matches. */
 function installModel(el: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement): void {
@@ -110,5 +110,33 @@ describe('framework-controlled values', () => {
     const filled = fillFields(document, [{ fieldId: gender!.fieldId, kind: 'value', value: 'Decline to self-identify' }]);
     expect(filled[0]).toMatchObject({ ok: true, finalValue: 'Decline to self-identify' });
     expect(document.querySelector('button')!.textContent).toBe('Decline to self-identify');
+  });
+
+  it('chooses the full address suggestion for a street, not an exact option match', async () => {
+    document.body.innerHTML = '<div class="select"><input id="addr" role="combobox" data-applyflow-field="street" autocomplete="street-address"><input type="hidden" value=""></div>';
+    const input = document.getElementById('addr') as HTMLInputElement;
+    const hidden = document.querySelector('input[type="hidden"]') as HTMLInputElement;
+    const suggestion = '7109 Meadowlawn Dr N, St. Petersburg, FL, USA';
+    input.addEventListener('input', () => {
+      if (document.getElementById('addr-list')) return;
+      const menu = document.createElement('div');
+      menu.id = 'addr-list';
+      menu.setAttribute('role', 'listbox');
+      menu.innerHTML = `<div role="option">${suggestion}</div>`;
+      document.body.appendChild(menu);
+      input.setAttribute('aria-controls', 'addr-list');
+    });
+    document.body.addEventListener('click', (ev) => {
+      const option = (ev.target as Element).closest('[role="option"]');
+      if (!option) return;
+      hidden.value = option.textContent ?? '';
+      const shown = document.createElement('div');
+      shown.className = 'select__single-value';
+      shown.textContent = option.textContent;
+      input.parentElement!.appendChild(shown);
+    });
+    const [result] = await fillFieldsAsync(document, [{ fieldId: 'street', kind: 'value', value: '7109 MEADOWLAWN DR N', suggest: true }], async () => undefined);
+    expect(result).toMatchObject({ ok: true });
+    expect(hidden.value).toBe(suggestion);
   });
 });

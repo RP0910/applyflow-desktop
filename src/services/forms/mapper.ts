@@ -39,7 +39,7 @@ const SEMANTIC_RULES: { semantic: FieldSemantic; re: RegExp; controls?: FormFiel
   { semantic: 'portfolio', re: /portfolio|personal (?:site|website)/i, controls: ['text', 'email', 'tel', 'url', 'other'] },
   { semantic: 'website', re: /website|\burl\b|homepage/i, controls: ['text', 'email', 'tel', 'url', 'other'] },
   { semantic: 'address_line2', re: /address\s*(line)?\s*2\b|apt\.?\s*#?|apartment|suite|unit\b|#\s*\w/i, controls: ['text', 'textarea', 'other'] },
-  { semantic: 'street', re: /address\s*(line)?\s*1\b|^street\b|street address|mailing address|home address|^address$/i, controls: ['text', 'textarea', 'other'] },
+  { semantic: 'street', re: /address\s*(line)?\s*1\b|^street\b|street\s*address|mailing address|home address|residential address|physical address|permanent address|(?:^|\b)your address\b|^address(?:\s*\((?:required|optional)\))?$/i, controls: ['text', 'textarea', 'combobox', 'other'] },
   { semantic: 'city', re: /^city\b|town\/?city|municipality/i },
   { semantic: 'state', re: /^(state|province|region)\b|state\/province|state or province/i, controls: ['select', 'combobox', 'text', 'other'] },
   { semantic: 'postal_code', re: /postal|zip\s*code|zip\/postal|post\s*code|\bzip\b/i, controls: ['text', 'number', 'other'] },
@@ -53,13 +53,16 @@ const SEMANTIC_RULES: { semantic: FieldSemantic; re: RegExp; controls?: FormFiel
 const SOMEONE_ELSE = /\b(refer(?:r(?:al|er|ed)|ence)s?|referred by|emergency|manager|supervisor|recruiter|hiring|contact person|parent|guardian|spouse|partner|friend|employee who|who referred)\b/i;
 const CONTACT_SEMANTICS = new Set<FieldSemantic>(['first_name', 'last_name', 'full_name', 'email', 'phone', 'linkedin', 'github', 'portfolio', 'website', 'location', 'street', 'address_line2', 'city', 'state', 'postal_code', 'country']);
 
-export function semanticOf(f: Pick<FormFieldDescriptor, 'label' | 'name' | 'control'>): FieldSemantic {
+export function semanticOf(f: Pick<FormFieldDescriptor, 'label' | 'name' | 'control'> & { autocomplete?: string }): FieldSemantic {
   const s = semanticOfRaw(f);
   return CONTACT_SEMANTICS.has(s) && SOMEONE_ELSE.test(f.label) ? 'unknown' : s;
 }
 
-function semanticOfRaw(f: Pick<FormFieldDescriptor, 'label' | 'name' | 'control'>): FieldSemantic {
+function semanticOfRaw(f: Pick<FormFieldDescriptor, 'label' | 'name' | 'control'> & { autocomplete?: string }): FieldSemantic {
   const hay = `${f.label} ${f.name}`;
+  const auto = `${f.autocomplete ?? ''} ${f.name}`;
+  if (/\b(street-address|address-line1|address[_-]?line[_-]?1|street[_-]?address)\b/i.test(auto) && !/\bemail\b/i.test(f.label)) return 'street';
+  if (/\b(address-line2|address[_-]?line[_-]?2)\b/i.test(auto)) return 'address_line2';
   if (f.control === 'textarea' && f.name === 'comments') return 'cover_letter_text';
   for (const r of SEMANTIC_RULES) {
     if (r.controls && !r.controls.includes(f.control)) continue;
@@ -326,8 +329,12 @@ export function proposeFieldValues(fields: FormFieldDescriptor[], ctx: MapperCon
       if (!value) return { ...base, action: 'manual', reason: `No value saved for ${source.split('→').pop()?.trim() ?? 'this field'}. Add it to your profile or type it on the page.`, source };
       if (f.control === 'combobox' && f.options.length) {
         const opt = matchOption(f.options, value);
-        if (!opt) return { ...base, action: 'manual', reason: `None of the options match “${truncate(value, 40)}”.`, source };
-        return { ...base, action: 'fill', proposedValue: opt, source, confidence: 'medium' };
+        if (opt) return { ...base, action: 'fill', proposedValue: opt, source, confidence: 'medium' };
+        // Street and location typeaheads list full addresses only after typing. Keep the profile value and let the page suggest.
+        if (base.semantic === 'street' || base.semantic === 'location' || base.semantic === 'city') {
+          return { ...base, action: 'fill', proposedValue: value, source, confidence };
+        }
+        return { ...base, action: 'manual', reason: `None of the options match “${truncate(value, 40)}”.`, source };
       }
       if (f.control === 'select') {
         const opt = matchOption(f.options, value);

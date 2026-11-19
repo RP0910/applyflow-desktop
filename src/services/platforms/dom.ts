@@ -56,6 +56,22 @@ export function controlLabel(el: HTMLElement): string {
   return (el.getAttribute('aria-label') || el.textContent || (el as HTMLInputElement).value || '').replace(/\s+/g, ' ').trim();
 }
 
+/**
+ * A real site-search form. An application form that only embeds a search widget
+ * (Greenhouse phone-country filter, a location typeahead) is not one of these.
+ */
+function isSiteSearchForm(form: Element): boolean {
+  if (form.getAttribute('role') === 'search') return true;
+  const hasSearch = Boolean(form.querySelector('input[type="search"], input[name="q"], input[name="query"], input[name="keyword"]'));
+  if (!hasSearch) return false;
+  const appSignals = form.querySelectorAll(
+    'input[type="file"], input[type="email"], input[type="tel"], textarea, select, [aria-required="true"], input[id="first_name"], input[id="last_name"], input[name*="email" i]',
+  );
+  if (appSignals.length >= 2) return false;
+  const fields = form.querySelectorAll('input:not([type="hidden"]):not([type="submit"]):not([type="button"]), textarea, select');
+  return fields.length <= 3;
+}
+
 export function isPageChrome(el: Element): boolean {
   if (el.closest('nav, [role="navigation"], [role="search"], [role="banner"], [role="contentinfo"], form[role="search"]')) return true;
   const hf = el.closest('header, footer');
@@ -68,9 +84,10 @@ export function isPageChrome(el: Element): boolean {
   ) {
     return true;
   }
+  // The search box itself is never an application field. Sibling fields on an apply form still are.
   if ((el as HTMLInputElement).type === 'search') return true;
   const form = el.closest('form');
-  return Boolean(form && form.querySelector('input[type="search"], input[name="q"], input[name="query"], input[name="keyword"]'));
+  return Boolean(form && isSiteSearchForm(form));
 }
 
 export function visibleText(el: Element | null | undefined, max = 4000): string {

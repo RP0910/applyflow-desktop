@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { countryOf, semanticOf } from '@/services/forms/mapper';
+import { countryOf, proposeFieldValues, semanticOf } from '@/services/forms/mapper';
+import { EMPTY_PROFILE } from '@/storage/repositories';
 import { appliedConfirmDialog, confirmAppliedControl, dialogChoice, isJobrightListUrl, jobrightJobId } from '@/services/platforms/jobright/adapter';
 import { jobrightApplyBody, jobrightApplyScript, postJobrightApplied, readJobrightApplyResult } from '@/services/platforms/jobright/markApplied';
 import { createContentController } from '@/content/controller';
@@ -32,6 +33,22 @@ describe('profile → form values', () => {
     expect(semanticOf({ label: 'City', name: '', control: 'text' })).toBe('city');
     expect(semanticOf({ label: 'State', name: '', control: 'select' })).toBe('state');
     expect(semanticOf({ label: 'Postal Code', name: '', control: 'text' })).toBe('postal_code');
+  });
+  it('maps the street address labels and autocomplete tokens forms actually use', () => {
+    expect(semanticOf({ label: 'Street address', name: '', control: 'text' })).toBe('street');
+    expect(semanticOf({ label: 'Address', name: '', control: 'combobox' })).toBe('street');
+    expect(semanticOf({ label: 'What is your address?', name: '', control: 'text' })).toBe('street');
+    expect(semanticOf({ label: 'Residential address', name: '', control: 'text' })).toBe('street');
+    expect(semanticOf({ label: 'Search', name: 'question_9', control: 'combobox', autocomplete: 'street-address' })).toBe('street');
+    expect(semanticOf({ label: 'Email address', name: '', control: 'text' })).toBe('email');
+    expect(semanticOf({ label: 'Referrer street address', name: '', control: 'text' })).toBe('unknown');
+  });
+  it('types the profile street into an address dropdown that does not already list it', () => {
+    const [proposal] = proposeFieldValues(
+      [{ fieldId: 's', label: 'Address', context: '', control: 'combobox', name: '', required: true, options: ['Start typing'], currentValue: '', accept: '', sensitive: null }],
+      { profile: { ...EMPTY_PROFILE, streetAddress: '7109 MEADOWLAWN DR N' }, resume: null, coverLetter: null, includeCoverLetter: false, resumeFileName: null, coverLetterFileName: null },
+    );
+    expect(proposal).toMatchObject({ action: 'fill', semantic: 'street', proposedValue: '7109 MEADOWLAWN DR N' });
   });
 });
 

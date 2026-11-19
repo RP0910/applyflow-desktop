@@ -35,6 +35,22 @@ describe('finding the application on Dice', () => {
     expect(wizardStep(doc)).toEqual({ current: 1, total: 3 });
   });
 
+  it('does not treat an ATS application form as chrome when it embeds a type=search widget', () => {
+    const doc = document.implementation.createHTMLDocument('gh');
+    doc.body.innerHTML =
+      '<form id="application-form" class="application--form">' +
+      '<input id="first_name" aria-required="true"><input id="email" type="email" aria-required="true">' +
+      '<fieldset class="phone-input"><input id="country" role="combobox"><input type="search" class="iti__search-input" aria-label="Search">' +
+      '<input id="phone" type="tel" aria-required="true"></fieldset>' +
+      '<input id="resume" type="file"><button type="submit">Submit application</button></form>' +
+      '<form role="search"><input name="q" type="search"><button>Search jobs</button></form>';
+    expect(isPageChrome(doc.querySelector('#application-form')!)).toBe(false);
+    expect(isPageChrome(doc.querySelector('#first_name')!)).toBe(false);
+    expect(isPageChrome(doc.querySelector('input.iti__search-input')!)).toBe(true);
+    expect(isPageChrome(doc.querySelector('form[role=search]')!)).toBe(true);
+    expect(isPageChrome(doc.querySelector('input[name=q]')!)).toBe(true);
+  });
+
   it('does not treat a job page with a carousel "Next" and an alert sign-up as an application', () => {
     const doc = document.implementation.createHTMLDocument('dice');
     doc.documentElement.innerHTML = fixture('job-detail-jsonld.html').replace(/^<!doctype html>/i, '');

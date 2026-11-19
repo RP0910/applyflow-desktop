@@ -32,9 +32,15 @@ export function peekPageCompany(doc: Document): string | null {
     if (m?.[1]?.trim()) return m[1]!.trim();
   }
 
+  // Greenhouse job-board titles: "Job Application for {role} at {company}"
+  const fromTitle = doc.title.match(/^Job Application for .+ at (.+)$/i)?.[1]?.trim();
+  if (fromTitle && !/^greenhouse$/i.test(fromTitle)) return fromTitle;
+
   const meta =
     doc.querySelector('meta[property="og:site_name"]')?.getAttribute('content')?.trim() ||
     doc.querySelector('meta[name="author"]')?.getAttribute('content')?.trim() ||
     null;
-  return meta || null;
+  // og:site_name is often "Greenhouse" on hosted boards — not the employer.
+  if (meta && !/^greenhouse$/i.test(meta)) return meta;
+  return null;
 }

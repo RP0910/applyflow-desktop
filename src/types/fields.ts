@@ -8,6 +8,8 @@ export interface FormFieldDescriptor {
   context: string;
   control: FieldControl;
   name: string;
+  /** Browser autocomplete token, when the control has one (street-address, address-line1, …). */
+  autocomplete?: string;
   required: boolean;
   options: string[];
   currentValue: string;

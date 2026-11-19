@@ -655,7 +655,7 @@ export async function processStep(io: RunnerIO): Promise<'ready' | 'next' | 'mov
         fieldId: p.fieldId,
         kind: 'value',
         value: p.proposedValue,
-        suggest: p.semantic === 'location' || p.semantic === 'city' || p.semantic === 'state' || p.semantic === 'country' ? true : undefined,
+        suggest: p.semantic === 'location' || p.semantic === 'city' || p.semantic === 'state' || p.semantic === 'country' || p.semantic === 'street' ? true : undefined,
       });
     }
   }

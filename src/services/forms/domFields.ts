@@ -159,6 +159,7 @@ export function scanFields(root: ParentNode): FormFieldDescriptor[] {
       context,
       control,
       name: el.getAttribute('name') ?? '',
+      autocomplete: el.getAttribute('autocomplete') ?? '',
       required: isRequired(el, label, starred),
       options,
       currentValue,
@@ -290,8 +291,8 @@ function labelOfOption(r: HTMLInputElement): string {
 
 type Tracked = { _valueTracker?: { setValue: (value: string) => void } };
 
-/** Write a value the page's framework will treat as a real change, then blur. */
-export function setNativeValue(el: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement, value: string): void {
+/** Write a value the page's framework will treat as a real change. Blur commits plain fields; typeaheads stay focused so a suggestion can be chosen. */
+export function setNativeValue(el: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement, value: string, opts?: { blur?: boolean }): void {
   const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : el instanceof HTMLSelectElement ? HTMLSelectElement.prototype : HTMLInputElement.prototype;
   const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
   el.focus();
@@ -303,7 +304,7 @@ export function setNativeValue(el: HTMLInputElement | HTMLTextAreaElement | HTML
   const Input = view?.InputEvent ?? InputEvent;
   el.dispatchEvent(new Input('input', { bubbles: true, cancelable: true, inputType: 'insertText', data: value }));
   el.dispatchEvent(new Event('change', { bubbles: true }));
-  el.dispatchEvent(new Event('blur', { bubbles: true }));
+  if (opts?.blur !== false) el.dispatchEvent(new Event('blur', { bubbles: true }));
 }
 
 /** The page kept the value and did not mark the field invalid. */
@@ -373,7 +374,7 @@ export function fillFields(doc: Document, instructions: FillInstruction[]): Fill
         return { fieldId: ins.fieldId, ok: false, error: 'Checkboxes and choices are never set automatically.' };
       }
       if (!(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement)) return { fieldId: ins.fieldId, ok: false, error: 'This control cannot be filled automatically.' };
-      setNativeValue(el, value);
+      setNativeValue(el, value, { blur: !ins.suggest });
       const accepted = pageAccepted(el, value);
       if (!accepted.ok) return { fieldId: ins.fieldId, ok: false, error: accepted.error };
       return { fieldId: ins.fieldId, ok: el.value === value, finalValue: el.value, error: el.value === value ? undefined : 'The page changed the value after it was set.' };
@@ -531,7 +532,19 @@ function bestOption(opts: HTMLElement[], value: string, place: boolean): HTMLEle
     const score = [...want].filter((w) => have.has(w)).length - [...have].filter((w) => !want.has(w)).length * 0.25;
     if (!best || score > best.score) best = { o, score };
   }
-  return best?.o ?? null;
+  if (best) return best.o;
+  if (!place) return null;
+  // "7109 Meadowlawn Dr N" against "7109 Meadowlawn Dr N, St. Petersburg, FL, USA"
+  const num = value.match(/\d+/)?.[0];
+  if (!num) return null;
+  const skip = new Set(['st', 'dr', 'rd', 'ave', 'ln', 'ct', 'blvd', 'street', 'drive', 'road', 'avenue', 'lane', 'court', 'north', 'south', 'east', 'west']);
+  const words = value.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length > 3 && !skip.has(w) && !/^\d+$/.test(w));
+  return (
+    opts.find((o) => {
+      const t = textOf(o).toLowerCase();
+      return t.includes(num) && (words.length === 0 || words.some((w) => t.includes(w)));
+    }) ?? null
+  );
 }
 
 function choose(opt: HTMLElement): void {

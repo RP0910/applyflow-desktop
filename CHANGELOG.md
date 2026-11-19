@@ -1,3 +1,7 @@
+# 2.3.15
+
+Fixed: Greenhouse application forms are filled again, including the resume and cover letter. A phone-country search inside the form no longer hides the application. Greenhouse dropdowns that ignore a click are confirmed with Enter, and the phone country is set before the number. Street address fields — Address, Street address, “your address”, and address search boxes — are filled from Profile → Street address, and the suggested full address is chosen. Dice, Lever, and Ashby keep their existing fill path. See docs/releases/RELEASE-2.3.15.md.
+
 # 2.3.14
 
 Fixed: Jobright **Apply Now** cards are removed as the full list tile (no blank gap), and the filter re-runs while you scroll or infinite-load more results so newly appeared Apply Now jobs are hidden too. See docs/releases/RELEASE-2.3.14.md.
